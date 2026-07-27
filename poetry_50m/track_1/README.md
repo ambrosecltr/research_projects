@@ -54,6 +54,41 @@ buckets at 95% of the stated Cerebras limits by default. Inspect the acceptance
 ledger and a representative sample before calculating or approving the full
 request count.
 
+For a better model served by an OpenAI-compatible endpoint, skip the paid
+critic pass but retain all deterministic local quality gates. The base URL must
+be the API root ending in `/v1`:
+
+```sh
+export SYNTH_API_KEY="..."
+SYNTH_BASE_URL="https://provider.example/v1"
+SYNTH_MODEL="provider/model-name"
+SMOKE="runs/synthetic-openai-smoke-$(date +%Y%m%d-%H%M%S)"
+
+uv run python scripts/generate_synthetic_corpus.py plan-generation \
+  --config configs/data/synthetic_cerebras_8m_v1.json \
+  --requests 2 --output "$SMOKE" \
+  --model "$SYNTH_MODEL" --openai-compatible
+uv run python scripts/generate_synthetic_corpus.py run-openai-compatible \
+  --requests "$SMOKE/generation.requests.jsonl" \
+  --results "$SMOKE/generation.results.jsonl" \
+  --base-url "$SYNTH_BASE_URL" --api-key-env SYNTH_API_KEY \
+  --concurrency 2 --requests-per-minute 60 --tokens-per-minute 100000
+uv run python scripts/generate_synthetic_corpus.py ingest-generation \
+  --config configs/data/synthetic_cerebras_8m_v1.json \
+  --requests "$SMOKE/generation.requests.jsonl" \
+  --results "$SMOKE/generation.results.jsonl" \
+  --output "$SMOKE" --skip-critic
+uv run python scripts/generate_synthetic_corpus.py finalize-local \
+  --config configs/data/synthetic_cerebras_8m_v1.json \
+  --candidates "$SMOKE/candidates.jsonl" \
+  --output "$SMOKE/corpus"
+```
+
+If the endpoint uses the legacy completion-token field, add
+`--max-tokens-field max_tokens` to `plan-generation`. If it does not implement
+strict JSON Schema output, add `--response-format json-object` or, as a last
+resort, `--response-format none`. The prompt still requires a JSON object.
+
 Acquire and build the pinned knowledge sources, then merge them with an
 approved synthetic corpus:
 

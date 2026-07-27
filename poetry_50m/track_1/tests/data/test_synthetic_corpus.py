@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,7 @@ from poetry50m.data.synthetic_corpus import (
     ingest_generation_results,
     merge_corpus_artifacts,
     plan_generation,
+    run_openai_compatible_batch,
 )
 
 
@@ -136,6 +138,98 @@ def test_plan_assigns_diverse_lanes_and_strict_schemas(tmp_path: Path) -> None:
     )
 
 
+def test_plan_supports_openai_compatible_request_shapes(tmp_path: Path) -> None:
+    requests_path, plan_path = plan_generation(
+        config_path(),
+        request_count=1,
+        output_directory=tmp_path,
+        model_override="provider/good-model",
+        openai_compatible=True,
+        response_format_mode="json-object",
+        max_tokens_field="max_tokens",
+    )
+
+    request = json.loads(requests_path.read_text().splitlines()[0])
+    body = request["body"]
+    assert body["model"] == "provider/good-model"
+    assert body["max_tokens"] == 4096
+    assert "max_completion_tokens" not in body
+    assert "reasoning_effort" not in body
+    assert "seed" not in body
+    assert body["response_format"] == {"type": "json_object"}
+
+    plan = json.loads(plan_path.read_text())
+    assert plan["openai_compatible"] is True
+    assert plan["response_format_mode"] == "json-object"
+    assert plan["max_tokens_field"] == "max_tokens"
+
+
+def test_openai_compatible_runner_posts_and_preserves_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    requests_path, _ = plan_generation(
+        config_path(),
+        request_count=1,
+        output_directory=tmp_path / "plan",
+        model_override="provider/good-model",
+        openai_compatible=True,
+    )
+    results_path = tmp_path / "generation.results.jsonl"
+    captured: dict[str, object] = {}
+
+    class FakeResponse:
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        @staticmethod
+        def getcode() -> int:
+            return 200
+
+        @staticmethod
+        def read() -> bytes:
+            return json.dumps(
+                {
+                    "choices": [{"message": {"content": '{"examples":[]}'}}],
+                    "usage": {"total_tokens": 10},
+                }
+            ).encode()
+
+    def fake_urlopen(request: urllib.request.Request, *, timeout: float) -> FakeResponse:
+        captured["url"] = request.full_url
+        captured["authorization"] = request.get_header("Authorization")
+        captured["body"] = json.loads(request.data)
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setenv("SYNTH_API_KEY", "test-secret")
+    monkeypatch.setattr(
+        "poetry50m.data.synthetic_corpus.urllib.request.urlopen",
+        fake_urlopen,
+    )
+
+    run_openai_compatible_batch(
+        requests_path,
+        results_path,
+        base_url="https://example.test/v1/",
+        api_key_environment_variable="SYNTH_API_KEY",
+        concurrency=1,
+        requests_per_minute=1,
+        tokens_per_minute=10_000,
+        timeout_seconds=42.0,
+    )
+
+    result = json.loads(results_path.read_text().splitlines()[0])
+    assert result["custom_id"] == "poetry-synthetic-00000000"
+    assert result["response"]["status_code"] == 200
+    assert captured["url"] == "https://example.test/v1/chat/completions"
+    assert captured["authorization"] == "Bearer test-secret"
+    assert captured["body"]["model"] == "provider/good-model"
+    assert captured["timeout"] == 42.0
+
+
 def test_ingest_and_finalize_write_synthetic_corpus_contracts(tmp_path: Path) -> None:
     requests_path, _ = plan_generation(
         config_path(), request_count=1, output_directory=tmp_path / "plan"
@@ -209,6 +303,64 @@ def test_ingest_and_finalize_write_synthetic_corpus_contracts(tmp_path: Path) ->
         "prompts": 12,
         "thoughts": 0,
     }
+
+
+def test_ingest_and_finalize_without_critic_uses_local_gates(tmp_path: Path) -> None:
+    requests_path, _ = plan_generation(
+        config_path(),
+        request_count=1,
+        output_directory=tmp_path / "plan",
+        model_override="provider/good-model",
+        openai_compatible=True,
+    )
+    generation_results = tmp_path / "generation.results.jsonl"
+    write_jsonl(
+        generation_results,
+        [
+            completion_result(
+                "poetry-synthetic-00000000",
+                {"examples": [candidate(index) for index in range(4)]},
+            )
+        ],
+    )
+    candidates_path, critic_requests_path = ingest_generation_results(
+        config_path(),
+        requests_path=requests_path,
+        results_path=generation_results,
+        output_directory=tmp_path / "ingested",
+        create_critic_requests=False,
+    )
+
+    assert critic_requests_path.read_text() == ""
+    ingest_receipt = json.loads(
+        (tmp_path / "ingested" / "generation.ingest.receipt.json").read_text()
+    )
+    assert ingest_receipt["critic_requests_enabled"] is False
+
+    receipt_path = finalize_synthetic_corpus(
+        config_path(),
+        candidates_path=candidates_path,
+        critic_results_path=None,
+        output_directory=tmp_path / "corpus",
+    )
+
+    receipt = json.loads(receipt_path.read_text())
+    quality = [
+        json.loads(line)
+        for line in (tmp_path / "corpus" / "quality.jsonl").read_text().splitlines()
+    ]
+    documents = tuple(iter_manifest(tmp_path / "corpus" / "manifest.jsonl", allow_synthetic=True))
+    assert receipt["accepted_count"] == 4
+    assert receipt["critic_enabled"] is False
+    assert receipt["critic_results_sha256"] is None
+    assert receipt["critic_usage"] is None
+    assert all(row["critic"] is None for row in quality)
+    assert all("critic_model" not in document.metadata for document in documents)
+    assert all(
+        document.transformation_lineage
+        == ("openai_compatible_json_generation", "local_quality_gates")
+        for document in documents
+    )
 
 
 def test_ingest_preserves_valid_candidates_and_receipts_malformed_results(

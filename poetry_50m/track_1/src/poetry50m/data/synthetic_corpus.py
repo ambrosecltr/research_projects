@@ -1,12 +1,14 @@
-"""Resumable Cerebras GPT-OSS generation and critique for an auditable corpus."""
+"""Resumable synthetic generation through Cerebras or OpenAI-compatible APIs."""
 
 from __future__ import annotations
 
 import json
 import os
 import re
+import urllib.error
+import urllib.request
 from collections import Counter
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from hashlib import sha256
@@ -32,9 +34,10 @@ from .artifacts import (
 from .loaders import iter_manifest, write_manifest
 from .schema import ContentBlock, PromptMethod, PromptRecord, Provenance, SourceDocument
 
-GeneratorModel = Literal["gpt-oss-120b"]
+GeneratorModel = str
 ReasoningEffort = Literal["low", "medium", "high"]
 Decision = Literal["accept", "reject"]
+ResponseFormat = Literal["json-schema", "json-object", "none"]
 
 WORD = re.compile(r"[\w']+", re.UNICODE)
 GENERATION_LANES = (
@@ -328,8 +331,6 @@ class GeneratorLane:
             required={"model", "weight", "temperature", "reasoning_effort"},
         )
         model = _required_string(data["model"], name="generator model")
-        if model != "gpt-oss-120b":
-            raise ValueError(f"unsupported generator model {model}")
         effort = _required_string(data["reasoning_effort"], name="reasoning effort")
         if effort not in {"low", "medium", "high"}:
             raise ValueError(f"unsupported reasoning effort {effort}")
@@ -337,7 +338,7 @@ class GeneratorLane:
         if not 0.0 < temperature <= 2.0:
             raise ValueError("temperature must be in (0, 2]")
         return cls(
-            cast(GeneratorModel, model),
+            model,
             _required_integer(data["weight"], name="generator weight"),
             temperature,
             cast(ReasoningEffort, effort),
@@ -470,8 +471,6 @@ class SyntheticCorpusConfig:
         if not lanes:
             raise ValueError("generator_lanes must not be empty")
         critic_model = _required_string(data["critic_model"], name="critic_model")
-        if critic_model != "gpt-oss-120b":
-            raise ValueError(f"unsupported critic model {critic_model}")
         critic_effort = _required_string(
             data["critic_reasoning_effort"], name="critic_reasoning_effort"
         )
@@ -483,7 +482,7 @@ class SyntheticCorpusConfig:
             seed,
             _required_integer(data["examples_per_request"], name="examples_per_request"),
             lanes,
-            cast(GeneratorModel, critic_model),
+            critic_model,
             cast(ReasoningEffort, critic_effort),
             _required_integer(data["max_completion_tokens"], name="max_completion_tokens"),
             QualityConfig.from_mapping(data["quality"]),
@@ -584,15 +583,13 @@ class SyntheticCandidate:
             },
         )
         model = _required_string(data["generator_model"], name="generator_model")
-        if model != "gpt-oss-120b":
-            raise ValueError(f"unsupported stored generator model {model}")
         prompts_value = data["prompts"]
         if not isinstance(prompts_value, list):
             raise TypeError("stored candidate prompts must be an array")
         return cls(
             _required_string(data["candidate_id"], name="candidate_id"),
             _required_string(data["request_id"], name="request_id"),
-            cast(GeneratorModel, model),
+            model,
             _required_string(data["title"], name="title"),
             tuple(CandidatePrompt.from_mapping(item) for item in prompts_value),
             _required_string(data["poem"], name="poem"),
@@ -776,21 +773,35 @@ def _generation_briefs(index: int, count: int, seed: int) -> tuple[dict[str, str
 
 
 def plan_generation(
-    config_path: Path, *, request_count: int, output_directory: Path
+    config_path: Path,
+    *,
+    request_count: int,
+    output_directory: Path,
+    model_override: str | None = None,
+    openai_compatible: bool = False,
+    response_format_mode: ResponseFormat = "json-schema",
+    max_tokens_field: Literal["max_completion_tokens", "max_tokens"] = "max_completion_tokens",
 ) -> tuple[Path, Path]:
     config = SyntheticCorpusConfig.load(config_path)
     if request_count < 1:
         raise ValueError("request_count must be positive")
+    if model_override is not None:
+        _required_string(model_override, name="model_override")
+    if response_format_mode not in {"json-schema", "json-object", "none"}:
+        raise ValueError(f"unsupported response format mode: {response_format_mode}")
+    if max_tokens_field not in {"max_completion_tokens", "max_tokens"}:
+        raise ValueError(f"unsupported max token field: {max_tokens_field}")
     requests: list[dict[str, object]] = []
     assignments: list[dict[str, object]] = []
     for index in range(request_count):
         lane = config.lane_for_request(index)
+        model = model_override or lane.model
         custom_id = f"poetry-synthetic-{index:08d}"
         diversity_lane = GENERATION_LANES[index % len(GENERATION_LANES)]
         diversity_seed = sha256(f"{config.seed}:{index}".encode()).hexdigest()
         briefs = _generation_briefs(index, config.examples_per_request, config.seed)
-        body = {
-            "model": lane.model,
+        body: dict[str, object] = {
+            "model": model,
             "messages": [
                 {"role": "system", "content": GENERATOR_SYSTEM_PROMPT},
                 {
@@ -804,19 +815,23 @@ def plan_generation(
                 },
             ],
             "temperature": lane.temperature,
-            "seed": config.seed + index,
-            "reasoning_effort": lane.reasoning_effort,
-            "max_completion_tokens": config.max_completion_tokens,
-            "response_format": _response_format(
+            max_tokens_field: config.max_completion_tokens,
+        }
+        if not openai_compatible:
+            body["seed"] = config.seed + index
+            body["reasoning_effort"] = lane.reasoning_effort
+        if response_format_mode == "json-schema":
+            body["response_format"] = _response_format(
                 "poetry_training_bundle",
                 _generation_schema(),
-            ),
-        }
+            )
+        elif response_format_mode == "json-object":
+            body["response_format"] = {"type": "json_object"}
         requests.append(_batch_request(custom_id, body))
         assignments.append(
             {
                 "custom_id": custom_id,
-                "model": lane.model,
+                "model": model,
                 "diversity_lane": diversity_lane,
                 "diversity_seed": diversity_seed,
                 "briefs": briefs,
@@ -835,6 +850,9 @@ def plan_generation(
             "config_sha256": file_hash(config_path),
             "request_count": request_count,
             "candidate_capacity": request_count * config.examples_per_request,
+            "openai_compatible": openai_compatible,
+            "response_format_mode": response_format_mode,
+            "max_tokens_field": max_tokens_field,
             "requests": str(requests_path),
             "requests_sha256": file_hash(requests_path),
             "assignments": assignments,
@@ -851,11 +869,9 @@ def _request_models(requests_path: Path) -> dict[str, GeneratorModel]:
         if not isinstance(body, dict):
             raise TypeError("batch request body must be an object")
         model = _required_string(body.get("model"), name="batch request model")
-        if model != "gpt-oss-120b":
-            raise ValueError(f"unsupported request model {model}")
         if custom_id in result:
             raise ValueError(f"duplicate custom_id {custom_id}")
-        result[custom_id] = cast(GeneratorModel, model)
+        result[custom_id] = model
     return result
 
 
@@ -916,6 +932,7 @@ def ingest_generation_results(
     requests_path: Path,
     results_path: Path,
     output_directory: Path,
+    create_critic_requests: bool = True,
 ) -> tuple[Path, Path]:
     config = SyntheticCorpusConfig.load(config_path)
     request_models = _request_models(requests_path)
@@ -979,37 +996,41 @@ def ingest_generation_results(
     if len({candidate.candidate_id for candidate in candidates}) != len(candidates):
         raise ValueError("generation produced duplicate candidate IDs")
 
-    critic_requests = [
-        _batch_request(
-            f"critic-{candidate.candidate_id}",
-            {
-                "model": config.critic_model,
-                "messages": [
-                    {"role": "system", "content": CRITIC_SYSTEM_PROMPT},
-                    {
-                        "role": "user",
-                        "content": _canonical_json(
-                            {
-                                "candidate_id": candidate.candidate_id,
-                                "title": candidate.title,
-                                "prompts": [asdict(prompt) for prompt in candidate.prompts],
-                                "poem": candidate.poem,
-                            }
-                        ),
-                    },
-                ],
-                "temperature": 0.2,
-                "seed": int(sha256(candidate.candidate_id.encode()).hexdigest()[:8], 16),
-                "reasoning_effort": config.critic_reasoning_effort,
-                "max_completion_tokens": 1024,
-                "response_format": _response_format(
-                    "poetry_training_critique",
-                    _critic_schema(),
-                ),
-            },
-        )
-        for candidate in candidates
-    ]
+    critic_requests = (
+        [
+            _batch_request(
+                f"critic-{candidate.candidate_id}",
+                {
+                    "model": config.critic_model,
+                    "messages": [
+                        {"role": "system", "content": CRITIC_SYSTEM_PROMPT},
+                        {
+                            "role": "user",
+                            "content": _canonical_json(
+                                {
+                                    "candidate_id": candidate.candidate_id,
+                                    "title": candidate.title,
+                                    "prompts": [asdict(prompt) for prompt in candidate.prompts],
+                                    "poem": candidate.poem,
+                                }
+                            ),
+                        },
+                    ],
+                    "temperature": 0.2,
+                    "seed": int(sha256(candidate.candidate_id.encode()).hexdigest()[:8], 16),
+                    "reasoning_effort": config.critic_reasoning_effort,
+                    "max_completion_tokens": 1024,
+                    "response_format": _response_format(
+                        "poetry_training_critique",
+                        _critic_schema(),
+                    ),
+                },
+            )
+            for candidate in candidates
+        ]
+        if create_critic_requests
+        else []
+    )
     output_directory.mkdir(parents=True, exist_ok=True)
     candidates_path = output_directory / "candidates.jsonl"
     critic_requests_path = output_directory / "critic.requests.jsonl"
@@ -1021,6 +1042,7 @@ def ingest_generation_results(
             "format_version": 1,
             "request_count": len(request_models),
             "candidate_count": len(candidates),
+            "critic_requests_enabled": create_critic_requests,
             "generation_result_rejections": generation_result_rejections,
             "candidate_rejections": candidate_rejections,
             "usage": _result_usage(generation_results),
@@ -1111,27 +1133,40 @@ def _critique_reasons(critique: Critique, config: QualityConfig) -> tuple[str, .
     return tuple(reasons)
 
 
-def _source_document(candidate: SyntheticCandidate, critique: Critique) -> SourceDocument:
+def _source_document(
+    candidate: SyntheticCandidate,
+    critique: Critique | None,
+    *,
+    critic_model: str | None,
+) -> SourceDocument:
     document_id = candidate.candidate_id
     poem_id = f"{document_id}:poem"
     block_id = f"{poem_id}:full"
-    critic_summary = _canonical_json(
+    critic_metadata = (
         {
-            "prompt_adherence": critique.prompt_adherence,
-            "coherence": critique.coherence,
-            "craft": critique.craft,
-            "originality": critique.originality,
+            "critic_summary": _canonical_json(
+                {
+                    "prompt_adherence": critique.prompt_adherence,
+                    "coherence": critique.coherence,
+                    "craft": critique.craft,
+                    "originality": critique.originality,
+                }
+            )
         }
+        if critique is not None
+        else {}
     )
     provenance = Provenance(
         work=candidate.title,
         author=candidate.generator_model,
         licence="synthetic-generated-output",
-        source="Cerebras GPT-OSS synthetic corpus pipeline",
+        source="OpenAI-compatible synthetic corpus pipeline",
         source_locator=candidate.request_id,
         rights_status="synthetic",
         rights_notes=(
-            f"Generated by {candidate.generator_model}; independently screened by GPT-OSS; "
+            f"Generated by {candidate.generator_model}; "
+            f"{'independently model-critiqued and ' if critique is not None else ''}"
+            "screened by deterministic local gates; "
             "synthetic status does not assert non-memorization or exclusive copyright."
         ),
     )
@@ -1145,11 +1180,11 @@ def _source_document(candidate: SyntheticCandidate, critique: Critique) -> Sourc
         end_char=len(candidate.poem),
         metadata={
             "generator_model": candidate.generator_model,
-            "critic_summary": critic_summary,
             "themes": _canonical_json(candidate.themes),
             "imagery": _canonical_json(candidate.imagery),
             "mood": candidate.mood,
             "form": candidate.form,
+            **critic_metadata,
         },
     )
     return SourceDocument(
@@ -1157,15 +1192,15 @@ def _source_document(candidate: SyntheticCandidate, critique: Critique) -> Sourc
         provenance=provenance,
         text=candidate.poem,
         blocks=(block,),
-        source_path=f"cerebras-request:{candidate.request_id}",
+        source_path=f"synthetic-request:{candidate.request_id}",
         raw_text=candidate.poem,
         metadata={
             "generator_model": candidate.generator_model,
-            "critic_model": "gpt-oss-120b",
+            **({"critic_model": critic_model} if critic_model is not None else {}),
         },
         transformation_lineage=(
-            "cerebras_strict_json_generation",
-            "independent_gpt_oss_critique",
+            "openai_compatible_json_generation",
+            *(("independent_model_critique",) if critique is not None else ()),
             "local_quality_gates",
         ),
     )
@@ -1175,7 +1210,7 @@ def finalize_synthetic_corpus(
     config_path: Path,
     *,
     candidates_path: Path,
-    critic_results_path: Path,
+    critic_results_path: Path | None,
     output_directory: Path,
     reference_manifest: Path | None = None,
 ) -> Path:
@@ -1187,7 +1222,7 @@ def finalize_synthetic_corpus(
     if len(candidates_by_id) != len(candidates):
         raise ValueError("candidate file contains duplicate IDs")
     critiques: dict[str, Critique] = {}
-    critic_results = _read_jsonl(critic_results_path)
+    critic_results = _read_jsonl(critic_results_path) if critic_results_path is not None else ()
     for result in critic_results:
         custom_id, content = _result_content(result)
         if not custom_id.startswith("critic-"):
@@ -1199,7 +1234,7 @@ def finalize_synthetic_corpus(
             raise ValueError(f"duplicate critique for {candidate_id}")
         critiques[candidate_id] = Critique.from_mapping(content, candidate_id=candidate_id)
     missing = set(candidates_by_id).difference(critiques)
-    if missing:
+    if critic_results_path is not None and missing:
         raise ValueError(f"critic results are missing candidates: {sorted(missing)}")
     reference_matches = (
         _reference_ngram_matches(
@@ -1216,11 +1251,10 @@ def finalize_synthetic_corpus(
     exact_poems: set[str] = set()
     accepted_ngrams: set[tuple[str, ...]] = set()
     for candidate in sorted(candidates, key=lambda item: item.candidate_id):
-        critique = critiques[candidate.candidate_id]
-        reasons = [
-            *_local_quality_reasons(candidate, config.quality),
-            *_critique_reasons(critique, config.quality),
-        ]
+        critique = critiques.get(candidate.candidate_id)
+        reasons = list(_local_quality_reasons(candidate, config.quality))
+        if critique is not None:
+            reasons.extend(_critique_reasons(critique, config.quality))
         normalised = " ".join(_words(candidate.poem))
         candidate_ngrams = _ngrams(_words(candidate.poem), config.quality.dedup_ngram_size)
         if normalised in exact_poems:
@@ -1239,12 +1273,17 @@ def finalize_synthetic_corpus(
                 "candidate_id": candidate.candidate_id,
                 "accepted": is_accepted,
                 "rejection_reasons": reasons,
-                "critic": asdict(critique),
+                "critic": asdict(critique) if critique is not None else None,
             }
         )
 
     documents = tuple(
-        _source_document(candidate, critiques[candidate.candidate_id]) for candidate in accepted
+        _source_document(
+            candidate,
+            critiques.get(candidate.candidate_id),
+            critic_model=config.critic_model if critic_results_path is not None else None,
+        )
+        for candidate in accepted
     )
     prompts = tuple(
         PromptRecord(
@@ -1276,14 +1315,19 @@ def finalize_synthetic_corpus(
             "format_version": 1,
             "config_sha256": file_hash(config_path),
             "candidates_sha256": file_hash(candidates_path),
-            "critic_results_sha256": file_hash(critic_results_path),
+            "critic_enabled": critic_results_path is not None,
+            "critic_results_sha256": (
+                file_hash(critic_results_path) if critic_results_path is not None else None
+            ),
             "reference_manifest_sha256": (
                 file_hash(reference_manifest) if reference_manifest is not None else None
             ),
             "candidate_count": len(candidates),
             "accepted_count": len(accepted),
             "rejected_count": len(candidates) - len(accepted),
-            "critic_usage": _result_usage(critic_results),
+            "critic_usage": _result_usage(critic_results)
+            if critic_results_path is not None
+            else None,
             "manifest_sha256": file_hash(manifest_path),
             "prompts_sha256": file_hash(prompts_path),
             "thoughts_sha256": file_hash(thoughts_path),
@@ -1409,9 +1453,10 @@ def _write_merged_manifest(output_path: Path, *, manifests: Sequence[Path]) -> t
 
 
 def _request_token_estimate(body: Mapping[str, object]) -> int:
+    maximum_value = body.get("max_completion_tokens", body.get("max_tokens"))
     maximum_completion = _required_integer(
-        body.get("max_completion_tokens"),
-        name="max_completion_tokens",
+        maximum_value,
+        name="maximum completion tokens",
     )
     input_bytes = len(_canonical_json(body).encode("utf-8"))
     conservative_input_tokens = (input_bytes + 2) // 3
@@ -1446,18 +1491,10 @@ def _sync_request(
     }
 
 
-def run_synchronous_batch(
+def _pending_requests(
     requests_path: Path,
     results_path: Path,
-    *,
-    concurrency: int = 8,
-    requests_per_minute: int = 950,
-    tokens_per_minute: int = 950_000,
-) -> None:
-    if concurrency < 1:
-        raise ValueError("concurrency must be positive")
-    if not os.environ.get("CEREBRAS_API_KEY"):
-        raise RuntimeError("CEREBRAS_API_KEY is required")
+) -> tuple[dict[str, object], ...]:
     requests = _read_jsonl(requests_path)
     request_ids = [
         _required_string(request.get("custom_id"), name="custom_id") for request in requests
@@ -1475,24 +1512,28 @@ def run_synchronous_batch(
     if unexpected_results:
         raise ValueError(f"existing results contain unknown IDs: {sorted(unexpected_results)}")
     completed = set(completed_ids)
-    pending = tuple(
+    return tuple(
         request
         for request in requests
         if _required_string(request.get("custom_id"), name="custom_id") not in completed
     )
-    limiter = DualTokenBucket(
-        requests_per_minute=requests_per_minute,
-        tokens_per_minute=tokens_per_minute,
-    )
-    client = Cerebras(max_retries=0, timeout=180.0)
+
+
+def _execute_pending_requests(
+    pending: Sequence[Mapping[str, object]],
+    results_path: Path,
+    *,
+    concurrency: int,
+    worker: Callable[[Mapping[str, object]], dict[str, object]],
+    provider_name: str,
+) -> None:
+    if concurrency < 1:
+        raise ValueError("concurrency must be positive")
     results_path.parent.mkdir(parents=True, exist_ok=True)
     failures: list[Exception] = []
     with results_path.open("a", encoding="utf-8", newline="\n") as handle:
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            futures = {
-                executor.submit(_sync_request, client, request, limiter): request
-                for request in pending
-            }
+            futures = {executor.submit(worker, request): request for request in pending}
             for future in as_completed(futures):
                 try:
                     result = future.result()
@@ -1504,5 +1545,125 @@ def run_synchronous_batch(
                 handle.flush()
     if failures:
         raise RuntimeError(
-            f"{len(failures)} Cerebras requests failed; successful results were preserved"
+            f"{len(failures)} {provider_name} requests failed; successful results were preserved"
         ) from failures[0]
+
+
+def run_synchronous_batch(
+    requests_path: Path,
+    results_path: Path,
+    *,
+    concurrency: int = 8,
+    requests_per_minute: int = 950,
+    tokens_per_minute: int = 950_000,
+) -> None:
+    if not os.environ.get("CEREBRAS_API_KEY"):
+        raise RuntimeError("CEREBRAS_API_KEY is required")
+    pending = _pending_requests(requests_path, results_path)
+    limiter = DualTokenBucket(
+        requests_per_minute=requests_per_minute,
+        tokens_per_minute=tokens_per_minute,
+    )
+    client = Cerebras(max_retries=0, timeout=180.0)
+
+    def worker(request: Mapping[str, object]) -> dict[str, object]:
+        return _sync_request(client, request, limiter)
+
+    _execute_pending_requests(
+        pending,
+        results_path,
+        concurrency=concurrency,
+        worker=worker,
+        provider_name="Cerebras",
+    )
+
+
+def _sync_openai_compatible_request(
+    *,
+    base_url: str,
+    api_key: str,
+    request: Mapping[str, object],
+    limiter: DualTokenBucket,
+    timeout_seconds: float,
+) -> dict[str, object]:
+    custom_id = _required_string(request.get("custom_id"), name="custom_id")
+    body = request.get("body")
+    if not isinstance(body, dict):
+        raise TypeError(f"request {custom_id} body must be an object")
+    reserved_tokens = _request_token_estimate(body)
+    limiter.acquire(reserved_tokens)
+    endpoint = f"{base_url.rstrip('/')}/chat/completions"
+    http_request = urllib.request.Request(
+        endpoint,
+        data=_canonical_json(body).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(http_request, timeout=timeout_seconds) as response:
+            status_code = response.getcode()
+            payload = json.loads(response.read())
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"request {custom_id} returned HTTP {error.code}: {detail}") from error
+    except urllib.error.URLError as error:
+        raise RuntimeError(f"request {custom_id} failed: {error.reason}") from error
+    if status_code != 200:
+        raise RuntimeError(f"request {custom_id} returned HTTP {status_code}")
+    if not isinstance(payload, dict) or any(not isinstance(key, str) for key in payload):
+        raise TypeError(f"request {custom_id} response must be a JSON object")
+    response_body = cast(dict[str, object], payload)
+    usage = response_body.get("usage")
+    total_tokens = usage.get("total_tokens") if isinstance(usage, dict) else None
+    if isinstance(total_tokens, int) and not isinstance(total_tokens, bool) and total_tokens >= 0:
+        limiter.refund_model_tokens(reserved_tokens, total_tokens)
+    return {
+        "custom_id": custom_id,
+        "response": {"status_code": status_code, "body": response_body},
+        "error": None,
+    }
+
+
+def run_openai_compatible_batch(
+    requests_path: Path,
+    results_path: Path,
+    *,
+    base_url: str,
+    api_key_environment_variable: str = "OPENAI_API_KEY",
+    concurrency: int = 8,
+    requests_per_minute: int = 60,
+    tokens_per_minute: int = 100_000,
+    timeout_seconds: float = 180.0,
+) -> None:
+    _required_string(base_url, name="base_url")
+    _required_string(api_key_environment_variable, name="api_key_environment_variable")
+    if timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be positive")
+    api_key = os.environ.get(api_key_environment_variable)
+    if not api_key:
+        raise RuntimeError(f"{api_key_environment_variable} is required")
+    pending = _pending_requests(requests_path, results_path)
+    limiter = DualTokenBucket(
+        requests_per_minute=requests_per_minute,
+        tokens_per_minute=tokens_per_minute,
+    )
+
+    def worker(request: Mapping[str, object]) -> dict[str, object]:
+        return _sync_openai_compatible_request(
+            base_url=base_url,
+            api_key=api_key,
+            request=request,
+            limiter=limiter,
+            timeout_seconds=timeout_seconds,
+        )
+
+    _execute_pending_requests(
+        pending,
+        results_path,
+        concurrency=concurrency,
+        worker=worker,
+        provider_name="OpenAI-compatible endpoint",
+    )
