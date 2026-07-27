@@ -211,6 +211,50 @@ def test_ingest_and_finalize_write_synthetic_corpus_contracts(tmp_path: Path) ->
     }
 
 
+def test_ingest_preserves_valid_candidates_and_receipts_malformed_results(
+    tmp_path: Path,
+) -> None:
+    requests_path, _ = plan_generation(
+        config_path(), request_count=2, output_directory=tmp_path / "plan"
+    )
+    examples = [candidate(index) for index in range(4)]
+    examples[0]["themes"] = ["attention"]
+    generation_results = tmp_path / "generation.results.jsonl"
+    write_jsonl(
+        generation_results,
+        [
+            completion_result(
+                "poetry-synthetic-00000000",
+                {"examples": examples},
+            ),
+            {
+                "custom_id": "poetry-synthetic-00000001",
+                "response": {
+                    "status_code": 200,
+                    "body": {"choices": [{"message": {"content": '{"examples":['}}]},
+                },
+                "error": None,
+            },
+        ],
+    )
+
+    candidates_path, critic_requests_path = ingest_generation_results(
+        config_path(),
+        requests_path=requests_path,
+        results_path=generation_results,
+        output_directory=tmp_path / "ingested",
+    )
+
+    candidates = [json.loads(line) for line in candidates_path.read_text().splitlines()]
+    critic_requests = [json.loads(line) for line in critic_requests_path.read_text().splitlines()]
+    receipt = json.loads((tmp_path / "ingested" / "generation.ingest.receipt.json").read_text())
+    assert len(candidates) == 4
+    assert len(critic_requests) == 4
+    assert candidates[0]["themes"] == ["attention"]
+    assert receipt["candidate_rejections"] == []
+    assert receipt["generation_result_rejections"][0]["custom_id"] == ("poetry-synthetic-00000001")
+
+
 def test_finalize_rejects_local_repetition_even_when_critic_accepts(tmp_path: Path) -> None:
     requests_path, _ = plan_generation(
         config_path(), request_count=1, output_directory=tmp_path / "plan"

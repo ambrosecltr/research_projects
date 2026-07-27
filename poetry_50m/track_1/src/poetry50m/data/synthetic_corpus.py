@@ -559,8 +559,8 @@ class SyntheticCandidate:
             _required_string(data["title"], name="candidate title"),
             prompts,
             poem,
-            _string_tuple(data["themes"], name="candidate themes", minimum=2),
-            _string_tuple(data["imagery"], name="candidate imagery", minimum=2),
+            _string_tuple(data["themes"], name="candidate themes"),
+            _string_tuple(data["imagery"], name="candidate imagery"),
             _required_string(data["mood"], name="candidate mood"),
             _required_string(data["form"], name="candidate form"),
         )
@@ -596,8 +596,8 @@ class SyntheticCandidate:
             _required_string(data["title"], name="title"),
             tuple(CandidatePrompt.from_mapping(item) for item in prompts_value),
             _required_string(data["poem"], name="poem"),
-            _string_tuple(data["themes"], name="themes", minimum=2),
-            _string_tuple(data["imagery"], name="imagery", minimum=2),
+            _string_tuple(data["themes"], name="themes"),
+            _string_tuple(data["imagery"], name="imagery"),
             _required_string(data["mood"], name="mood"),
             _required_string(data["form"], name="form"),
         )
@@ -921,28 +921,58 @@ def ingest_generation_results(
     request_models = _request_models(requests_path)
     seen_results: set[str] = set()
     candidates: list[SyntheticCandidate] = []
+    generation_result_rejections: list[dict[str, str]] = []
+    candidate_rejections: list[dict[str, str | int]] = []
     generation_results = _read_jsonl(results_path)
     for result in generation_results:
-        custom_id, content = _result_content(result)
+        custom_id = _required_string(result.get("custom_id"), name="result custom_id")
         if custom_id not in request_models:
             raise ValueError(f"unexpected generation result {custom_id}")
         if custom_id in seen_results:
             raise ValueError(f"duplicate generation result {custom_id}")
         seen_results.add(custom_id)
+        try:
+            parsed_custom_id, content = _result_content(result)
+        except (RuntimeError, TypeError, ValueError) as error:
+            generation_result_rejections.append(
+                {
+                    "custom_id": custom_id,
+                    "reason": f"{type(error).__name__}: {error}",
+                }
+            )
+            continue
+        if parsed_custom_id != custom_id:
+            raise AssertionError("parsed result custom ID changed")
         examples = content.get("examples")
         if not isinstance(examples, list) or len(examples) != config.examples_per_request:
-            raise ValueError(
-                f"generation result {custom_id} must contain {config.examples_per_request} examples"
+            generation_result_rejections.append(
+                {
+                    "custom_id": custom_id,
+                    "reason": (
+                        f"expected {config.examples_per_request} examples, "
+                        f"got {len(examples) if isinstance(examples, list) else 'non-array'}"
+                    ),
+                }
             )
-        candidates.extend(
-            SyntheticCandidate.from_generation(
-                example,
-                request_id=custom_id,
-                generator_model=request_models[custom_id],
-                ordinal=ordinal,
-            )
-            for ordinal, example in enumerate(examples)
-        )
+            continue
+        for ordinal, example in enumerate(examples):
+            try:
+                candidate = SyntheticCandidate.from_generation(
+                    example,
+                    request_id=custom_id,
+                    generator_model=request_models[custom_id],
+                    ordinal=ordinal,
+                )
+            except (TypeError, ValueError) as error:
+                candidate_rejections.append(
+                    {
+                        "custom_id": custom_id,
+                        "ordinal": ordinal,
+                        "reason": f"{type(error).__name__}: {error}",
+                    }
+                )
+                continue
+            candidates.append(candidate)
     missing = set(request_models).difference(seen_results)
     if missing:
         raise ValueError(f"generation results are missing requests: {sorted(missing)}")
@@ -991,6 +1021,8 @@ def ingest_generation_results(
             "format_version": 1,
             "request_count": len(request_models),
             "candidate_count": len(candidates),
+            "generation_result_rejections": generation_result_rejections,
+            "candidate_rejections": candidate_rejections,
             "usage": _result_usage(generation_results),
             "requests_sha256": file_hash(requests_path),
             "results_sha256": file_hash(results_path),
