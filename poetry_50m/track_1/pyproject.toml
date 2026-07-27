@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Track 1: endpoint-informed training experiments for a 50M poetry model"
 requires-python = ">=3.11"
 dependencies = [
+    "cerebras-cloud-sdk>=1.91.0",
     "huggingface-hub>=0.27",
     "numpy>=1.26",
     "pyarrow>=18",

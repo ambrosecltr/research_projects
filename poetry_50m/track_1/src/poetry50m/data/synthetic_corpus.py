@@ -1,0 +1,1234 @@
+"""Resumable Cerebras GPT-OSS generation and critique for an auditable corpus."""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+from collections import Counter
+from collections.abc import Iterable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import asdict, dataclass
+from hashlib import sha256
+from heapq import merge as merge_sorted
+from pathlib import Path
+from typing import BinaryIO, Literal, cast
+
+from cerebras.cloud.sdk import Cerebras
+from cerebras.cloud.sdk.types.chat.chat_completion import ChatCompletionResponse
+
+from poetry50m.config import file_hash, load_mapping
+from poetry50m.trajectory._persistence import atomic_write
+
+from .artifacts import (
+    read_pairings,
+    read_prompt_records,
+    read_thought_records,
+    write_pairings,
+    write_prompt_records,
+    write_thought_records,
+)
+from .loaders import iter_manifest, write_manifest
+from .schema import ContentBlock, PromptMethod, PromptRecord, Provenance, SourceDocument
+
+GeneratorModel = Literal["gpt-oss-120b"]
+ReasoningEffort = Literal["low", "medium", "high"]
+Decision = Literal["accept", "reject"]
+
+WORD = re.compile(r"[\w']+", re.UNICODE)
+GENERATION_LANES = (
+    "concrete observation with precise sensory detail",
+    "a narrative turn that changes the speaker's understanding",
+    "formal constraint used naturally rather than mechanically",
+    "conversational contemporary voice",
+    "surreal but internally coherent imagery",
+    "philosophical pressure grounded in an ordinary object",
+    "place-based writing with specific physical movement",
+    "compressed lyric with an emotional reversal",
+)
+
+GENERATOR_SYSTEM_PROMPT = """\
+Create original, prompt-conditioned English poetry training examples.
+
+Every example must:
+- use an original short poem, never a quotation or continuation of a known poem;
+- avoid imitating or naming any real author;
+- contain 8 to 20 non-empty lines and roughly 70 to 180 words;
+- respond concretely to its prompt rather than defaulting to generic stars, sea, dawn, or longing;
+- use grammatical language, intentional line breaks, and no invented malformed words;
+- avoid repeated lines, stock filler, explanatory notes, and title-only conditioning;
+- provide three genuinely different prompts for the same poem: theme, imagery, and paraphrase;
+- keep each prompt self-contained and suitable for a user asking a small poetry model.
+
+Return only the strict JSON object requested by the schema."""
+
+CRITIC_SYSTEM_PROMPT = """\
+You are an exacting independent poetry-data editor. Judge the supplied synthetic example,
+not the generator's intentions. Reject it if the poem ignores its prompts, is incoherent,
+generic, repetitive, malformed, suspiciously quotes known writing, imitates a named author,
+or would teach a small model bad habits. Scores are integers from 1 (unusable) to 5
+(excellent). Return only the strict JSON object requested by the schema."""
+
+
+def _exact_object(
+    value: object, *, name: str, required: set[str]
+) -> dict[str, object]:
+    if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
+        raise TypeError(f"{name} must be an object with string keys")
+    actual = set(value)
+    if actual != required:
+        raise ValueError(f"{name} must contain exactly {sorted(required)}")
+    return cast(dict[str, object], value)
+
+
+def _required_string(value: object, *, name: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{name} must be a non-empty string")
+    return value
+
+
+def _required_integer(value: object, *, name: str, minimum: int = 1) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+        raise ValueError(f"{name} must be an integer >= {minimum}")
+    return value
+
+
+def _required_number(value: object, *, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"{name} must be numeric")
+    return float(value)
+
+
+def _string_tuple(value: object, *, name: str, minimum: int = 1) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        raise TypeError(f"{name} must be an array")
+    result = tuple(_required_string(item, name=f"{name} item") for item in value)
+    if len(result) < minimum:
+        raise ValueError(f"{name} must contain at least {minimum} items")
+    return result
+
+
+def _canonical_json(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _write_bytes(path: Path, payload: bytes) -> None:
+    def write(handle: BinaryIO) -> None:
+        handle.write(payload)
+
+    atomic_write(path, write)
+
+
+def _write_json(path: Path, value: object) -> None:
+    _write_bytes(path, (_canonical_json(value) + "\n").encode("utf-8"))
+
+
+def _write_jsonl(path: Path, records: Iterable[Mapping[str, object]]) -> None:
+    payload = "".join(f"{_canonical_json(record)}\n" for record in records).encode("utf-8")
+    _write_bytes(path, payload)
+
+
+def _read_jsonl(path: Path) -> tuple[dict[str, object], ...]:
+    records: list[dict[str, object]] = []
+    with path.open(encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip():
+                raise ValueError(f"blank JSONL record at {path}:{line_number}")
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError as error:
+                raise ValueError(f"invalid JSON at {path}:{line_number}") from error
+            if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
+                raise TypeError(f"{path}:{line_number} must be an object")
+            records.append(cast(dict[str, object], value))
+    return tuple(records)
+
+
+@dataclass(frozen=True, slots=True)
+class GeneratorLane:
+    model: GeneratorModel
+    weight: int
+    temperature: float
+    reasoning_effort: ReasoningEffort
+
+    @classmethod
+    def from_mapping(cls, value: object) -> GeneratorLane:
+        data = _exact_object(
+            value,
+            name="generator lane",
+            required={"model", "weight", "temperature", "reasoning_effort"},
+        )
+        model = _required_string(data["model"], name="generator model")
+        if model != "gpt-oss-120b":
+            raise ValueError(f"unsupported generator model {model}")
+        effort = _required_string(data["reasoning_effort"], name="reasoning effort")
+        if effort not in {"low", "medium", "high"}:
+            raise ValueError(f"unsupported reasoning effort {effort}")
+        temperature = _required_number(data["temperature"], name="temperature")
+        if not 0.0 < temperature <= 2.0:
+            raise ValueError("temperature must be in (0, 2]")
+        return cls(
+            cast(GeneratorModel, model),
+            _required_integer(data["weight"], name="generator weight"),
+            temperature,
+            cast(ReasoningEffort, effort),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class QualityConfig:
+    minimum_prompt_adherence: int
+    minimum_coherence: int
+    minimum_craft: int
+    minimum_originality: int
+    minimum_word_count: int
+    maximum_word_count: int
+    minimum_line_count: int
+    maximum_line_count: int
+    maximum_repeated_bigram_rate: float
+    dedup_ngram_size: int
+
+    @classmethod
+    def from_mapping(cls, value: object) -> QualityConfig:
+        fields = {
+            "minimum_prompt_adherence",
+            "minimum_coherence",
+            "minimum_craft",
+            "minimum_originality",
+            "minimum_word_count",
+            "maximum_word_count",
+            "minimum_line_count",
+            "maximum_line_count",
+            "maximum_repeated_bigram_rate",
+            "dedup_ngram_size",
+        }
+        data = _exact_object(value, name="quality config", required=fields)
+        config = cls(
+            minimum_prompt_adherence=_required_integer(
+                data["minimum_prompt_adherence"], name="minimum_prompt_adherence"
+            ),
+            minimum_coherence=_required_integer(
+                data["minimum_coherence"], name="minimum_coherence"
+            ),
+            minimum_craft=_required_integer(
+                data["minimum_craft"], name="minimum_craft"
+            ),
+            minimum_originality=_required_integer(
+                data["minimum_originality"], name="minimum_originality"
+            ),
+            minimum_word_count=_required_integer(
+                data["minimum_word_count"], name="minimum_word_count"
+            ),
+            maximum_word_count=_required_integer(
+                data["maximum_word_count"], name="maximum_word_count"
+            ),
+            minimum_line_count=_required_integer(
+                data["minimum_line_count"], name="minimum_line_count"
+            ),
+            maximum_line_count=_required_integer(
+                data["maximum_line_count"], name="maximum_line_count"
+            ),
+            maximum_repeated_bigram_rate=_required_number(
+                data["maximum_repeated_bigram_rate"],
+                name="maximum_repeated_bigram_rate",
+            ),
+            dedup_ngram_size=_required_integer(
+                data["dedup_ngram_size"], name="dedup_ngram_size", minimum=2
+            ),
+        )
+        for name in (
+            "minimum_prompt_adherence",
+            "minimum_coherence",
+            "minimum_craft",
+            "minimum_originality",
+        ):
+            if getattr(config, name) > 5:
+                raise ValueError(f"{name} must be <= 5")
+        if config.maximum_word_count < config.minimum_word_count:
+            raise ValueError("maximum_word_count must be >= minimum_word_count")
+        if config.maximum_line_count < config.minimum_line_count:
+            raise ValueError("maximum_line_count must be >= minimum_line_count")
+        if not 0.0 <= config.maximum_repeated_bigram_rate <= 1.0:
+            raise ValueError("maximum_repeated_bigram_rate must be in [0, 1]")
+        return config
+
+
+@dataclass(frozen=True, slots=True)
+class SyntheticCorpusConfig:
+    format_version: int
+    seed: int
+    examples_per_request: int
+    generator_lanes: tuple[GeneratorLane, ...]
+    critic_model: GeneratorModel
+    critic_reasoning_effort: ReasoningEffort
+    max_completion_tokens: int
+    quality: QualityConfig
+
+    @classmethod
+    def load(cls, path: Path) -> SyntheticCorpusConfig:
+        data = _exact_object(
+            load_mapping(path),
+            name="synthetic corpus config",
+            required={
+                "format_version",
+                "seed",
+                "examples_per_request",
+                "generator_lanes",
+                "critic_model",
+                "critic_reasoning_effort",
+                "max_completion_tokens",
+                "quality",
+            },
+        )
+        if data["format_version"] != 1:
+            raise ValueError("synthetic corpus config format_version must be 1")
+        lanes_value = data["generator_lanes"]
+        if not isinstance(lanes_value, list):
+            raise TypeError("generator_lanes must be an array")
+        lanes = tuple(GeneratorLane.from_mapping(item) for item in lanes_value)
+        if not lanes:
+            raise ValueError("generator_lanes must not be empty")
+        critic_model = _required_string(data["critic_model"], name="critic_model")
+        if critic_model != "gpt-oss-120b":
+            raise ValueError(f"unsupported critic model {critic_model}")
+        critic_effort = _required_string(
+            data["critic_reasoning_effort"], name="critic_reasoning_effort"
+        )
+        if critic_effort not in {"low", "medium", "high"}:
+            raise ValueError(f"unsupported critic reasoning effort {critic_effort}")
+        seed = _required_integer(data["seed"], name="seed", minimum=0)
+        return cls(
+            1,
+            seed,
+            _required_integer(data["examples_per_request"], name="examples_per_request"),
+            lanes,
+            cast(GeneratorModel, critic_model),
+            cast(ReasoningEffort, critic_effort),
+            _required_integer(data["max_completion_tokens"], name="max_completion_tokens"),
+            QualityConfig.from_mapping(data["quality"]),
+        )
+
+    def lane_for_request(self, index: int) -> GeneratorLane:
+        schedule = tuple(lane for lane in self.generator_lanes for _ in range(lane.weight))
+        return schedule[index % len(schedule)]
+
+
+@dataclass(frozen=True, slots=True)
+class CandidatePrompt:
+    text: str
+    method: Literal["theme", "imagery", "paraphrase"]
+
+    @classmethod
+    def from_mapping(cls, value: object) -> CandidatePrompt:
+        data = _exact_object(value, name="candidate prompt", required={"text", "method"})
+        method = _required_string(data["method"], name="candidate prompt method")
+        if method not in {"theme", "imagery", "paraphrase"}:
+            raise ValueError(f"unsupported candidate prompt method {method}")
+        return cls(
+            _required_string(data["text"], name="candidate prompt text"),
+            cast(Literal["theme", "imagery", "paraphrase"], method),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class SyntheticCandidate:
+    candidate_id: str
+    request_id: str
+    generator_model: GeneratorModel
+    title: str
+    prompts: tuple[CandidatePrompt, ...]
+    poem: str
+    themes: tuple[str, ...]
+    imagery: tuple[str, ...]
+    mood: str
+    form: str
+
+    @classmethod
+    def from_generation(
+        cls,
+        value: object,
+        *,
+        request_id: str,
+        generator_model: GeneratorModel,
+        ordinal: int,
+    ) -> SyntheticCandidate:
+        data = _exact_object(
+            value,
+            name="synthetic candidate",
+            required={"title", "prompts", "poem", "themes", "imagery", "mood", "form"},
+        )
+        prompts_value = data["prompts"]
+        if not isinstance(prompts_value, list):
+            raise TypeError("candidate prompts must be an array")
+        prompts = tuple(CandidatePrompt.from_mapping(item) for item in prompts_value)
+        if len(prompts) != 3 or {prompt.method for prompt in prompts} != {
+            "theme",
+            "imagery",
+            "paraphrase",
+        }:
+            raise ValueError(
+                "candidate must contain exactly one theme, imagery, and paraphrase prompt"
+            )
+        poem = _required_string(data["poem"], name="candidate poem").replace("\r\n", "\n")
+        identity = sha256(f"{request_id}\0{ordinal}\0{poem}".encode()).hexdigest()[:24]
+        return cls(
+            f"synthetic-{identity}",
+            request_id,
+            generator_model,
+            _required_string(data["title"], name="candidate title"),
+            prompts,
+            poem,
+            _string_tuple(data["themes"], name="candidate themes", minimum=2),
+            _string_tuple(data["imagery"], name="candidate imagery", minimum=2),
+            _required_string(data["mood"], name="candidate mood"),
+            _required_string(data["form"], name="candidate form"),
+        )
+
+    @classmethod
+    def from_mapping(cls, value: object) -> SyntheticCandidate:
+        data = _exact_object(
+            value,
+            name="stored synthetic candidate",
+            required={
+                "candidate_id",
+                "request_id",
+                "generator_model",
+                "title",
+                "prompts",
+                "poem",
+                "themes",
+                "imagery",
+                "mood",
+                "form",
+            },
+        )
+        model = _required_string(data["generator_model"], name="generator_model")
+        if model != "gpt-oss-120b":
+            raise ValueError(f"unsupported stored generator model {model}")
+        prompts_value = data["prompts"]
+        if not isinstance(prompts_value, list):
+            raise TypeError("stored candidate prompts must be an array")
+        return cls(
+            _required_string(data["candidate_id"], name="candidate_id"),
+            _required_string(data["request_id"], name="request_id"),
+            cast(GeneratorModel, model),
+            _required_string(data["title"], name="title"),
+            tuple(CandidatePrompt.from_mapping(item) for item in prompts_value),
+            _required_string(data["poem"], name="poem"),
+            _string_tuple(data["themes"], name="themes", minimum=2),
+            _string_tuple(data["imagery"], name="imagery", minimum=2),
+            _required_string(data["mood"], name="mood"),
+            _required_string(data["form"], name="form"),
+        )
+
+    def to_mapping(self) -> dict[str, object]:
+        return cast(dict[str, object], asdict(self))
+
+
+@dataclass(frozen=True, slots=True)
+class Critique:
+    candidate_id: str
+    prompt_adherence: int
+    coherence: int
+    craft: int
+    originality: int
+    degeneration: bool
+    named_author_imitation: bool
+    suspected_quote: bool
+    decision: Decision
+    reasons: tuple[str, ...]
+
+    @classmethod
+    def from_mapping(cls, value: object, *, candidate_id: str) -> Critique:
+        data = _exact_object(
+            value,
+            name="critique",
+            required={
+                "prompt_adherence",
+                "coherence",
+                "craft",
+                "originality",
+                "degeneration",
+                "named_author_imitation",
+                "suspected_quote",
+                "decision",
+                "reasons",
+            },
+        )
+        for name in ("degeneration", "named_author_imitation", "suspected_quote"):
+            if not isinstance(data[name], bool):
+                raise TypeError(f"{name} must be boolean")
+        decision = _required_string(data["decision"], name="decision")
+        if decision not in {"accept", "reject"}:
+            raise ValueError(f"unsupported critique decision {decision}")
+        scores = tuple(
+            _required_integer(data[name], name=name)
+            for name in ("prompt_adherence", "coherence", "craft", "originality")
+        )
+        if any(score > 5 for score in scores):
+            raise ValueError("critique scores must be <= 5")
+        return cls(
+            candidate_id=candidate_id,
+            prompt_adherence=scores[0],
+            coherence=scores[1],
+            craft=scores[2],
+            originality=scores[3],
+            degeneration=cast(bool, data["degeneration"]),
+            named_author_imitation=cast(bool, data["named_author_imitation"]),
+            suspected_quote=cast(bool, data["suspected_quote"]),
+            decision=cast(Decision, decision),
+            reasons=_string_tuple(data["reasons"], name="critique reasons"),
+        )
+
+
+def _generation_schema() -> dict[str, object]:
+    prompt_schema = {
+        "type": "object",
+        "properties": {
+            "text": {"type": "string"},
+            "method": {"type": "string", "enum": ["theme", "imagery", "paraphrase"]},
+        },
+        "required": ["text", "method"],
+        "additionalProperties": False,
+    }
+    candidate_schema = {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "prompts": {
+                "type": "array",
+                "items": prompt_schema,
+            },
+            "poem": {"type": "string"},
+            "themes": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+            "imagery": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+            "mood": {"type": "string"},
+            "form": {"type": "string"},
+        },
+        "required": ["title", "prompts", "poem", "themes", "imagery", "mood", "form"],
+        "additionalProperties": False,
+    }
+    return {
+        "type": "object",
+        "properties": {
+            "examples": {
+                "type": "array",
+                "items": candidate_schema,
+            }
+        },
+        "required": ["examples"],
+        "additionalProperties": False,
+    }
+
+
+def _critic_schema() -> dict[str, object]:
+    return {
+        "type": "object",
+        "properties": {
+            "prompt_adherence": {"type": "integer", "minimum": 1, "maximum": 5},
+            "coherence": {"type": "integer", "minimum": 1, "maximum": 5},
+            "craft": {"type": "integer", "minimum": 1, "maximum": 5},
+            "originality": {"type": "integer", "minimum": 1, "maximum": 5},
+            "degeneration": {"type": "boolean"},
+            "named_author_imitation": {"type": "boolean"},
+            "suspected_quote": {"type": "boolean"},
+            "decision": {"type": "string", "enum": ["accept", "reject"]},
+            "reasons": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+        },
+        "required": [
+            "prompt_adherence",
+            "coherence",
+            "craft",
+            "originality",
+            "degeneration",
+            "named_author_imitation",
+            "suspected_quote",
+            "decision",
+            "reasons",
+        ],
+        "additionalProperties": False,
+    }
+
+
+def _response_format(name: str, schema: Mapping[str, object]) -> dict[str, object]:
+    return {
+        "type": "json_schema",
+        "json_schema": {"name": name, "strict": True, "schema": dict(schema)},
+    }
+
+
+def _batch_request(custom_id: str, body: Mapping[str, object]) -> dict[str, object]:
+    return {
+        "custom_id": custom_id,
+        "method": "POST",
+        "url": "/v1/chat/completions",
+        "body": dict(body),
+    }
+
+
+def plan_generation(
+    config_path: Path, *, request_count: int, output_directory: Path
+) -> tuple[Path, Path]:
+    config = SyntheticCorpusConfig.load(config_path)
+    if request_count < 1:
+        raise ValueError("request_count must be positive")
+    requests: list[dict[str, object]] = []
+    assignments: list[dict[str, object]] = []
+    for index in range(request_count):
+        lane = config.lane_for_request(index)
+        custom_id = f"poetry-synthetic-{index:08d}"
+        diversity_lane = GENERATION_LANES[index % len(GENERATION_LANES)]
+        diversity_seed = sha256(f"{config.seed}:{index}".encode()).hexdigest()
+        body = {
+            "model": lane.model,
+            "messages": [
+                {"role": "system", "content": GENERATOR_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Generate {config.examples_per_request} mutually distinct examples. "
+                        f"Creative lane: {diversity_lane}. Diversity seed: {diversity_seed}. "
+                        "The seed is only an identity marker; do not include it in the output."
+                    ),
+                },
+            ],
+            "temperature": lane.temperature,
+            "seed": config.seed + index,
+            "reasoning_effort": lane.reasoning_effort,
+            "max_completion_tokens": config.max_completion_tokens,
+            "response_format": _response_format(
+                "poetry_training_bundle",
+                _generation_schema(),
+            ),
+        }
+        requests.append(_batch_request(custom_id, body))
+        assignments.append(
+            {
+                "custom_id": custom_id,
+                "model": lane.model,
+                "diversity_lane": diversity_lane,
+                "diversity_seed": diversity_seed,
+                "request_sha256": sha256(_canonical_json(body).encode()).hexdigest(),
+            }
+        )
+    output_directory.mkdir(parents=True, exist_ok=True)
+    requests_path = output_directory / "generation.requests.jsonl"
+    plan_path = output_directory / "generation.plan.json"
+    _write_jsonl(requests_path, requests)
+    _write_json(
+        plan_path,
+        {
+            "format_version": 1,
+            "config": str(config_path),
+            "config_sha256": file_hash(config_path),
+            "request_count": request_count,
+            "candidate_capacity": request_count * config.examples_per_request,
+            "requests": str(requests_path),
+            "requests_sha256": file_hash(requests_path),
+            "assignments": assignments,
+        },
+    )
+    return requests_path, plan_path
+
+
+def _request_models(requests_path: Path) -> dict[str, GeneratorModel]:
+    result: dict[str, GeneratorModel] = {}
+    for record in _read_jsonl(requests_path):
+        custom_id = _required_string(record.get("custom_id"), name="custom_id")
+        body = record.get("body")
+        if not isinstance(body, dict):
+            raise TypeError("batch request body must be an object")
+        model = _required_string(body.get("model"), name="batch request model")
+        if model != "gpt-oss-120b":
+            raise ValueError(f"unsupported request model {model}")
+        if custom_id in result:
+            raise ValueError(f"duplicate custom_id {custom_id}")
+        result[custom_id] = cast(GeneratorModel, model)
+    return result
+
+
+def _result_content(record: Mapping[str, object]) -> tuple[str, dict[str, object]]:
+    custom_id = _required_string(record.get("custom_id"), name="result custom_id")
+    error = record.get("error")
+    if error is not None:
+        raise RuntimeError(f"batch result {custom_id} failed: {error}")
+    response = record.get("response")
+    if not isinstance(response, dict):
+        raise TypeError(f"batch result {custom_id} response must be an object")
+    if response.get("status_code") != 200:
+        raise RuntimeError(f"batch result {custom_id} status is {response.get('status_code')}")
+    body = response.get("body")
+    if not isinstance(body, dict):
+        raise TypeError(f"batch result {custom_id} body must be an object")
+    choices = body.get("choices")
+    if not isinstance(choices, list) or len(choices) != 1 or not isinstance(choices[0], dict):
+        raise ValueError(f"batch result {custom_id} must contain one choice")
+    message = choices[0].get("message")
+    if not isinstance(message, dict):
+        raise TypeError(f"batch result {custom_id} message must be an object")
+    content = _required_string(message.get("content"), name=f"batch result {custom_id} content")
+    try:
+        value = json.loads(content)
+    except json.JSONDecodeError as error_value:
+        raise ValueError(f"batch result {custom_id} content is not JSON") from error_value
+    if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
+        raise TypeError(f"batch result {custom_id} content must decode to an object")
+    return custom_id, cast(dict[str, object], value)
+
+
+def _result_usage(records: Sequence[Mapping[str, object]]) -> dict[str, int]:
+    totals = {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "missing_usage_records": 0,
+    }
+    for record in records:
+        response = record.get("response")
+        body = response.get("body") if isinstance(response, dict) else None
+        usage = body.get("usage") if isinstance(body, dict) else None
+        if not isinstance(usage, dict):
+            totals["missing_usage_records"] += 1
+            continue
+        for name in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            value = usage.get(name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"result usage {name} must be a non-negative integer")
+            totals[name] += value
+    return totals
+
+
+def ingest_generation_results(
+    config_path: Path,
+    *,
+    requests_path: Path,
+    results_path: Path,
+    output_directory: Path,
+) -> tuple[Path, Path]:
+    config = SyntheticCorpusConfig.load(config_path)
+    request_models = _request_models(requests_path)
+    seen_results: set[str] = set()
+    candidates: list[SyntheticCandidate] = []
+    generation_results = _read_jsonl(results_path)
+    for result in generation_results:
+        custom_id, content = _result_content(result)
+        if custom_id not in request_models:
+            raise ValueError(f"unexpected generation result {custom_id}")
+        if custom_id in seen_results:
+            raise ValueError(f"duplicate generation result {custom_id}")
+        seen_results.add(custom_id)
+        examples = content.get("examples")
+        if not isinstance(examples, list) or len(examples) != config.examples_per_request:
+            raise ValueError(
+                f"generation result {custom_id} must contain "
+                f"{config.examples_per_request} examples"
+            )
+        candidates.extend(
+            SyntheticCandidate.from_generation(
+                example,
+                request_id=custom_id,
+                generator_model=request_models[custom_id],
+                ordinal=ordinal,
+            )
+            for ordinal, example in enumerate(examples)
+        )
+    missing = set(request_models).difference(seen_results)
+    if missing:
+        raise ValueError(f"generation results are missing requests: {sorted(missing)}")
+    if len({candidate.candidate_id for candidate in candidates}) != len(candidates):
+        raise ValueError("generation produced duplicate candidate IDs")
+
+    critic_requests = [
+        _batch_request(
+            f"critic-{candidate.candidate_id}",
+            {
+                "model": config.critic_model,
+                "messages": [
+                    {"role": "system", "content": CRITIC_SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": _canonical_json(
+                            {
+                                "candidate_id": candidate.candidate_id,
+                                "title": candidate.title,
+                                "prompts": [asdict(prompt) for prompt in candidate.prompts],
+                                "poem": candidate.poem,
+                            }
+                        ),
+                    },
+                ],
+                "temperature": 0.2,
+                "seed": int(sha256(candidate.candidate_id.encode()).hexdigest()[:8], 16),
+                "reasoning_effort": config.critic_reasoning_effort,
+                "max_completion_tokens": 1024,
+                "response_format": _response_format(
+                    "poetry_training_critique",
+                    _critic_schema(),
+                ),
+            },
+        )
+        for candidate in candidates
+    ]
+    output_directory.mkdir(parents=True, exist_ok=True)
+    candidates_path = output_directory / "candidates.jsonl"
+    critic_requests_path = output_directory / "critic.requests.jsonl"
+    _write_jsonl(candidates_path, (candidate.to_mapping() for candidate in candidates))
+    _write_jsonl(critic_requests_path, critic_requests)
+    _write_json(
+        output_directory / "generation.ingest.receipt.json",
+        {
+            "format_version": 1,
+            "request_count": len(request_models),
+            "candidate_count": len(candidates),
+            "usage": _result_usage(generation_results),
+            "requests_sha256": file_hash(requests_path),
+            "results_sha256": file_hash(results_path),
+            "candidates_sha256": file_hash(candidates_path),
+            "critic_requests_sha256": file_hash(critic_requests_path),
+        },
+    )
+    return candidates_path, critic_requests_path
+
+
+def _words(text: str) -> tuple[str, ...]:
+    return tuple(word.casefold() for word in WORD.findall(text))
+
+
+def _ngrams(words: Sequence[str], n: int) -> set[tuple[str, ...]]:
+    return {tuple(words[index : index + n]) for index in range(max(0, len(words) - n + 1))}
+
+
+def _reference_ngram_matches(
+    candidates: Sequence[SyntheticCandidate],
+    *,
+    reference_manifest: Path,
+    ngram_size: int,
+) -> dict[str, set[tuple[str, ...]]]:
+    candidate_ngrams = {
+        candidate.candidate_id: _ngrams(_words(candidate.poem), ngram_size)
+        for candidate in candidates
+    }
+    query_ngrams = set().union(*candidate_ngrams.values()) if candidate_ngrams else set()
+    matched: set[tuple[str, ...]] = set()
+    if query_ngrams:
+        for document in iter_manifest(reference_manifest, allow_synthetic=True):
+            for block in document.blocks:
+                matched.update(_ngrams(_words(block.text), ngram_size) & query_ngrams)
+    return {
+        candidate_id: ngrams & matched
+        for candidate_id, ngrams in candidate_ngrams.items()
+    }
+
+
+def _local_quality_reasons(candidate: SyntheticCandidate, config: QualityConfig) -> tuple[str, ...]:
+    words = _words(candidate.poem)
+    lines = tuple(line.strip() for line in candidate.poem.splitlines() if line.strip())
+    bigrams = tuple(zip(words, words[1:], strict=False))
+    bigram_counts = Counter(bigrams)
+    repeated_bigrams = sum(count - 1 for count in bigram_counts.values() if count > 1)
+    repeated_bigram_rate = repeated_bigrams / max(1, len(bigrams))
+    reasons: list[str] = []
+    if not config.minimum_word_count <= len(words) <= config.maximum_word_count:
+        reasons.append(f"word_count={len(words)}")
+    if not config.minimum_line_count <= len(lines) <= config.maximum_line_count:
+        reasons.append(f"line_count={len(lines)}")
+    if len(set(lines)) != len(lines):
+        reasons.append("repeated_lines")
+    if repeated_bigram_rate > config.maximum_repeated_bigram_rate:
+        reasons.append(f"repeated_bigram_rate={repeated_bigram_rate:.6f}")
+    return tuple(reasons)
+
+
+def _critique_reasons(critique: Critique, config: QualityConfig) -> tuple[str, ...]:
+    reasons: list[str] = []
+    if critique.decision != "accept":
+        reasons.append("critic_rejected")
+    for field, minimum in (
+        ("prompt_adherence", config.minimum_prompt_adherence),
+        ("coherence", config.minimum_coherence),
+        ("craft", config.minimum_craft),
+        ("originality", config.minimum_originality),
+    ):
+        if getattr(critique, field) < minimum:
+            reasons.append(f"{field}={getattr(critique, field)}")
+    if critique.degeneration:
+        reasons.append("critic_detected_degeneration")
+    if critique.named_author_imitation:
+        reasons.append("critic_detected_named_author_imitation")
+    if critique.suspected_quote:
+        reasons.append("critic_suspected_quote")
+    return tuple(reasons)
+
+
+def _source_document(candidate: SyntheticCandidate, critique: Critique) -> SourceDocument:
+    document_id = candidate.candidate_id
+    poem_id = f"{document_id}:poem"
+    block_id = f"{poem_id}:full"
+    critic_summary = _canonical_json(
+        {
+            "prompt_adherence": critique.prompt_adherence,
+            "coherence": critique.coherence,
+            "craft": critique.craft,
+            "originality": critique.originality,
+        }
+    )
+    provenance = Provenance(
+        work=candidate.title,
+        author=candidate.generator_model,
+        licence="synthetic-generated-output",
+        source="Cerebras GPT-OSS synthetic corpus pipeline",
+        source_locator=candidate.request_id,
+        rights_status="synthetic",
+        rights_notes=(
+            f"Generated by {candidate.generator_model}; independently screened by GPT-OSS; "
+            "synthetic status does not assert non-memorization or exclusive copyright."
+        ),
+    )
+    block = ContentBlock(
+        block_id=block_id,
+        kind="poem",
+        text=candidate.poem,
+        poem_id=poem_id,
+        title=candidate.title,
+        start_char=0,
+        end_char=len(candidate.poem),
+        metadata={
+            "generator_model": candidate.generator_model,
+            "critic_summary": critic_summary,
+            "themes": _canonical_json(candidate.themes),
+            "imagery": _canonical_json(candidate.imagery),
+            "mood": candidate.mood,
+            "form": candidate.form,
+        },
+    )
+    return SourceDocument(
+        document_id=document_id,
+        provenance=provenance,
+        text=candidate.poem,
+        blocks=(block,),
+        source_path=f"cerebras-request:{candidate.request_id}",
+        raw_text=candidate.poem,
+        metadata={
+            "generator_model": candidate.generator_model,
+            "critic_model": "gpt-oss-120b",
+        },
+        transformation_lineage=(
+            "groq_strict_json_generation",
+            "independent_gpt_oss_critique",
+            "local_quality_gates",
+        ),
+    )
+
+
+def finalize_synthetic_corpus(
+    config_path: Path,
+    *,
+    candidates_path: Path,
+    critic_results_path: Path,
+    output_directory: Path,
+    reference_manifest: Path | None = None,
+) -> Path:
+    config = SyntheticCorpusConfig.load(config_path)
+    candidates = tuple(
+        SyntheticCandidate.from_mapping(record) for record in _read_jsonl(candidates_path)
+    )
+    candidates_by_id = {candidate.candidate_id: candidate for candidate in candidates}
+    if len(candidates_by_id) != len(candidates):
+        raise ValueError("candidate file contains duplicate IDs")
+    critiques: dict[str, Critique] = {}
+    critic_results = _read_jsonl(critic_results_path)
+    for result in critic_results:
+        custom_id, content = _result_content(result)
+        if not custom_id.startswith("critic-"):
+            raise ValueError(f"unexpected critic result ID {custom_id}")
+        candidate_id = custom_id.removeprefix("critic-")
+        if candidate_id not in candidates_by_id:
+            raise ValueError(f"critic result references unknown candidate {candidate_id}")
+        if candidate_id in critiques:
+            raise ValueError(f"duplicate critique for {candidate_id}")
+        critiques[candidate_id] = Critique.from_mapping(content, candidate_id=candidate_id)
+    missing = set(candidates_by_id).difference(critiques)
+    if missing:
+        raise ValueError(f"critic results are missing candidates: {sorted(missing)}")
+    reference_matches = (
+        _reference_ngram_matches(
+            candidates,
+            reference_manifest=reference_manifest,
+            ngram_size=config.quality.dedup_ngram_size,
+        )
+        if reference_manifest is not None
+        else {}
+    )
+
+    accepted: list[SyntheticCandidate] = []
+    quality_rows: list[dict[str, object]] = []
+    exact_poems: set[str] = set()
+    accepted_ngrams: set[tuple[str, ...]] = set()
+    for candidate in sorted(candidates, key=lambda item: item.candidate_id):
+        critique = critiques[candidate.candidate_id]
+        reasons = [
+            *_local_quality_reasons(candidate, config.quality),
+            *_critique_reasons(critique, config.quality),
+        ]
+        normalised = " ".join(_words(candidate.poem))
+        candidate_ngrams = _ngrams(_words(candidate.poem), config.quality.dedup_ngram_size)
+        if normalised in exact_poems:
+            reasons.append("duplicate_poem")
+        if reference_matches.get(candidate.candidate_id):
+            reasons.append(f"reference_shared_{config.quality.dedup_ngram_size}_gram")
+        if candidate_ngrams & accepted_ngrams:
+            reasons.append(f"shared_{config.quality.dedup_ngram_size}_gram")
+        is_accepted = not reasons
+        if is_accepted:
+            accepted.append(candidate)
+            exact_poems.add(normalised)
+            accepted_ngrams.update(candidate_ngrams)
+        quality_rows.append(
+            {
+                "candidate_id": candidate.candidate_id,
+                "accepted": is_accepted,
+                "rejection_reasons": reasons,
+                "critic": asdict(critique),
+            }
+        )
+
+    documents = tuple(
+        _source_document(candidate, critiques[candidate.candidate_id]) for candidate in accepted
+    )
+    prompts = tuple(
+        PromptRecord(
+            prompt_id=sha256(
+                f"{candidate.candidate_id}\0{prompt.method}\0{prompt.text}".encode()
+            ).hexdigest()[:24],
+            document_id=candidate.candidate_id,
+            prompt=prompt.text,
+            method=cast(PromptMethod, prompt.method),
+            source_attribution=(
+                f"synthetic:{candidate.generator_model}:{candidate.request_id}"
+            ),
+            poem_id=f"{candidate.candidate_id}:poem",
+        )
+        for candidate in accepted
+        for prompt in candidate.prompts
+    )
+    output_directory.mkdir(parents=True, exist_ok=True)
+    manifest_path = output_directory / "manifest.jsonl"
+    prompts_path = output_directory / "prompts.jsonl"
+    thoughts_path = output_directory / "thoughts.jsonl"
+    quality_path = output_directory / "quality.jsonl"
+    write_manifest(manifest_path, documents, allow_synthetic=True)
+    write_prompt_records(prompts_path, prompts)
+    write_thought_records(thoughts_path, ())
+    _write_jsonl(quality_path, quality_rows)
+    receipt_path = output_directory / "synthetic.receipt.json"
+    _write_json(
+        receipt_path,
+        {
+            "format_version": 1,
+            "config_sha256": file_hash(config_path),
+            "candidates_sha256": file_hash(candidates_path),
+            "critic_results_sha256": file_hash(critic_results_path),
+            "reference_manifest_sha256": (
+                file_hash(reference_manifest) if reference_manifest is not None else None
+            ),
+            "candidate_count": len(candidates),
+            "accepted_count": len(accepted),
+            "rejected_count": len(candidates) - len(accepted),
+            "critic_usage": _result_usage(critic_results),
+            "manifest_sha256": file_hash(manifest_path),
+            "prompts_sha256": file_hash(prompts_path),
+            "thoughts_sha256": file_hash(thoughts_path),
+            "quality_sha256": file_hash(quality_path),
+            "requires_allow_synthetic": True,
+        },
+    )
+    return receipt_path
+
+
+def merge_corpus_artifacts(
+    *,
+    base_manifest: Path,
+    base_prompts: Path,
+    base_thoughts: Path,
+    base_pairings: Path,
+    synthetic_directory: Path,
+    output_directory: Path,
+) -> Path:
+    synthetic_manifest = synthetic_directory / "manifest.jsonl"
+    synthetic_prompts = synthetic_directory / "prompts.jsonl"
+    synthetic_thoughts = synthetic_directory / "thoughts.jsonl"
+    synthetic_receipt = synthetic_directory / "synthetic.receipt.json"
+    prompts = (*read_prompt_records(base_prompts), *read_prompt_records(synthetic_prompts))
+    thoughts = (*read_thought_records(base_thoughts), *read_thought_records(synthetic_thoughts))
+    pairings = read_pairings(base_pairings)
+
+    output_directory.mkdir(parents=True, exist_ok=True)
+    manifest_path = output_directory / "manifest.jsonl"
+    prompts_path = output_directory / "prompts.jsonl"
+    thoughts_path = output_directory / "thoughts.jsonl"
+    pairings_path = output_directory / "pairings.jsonl"
+    document_count, document_ids = _write_merged_manifest(
+        manifest_path,
+        manifests=(base_manifest, synthetic_manifest),
+    )
+    unknown_prompt_documents = sorted(
+        {prompt.document_id for prompt in prompts}.difference(document_ids)
+    )
+    if unknown_prompt_documents:
+        raise ValueError(
+            f"merged prompts reference unknown documents: {unknown_prompt_documents}"
+        )
+    unknown_thought_documents = sorted(
+        {thought.document_id for thought in thoughts}.difference(document_ids)
+    )
+    if unknown_thought_documents:
+        raise ValueError(
+            f"merged thoughts reference unknown documents: {unknown_thought_documents}"
+        )
+
+    write_prompt_records(prompts_path, prompts)
+    write_thought_records(thoughts_path, thoughts)
+    write_pairings(pairings_path, pairings)
+    receipt_path = output_directory / "merge.receipt.json"
+    _write_json(
+        receipt_path,
+        {
+            "format_version": 1,
+            "base": {
+                "manifest_sha256": file_hash(base_manifest),
+                "prompts_sha256": file_hash(base_prompts),
+                "thoughts_sha256": file_hash(base_thoughts),
+                "pairings_sha256": file_hash(base_pairings),
+            },
+            "synthetic": {
+                "receipt_sha256": file_hash(synthetic_receipt),
+                "manifest_sha256": file_hash(synthetic_manifest),
+                "prompts_sha256": file_hash(synthetic_prompts),
+                "thoughts_sha256": file_hash(synthetic_thoughts),
+            },
+            "counts": {
+                "documents": document_count,
+                "prompts": len(prompts),
+                "thoughts": len(thoughts),
+                "pairings": len(pairings),
+            },
+            "outputs": {
+                "manifest_sha256": file_hash(manifest_path),
+                "prompts_sha256": file_hash(prompts_path),
+                "thoughts_sha256": file_hash(thoughts_path),
+                "pairings_sha256": file_hash(pairings_path),
+            },
+            "requires_allow_synthetic": True,
+        },
+    )
+    return receipt_path
+
+
+def _write_merged_manifest(
+    output_path: Path, *, manifests: Sequence[Path]
+) -> tuple[int, set[str]]:
+    def ordered_documents(path: Path) -> Iterable[SourceDocument]:
+        previous_id: str | None = None
+        for document in iter_manifest(path, allow_synthetic=True):
+            if previous_id is not None and document.document_id <= previous_id:
+                raise ValueError(f"manifest is not ordered by document_id: {path}")
+            previous_id = document.document_id
+            yield document
+
+    document_ids: set[str] = set()
+    document_count = 0
+
+    def write(handle: BinaryIO) -> None:
+        nonlocal document_count
+        documents = merge_sorted(
+            *(ordered_documents(path) for path in manifests),
+            key=lambda document: document.document_id,
+        )
+        for document in documents:
+            if document.document_id in document_ids:
+                raise ValueError(
+                    "base and synthetic corpora contain duplicate document IDs: "
+                    f"{document.document_id}"
+                )
+            document_ids.add(document.document_id)
+            document_count += 1
+            line = json.dumps(
+                document.to_mapping(),
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            handle.write(f"{line}\n".encode())
+
+    atomic_write(output_path, write)
+    return document_count, document_ids
+
+
+def _sync_request(client: Cerebras, request: Mapping[str, object]) -> dict[str, object]:
+    custom_id = _required_string(request.get("custom_id"), name="custom_id")
+    body = request.get("body")
+    if not isinstance(body, dict):
+        raise TypeError(f"request {custom_id} body must be an object")
+    completion = client.post(
+        "/v1/chat/completions",
+        cast_to=ChatCompletionResponse,
+        body=cast(dict[str, object], body),
+    )
+    return {
+        "custom_id": custom_id,
+        "response": {"status_code": 200, "body": completion.model_dump(mode="json")},
+        "error": None,
+    }
+
+
+def run_synchronous_batch(
+    requests_path: Path, results_path: Path, *, concurrency: int = 8
+) -> None:
+    if concurrency < 1:
+        raise ValueError("concurrency must be positive")
+    if not os.environ.get("CEREBRAS_API_KEY"):
+        raise RuntimeError("CEREBRAS_API_KEY is required")
+    requests = _read_jsonl(requests_path)
+    request_ids = [
+        _required_string(request.get("custom_id"), name="custom_id")
+        for request in requests
+    ]
+    if len(request_ids) != len(set(request_ids)):
+        raise ValueError("request file contains duplicate custom IDs")
+    existing_results = _read_jsonl(results_path) if results_path.exists() else ()
+    completed_ids = [
+        _required_string(record.get("custom_id"), name="existing result custom_id")
+        for record in existing_results
+    ]
+    if len(completed_ids) != len(set(completed_ids)):
+        raise ValueError("existing result file contains duplicate custom IDs")
+    unexpected_results = set(completed_ids).difference(request_ids)
+    if unexpected_results:
+        raise ValueError(f"existing results contain unknown IDs: {sorted(unexpected_results)}")
+    completed = set(completed_ids)
+    pending = tuple(
+        request
+        for request in requests
+        if _required_string(request.get("custom_id"), name="custom_id") not in completed
+    )
+    client = Cerebras(max_retries=5, timeout=180.0)
+    results_path.parent.mkdir(parents=True, exist_ok=True)
+    with results_path.open("a", encoding="utf-8", newline="\n") as handle:
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            futures = {
+                executor.submit(_sync_request, client, request): request
+                for request in pending
+            }
+            for future in as_completed(futures):
+                result = future.result()
+                handle.write(_canonical_json(result))
+                handle.write("\n")
+                handle.flush()

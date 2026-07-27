@@ -12,6 +12,67 @@ poetry result.
 
 ## Install and run
 
+### Synthetic prompt/poem corpus
+
+`scripts/generate_synthetic_corpus.py` builds a resumable, auditable synthetic
+corpus with Cerebras `gpt-oss-120b`. Generation requests rotate through
+temperature, reasoning, and creative lanes and use distinct integer seeds.
+A separate blind critique call scores every candidate. Local gates enforce
+length, repetition, exact and 12-token deduplication, and 12-token overlap
+against the original corpus. Accepted records retain synthetic provenance;
+this does not claim that model output cannot reproduce memorized text.
+
+Set `CEREBRAS_API_KEY` in the environment. Start with an eight-request,
+32-candidate pilot:
+
+```sh
+PILOT=runs/synthetic-cerebras-pilot-20260727
+uv run python scripts/generate_synthetic_corpus.py plan-generation \
+  --config configs/data/synthetic_cerebras_v1.json --requests 8 --output "$PILOT"
+uv run python scripts/generate_synthetic_corpus.py run-sync \
+  --requests "$PILOT/generation.requests.jsonl" \
+  --results "$PILOT/generation.results.jsonl" --concurrency 8
+uv run python scripts/generate_synthetic_corpus.py ingest-generation \
+  --config configs/data/synthetic_cerebras_v1.json \
+  --requests "$PILOT/generation.requests.jsonl" \
+  --results "$PILOT/generation.results.jsonl" --output "$PILOT"
+uv run python scripts/generate_synthetic_corpus.py run-sync \
+  --requests "$PILOT/critic.requests.jsonl" \
+  --results "$PILOT/critic.results.jsonl" --concurrency 8
+uv run python scripts/generate_synthetic_corpus.py finalize \
+  --config configs/data/synthetic_cerebras_v1.json \
+  --candidates "$PILOT/candidates.jsonl" \
+  --critic-results "$PILOT/critic.results.jsonl" \
+  --reference-manifest artifacts/corpus/manifest.jsonl \
+  --output "$PILOT/corpus"
+```
+
+Both synchronous stages append and flush one result at a time, so rerunning a
+command resumes missing request IDs. Treat the cached request and result JSONL
+as the reproducibility boundary: provider inference is not assumed to be
+byte-deterministic. Inspect the acceptance ledger and a representative sample
+before increasing the request count. Then merge accepted synthetic records
+with the pinned base artifacts:
+
+```sh
+uv run python scripts/generate_synthetic_corpus.py merge \
+  --base-manifest artifacts/corpus/manifest.jsonl \
+  --base-prompts artifacts/corpus/prompts.jsonl \
+  --base-thoughts artifacts/corpus/thoughts.jsonl \
+  --base-pairings artifacts/corpus/pairings.jsonl \
+  --synthetic "$PILOT/corpus" --output artifacts/corpus-v2
+uv run poetry50m prepare --corpus-manifest artifacts/corpus-v2/manifest.jsonl \
+  --prompts artifacts/corpus-v2/prompts.jsonl \
+  --thoughts artifacts/corpus-v2/thoughts.jsonl \
+  --pairings artifacts/corpus-v2/pairings.jsonl \
+  --config configs/data/corpus_synthetic_v2.json --output artifacts/prepared-v2
+```
+
+Do not scale corpus generation or repeat the full 100,000-step train solely
+because these mechanics pass. First require a small held-out training probe to
+improve prompt-keyword relevance and reduce empty prompt matches relative to
+R0.
+
 ```sh
 uv sync --extra dev
 uv run poetry50m corpus-acquire \
