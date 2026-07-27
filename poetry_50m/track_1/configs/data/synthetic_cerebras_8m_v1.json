@@ -1,0 +1,41 @@
+{
+  "format_version": 1,
+  "seed": 20260727,
+  "examples_per_request": 4,
+  "generator_lanes": [
+    {
+      "model": "gpt-oss-120b",
+      "weight": 2,
+      "temperature": 0.85,
+      "reasoning_effort": "low"
+    },
+    {
+      "model": "gpt-oss-120b",
+      "weight": 1,
+      "temperature": 1.15,
+      "reasoning_effort": "low"
+    },
+    {
+      "model": "gpt-oss-120b",
+      "weight": 1,
+      "temperature": 0.95,
+      "reasoning_effort": "medium"
+    }
+  ],
+  "critic_model": "gpt-oss-120b",
+  "critic_reasoning_effort": "medium",
+  "max_completion_tokens": 4096,
+  "quality": {
+    "minimum_prompt_adherence": 4,
+    "minimum_coherence": 4,
+    "minimum_craft": 4,
+    "minimum_originality": 4,
+    "minimum_word_count": 70,
+    "maximum_word_count": 180,
+    "minimum_line_count": 8,
+    "maximum_line_count": 20,
+    "maximum_repeated_bigram_rate": 0.15,
+    "maximum_stock_phrase_count": 0,
+    "dedup_ngram_size": 12
+  }
+}

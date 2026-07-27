@@ -211,7 +211,7 @@ def low_rank_temporal_forecast(
 
     For deltas \(D=[d_1,\ldots,d_n]\), this computes only \(D^T D\), an
     ``n x n`` matrix. Reconstruction is streamed as a weighted sum of existing
-    tensor deltas, avoiding a 50M-by-n allocation or a giant flattened SVD.
+    tensor deltas, avoiding a parameter-count-by-snapshot allocation or a giant flattened SVD.
     """
 
     assert_single_run_trajectory(snapshots)

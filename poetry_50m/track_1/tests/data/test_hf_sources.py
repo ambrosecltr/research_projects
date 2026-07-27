@@ -31,20 +31,17 @@ def test_catalog_contains_only_the_frozen_sources_and_raw_artifacts() -> None:
 
     assert tuple((source.repository, source.revision) for source in config.sources) == (
         (
-            "DanFosing/public-domain-poetry",
-            "84a87909d09ff0c3ae040c4e0af25a6344d96531",
+            "sixf0ur/nano_wiki",
+            "be3df246bb02353de57d039918c355c212edbd67",
         ),
         (
-            "yoonholee/poetry-greats-public-domain",
-            "3201e250462905a0c8f6134e124382ac96586dc9",
+            "sixf0ur/babylm_eng_distilled_1024",
+            "faa965857a012e63520f544b6b298289fe510a84",
         ),
-        ("Nelathan/standardebooks", "a2bafeeff73d3ff553e29dffc54f07772472b409"),
     )
     assert tuple(artifact.path for source in config.sources for artifact in source.artifacts) == (
-        "poems.json",
-        "data/train-00000-of-00001.parquet",
-        "data/train-00000-of-00002.parquet",
-        "data/train-00001-of-00002.parquet",
+        "nano_wiki_dataset.jsonl",
+        "babylm_cleaned.jsonl",
     )
 
 

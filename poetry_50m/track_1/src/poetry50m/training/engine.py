@@ -220,8 +220,7 @@ def restore_rng_state(state: Mapping[str, Any]) -> None:
         raise ValueError("checkpoint NumPy RNG state is malformed")
     words_cpu = words.detach().cpu()
     if words_cpu.dtype == torch.int64 and (
-        bool(torch.any(words_cpu < 0))
-        or bool(torch.any(words_cpu > np.iinfo(np.uint32).max))
+        bool(torch.any(words_cpu < 0)) or bool(torch.any(words_cpu > np.iinfo(np.uint32).max))
     ):
         raise ValueError("checkpoint NumPy RNG state is malformed")
     restored_numpy_words = words_cpu.numpy().astype(np.uint32, copy=False)
@@ -236,9 +235,7 @@ def restore_rng_state(state: Mapping[str, Any]) -> None:
         if not torch.cuda.is_available():
             raise RuntimeError("checkpoint includes CUDA RNG state but CUDA is unavailable")
     random.setstate((python_version, tuple(python_words), python_gauss))
-    np.random.set_state(
-        (generator, restored_numpy_words, position, has_gauss, cached_gaussian)
-    )
+    np.random.set_state((generator, restored_numpy_words, position, has_gauss, cached_gaussian))
     torch.set_rng_state(torch_state)
     if cuda_state is not None:
         torch.cuda.set_rng_state_all(cast(list[Tensor], cuda_state))

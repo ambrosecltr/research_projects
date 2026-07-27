@@ -18,6 +18,7 @@ from cerebras.cloud.sdk import Cerebras
 from cerebras.cloud.sdk.types.chat.chat_completion import ChatCompletionResponse
 
 from poetry50m.config import file_hash, load_mapping
+from poetry50m.rate_limit import DualTokenBucket
 from poetry50m.trajectory._persistence import atomic_write
 
 from .artifacts import (
@@ -47,6 +48,114 @@ GENERATION_LANES = (
     "compressed lyric with an emotional reversal",
 )
 
+SETTINGS = (
+    "a laundromat during its final wash cycle",
+    "a municipal swimming pool before opening",
+    "the loading bay behind a grocery store",
+    "a ferry terminal during a service delay",
+    "a suburban garage during a power cut",
+    "an all-night pharmacy near shift change",
+    "a school gym after a local election count",
+    "a repair cafe on a rainy Saturday",
+    "a hospital car park at visiting-hour changeover",
+    "a roadside fruit stall packing up",
+    "a public library while the returns chute is jammed",
+    "a train carriage being cleaned at the terminus",
+    "a community garden after hail",
+    "a takeaway kitchen just after closing",
+    "a hardware shop during inventory",
+    "a motel walkway before checkout",
+)
+
+OBJECT_PAIRS = (
+    "a bent loyalty card and a warm dryer door",
+    "a lane rope and a forgotten inhaler",
+    "a split crate and three bruised pears",
+    "a paper timetable and a damp wool sleeve",
+    "a camping lantern and a half-built shelf",
+    "a receipt printer and a blister pack",
+    "a ballot pencil and a folded basketball net",
+    "a stripped screw and a chipped coffee mug",
+    "a parking ticket and a bunch of supermarket flowers",
+    "a cash tin and a roll of twine",
+    "an overdue notice and a child-sized umbrella",
+    "a spray bottle and a newspaper left on a seat",
+    "a snapped bean pole and a hailstone in a glove",
+    "a steel bench and a bag of unused bread rolls",
+    "a stock clipboard and one mismatched hinge",
+    "a room key and a vending-machine coil",
+)
+
+ACTIONS = (
+    "someone decides whether to return an object",
+    "two strangers cooperate without introducing themselves",
+    "a routine task exposes a small lie",
+    "someone repairs the wrong thing first",
+    "a worker notices evidence left by the previous shift",
+    "a child interprets an adult procedure literally",
+    "someone rehearses a sentence and then says something else",
+    "an interruption changes who is helping whom",
+    "a minor spill forces a private decision into public view",
+    "someone counts items to avoid answering a question",
+    "an object changes hands twice",
+    "a delayed departure becomes a deliberate choice",
+    "someone follows a rule past the point where it helps",
+    "an ordinary sound reveals that a person has returned",
+    "a practical kindness is almost mistaken for criticism",
+    "someone finishes a task another person abandoned",
+)
+
+PRESSURES = (
+    "embarrassment without confession",
+    "relief mixed with resentment",
+    "care expressed as competent work",
+    "a disagreement about what counts as waste",
+    "the gap between being useful and being wanted",
+    "impatience that gradually becomes attention",
+    "an obligation that was never spoken aloud",
+    "the cost of correcting someone in public",
+    "a habit surviving after its reason is gone",
+    "gratitude that cannot be comfortably voiced",
+    "a private fear of becoming unreliable",
+    "the difference between replacing and mending",
+    "a promise inferred from repeated actions",
+    "the awkwardness of accepting help",
+    "a change noticed only through procedure",
+    "affection hidden inside precise instructions",
+)
+
+FORMS = (
+    "free verse with varied sentence lengths and no end rhyme",
+    "a scene in tercets with restrained enjambment",
+    "a compact dramatic monologue",
+    "a list poem whose final item changes the meaning of the earlier items",
+    "two unequal stanzas separated by a factual one-line hinge",
+    "a narrative lyric with one brief line of dialogue",
+    "a prose poem broken into 8 to 12 deliberate lines",
+    "a poem organized by repeated physical actions, not repeated phrases",
+)
+
+STOCK_PHRASES = (
+    "city exhales",
+    "dance of",
+    "echoes of",
+    "for a heartbeat",
+    "golden light",
+    "heart of",
+    "held its breath",
+    "hidden life",
+    "like a sigh",
+    "promise of",
+    "quiet whisper",
+    "silver thread",
+    "soft whisper",
+    "stands still",
+    "symphony of",
+    "tapestry of",
+    "time stood still",
+    "world whispers",
+)
+
 GENERATOR_SYSTEM_PROMPT = """\
 Create original, prompt-conditioned English poetry training examples.
 
@@ -57,22 +166,34 @@ Every example must:
 - respond concretely to its prompt rather than defaulting to generic stars, sea, dawn, or longing;
 - use grammatical language, intentional line breaks, and no invented malformed words;
 - avoid repeated lines, stock filler, explanatory notes, and title-only conditioning;
+- avoid prefab lyric language such as silver threads, whispers, echoes, tapestries,
+  symphonies, hearts, souls, timelessness, the world holding its breath, or a city exhaling;
+- earn its emotional turn through observed action; never finish by explaining a lesson;
+- contain no Markdown, bullets, decorative symbols, or backslashes at line endings;
 - provide three genuinely different prompts for the same poem: theme, imagery, and paraphrase;
 - keep each prompt self-contained and suitable for a user asking a small poetry model.
 
+The user supplies one concrete brief per requested example. Follow the briefs in
+order, use every specified object naturally, and do not swap settings between examples.
 Return only the strict JSON object requested by the schema."""
 
 CRITIC_SYSTEM_PROMPT = """\
-You are an exacting independent poetry-data editor. Judge the supplied synthetic example,
-not the generator's intentions. Reject it if the poem ignores its prompts, is incoherent,
-generic, repetitive, malformed, suspiciously quotes known writing, imitates a named author,
-or would teach a small model bad habits. Scores are integers from 1 (unusable) to 5
-(excellent). Return only the strict JSON object requested by the schema."""
+You are the final gatekeeper for a small language model's training corpus, not a
+supportive workshop reader. Judge only the supplied example. Most competent first
+drafts should score 3 or lower. A 4 must be specific, controlled, memorable, and free
+of prefab lyric language. A 5 is rare and publication-ready.
+
+Reject generic emotional summaries, moral explanations, arbitrary metaphor stacking,
+decorative surrealism without causal sense, repeated image families, mechanical rhyme,
+Markdown artifacts, or phrases such as silver thread, whispers, echoes, tapestry,
+symphony, heart/soul shorthand, timeless, held its breath, and city exhales. Reject if
+the poem merely names the requested objects instead of making them affect the scene.
+Also reject incoherence, degeneration, suspicious quotation, or named-author imitation.
+Set decision to accept only when prompt adherence, coherence, craft, and originality
+are all at least 4 and no rejection concern applies. Return only the strict JSON object."""
 
 
-def _exact_object(
-    value: object, *, name: str, required: set[str]
-) -> dict[str, object]:
+def _exact_object(value: object, *, name: str, required: set[str]) -> dict[str, object]:
     if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
         raise TypeError(f"{name} must be an object with string keys")
     actual = set(value)
@@ -186,6 +307,7 @@ class QualityConfig:
     minimum_line_count: int
     maximum_line_count: int
     maximum_repeated_bigram_rate: float
+    maximum_stock_phrase_count: int
     dedup_ngram_size: int
 
     @classmethod
@@ -200,6 +322,7 @@ class QualityConfig:
             "minimum_line_count",
             "maximum_line_count",
             "maximum_repeated_bigram_rate",
+            "maximum_stock_phrase_count",
             "dedup_ngram_size",
         }
         data = _exact_object(value, name="quality config", required=fields)
@@ -210,9 +333,7 @@ class QualityConfig:
             minimum_coherence=_required_integer(
                 data["minimum_coherence"], name="minimum_coherence"
             ),
-            minimum_craft=_required_integer(
-                data["minimum_craft"], name="minimum_craft"
-            ),
+            minimum_craft=_required_integer(data["minimum_craft"], name="minimum_craft"),
             minimum_originality=_required_integer(
                 data["minimum_originality"], name="minimum_originality"
             ),
@@ -231,6 +352,11 @@ class QualityConfig:
             maximum_repeated_bigram_rate=_required_number(
                 data["maximum_repeated_bigram_rate"],
                 name="maximum_repeated_bigram_rate",
+            ),
+            maximum_stock_phrase_count=_required_integer(
+                data["maximum_stock_phrase_count"],
+                name="maximum_stock_phrase_count",
+                minimum=0,
             ),
             dedup_ngram_size=_required_integer(
                 data["dedup_ngram_size"], name="dedup_ngram_size", minimum=2
@@ -575,6 +701,22 @@ def _batch_request(custom_id: str, body: Mapping[str, object]) -> dict[str, obje
     }
 
 
+def _generation_briefs(index: int, count: int, seed: int) -> tuple[dict[str, str], ...]:
+    briefs: list[dict[str, str]] = []
+    for ordinal in range(count):
+        digest = sha256(f"{seed}:{index}:{ordinal}:brief".encode()).digest()
+        briefs.append(
+            {
+                "setting": SETTINGS[digest[0] % len(SETTINGS)],
+                "required_objects": OBJECT_PAIRS[digest[1] % len(OBJECT_PAIRS)],
+                "physical_event": ACTIONS[digest[2] % len(ACTIONS)],
+                "emotional_pressure": PRESSURES[digest[3] % len(PRESSURES)],
+                "form": FORMS[digest[4] % len(FORMS)],
+            }
+        )
+    return tuple(briefs)
+
+
 def plan_generation(
     config_path: Path, *, request_count: int, output_directory: Path
 ) -> tuple[Path, Path]:
@@ -588,6 +730,7 @@ def plan_generation(
         custom_id = f"poetry-synthetic-{index:08d}"
         diversity_lane = GENERATION_LANES[index % len(GENERATION_LANES)]
         diversity_seed = sha256(f"{config.seed}:{index}".encode()).hexdigest()
+        briefs = _generation_briefs(index, config.examples_per_request, config.seed)
         body = {
             "model": lane.model,
             "messages": [
@@ -597,7 +740,8 @@ def plan_generation(
                     "content": (
                         f"Generate {config.examples_per_request} mutually distinct examples. "
                         f"Creative lane: {diversity_lane}. Diversity seed: {diversity_seed}. "
-                        "The seed is only an identity marker; do not include it in the output."
+                        "The seed is only an identity marker; do not include it in the output. "
+                        f"Briefs in required output order: {_canonical_json(briefs)}"
                     ),
                 },
             ],
@@ -617,6 +761,7 @@ def plan_generation(
                 "model": lane.model,
                 "diversity_lane": diversity_lane,
                 "diversity_seed": diversity_seed,
+                "briefs": briefs,
                 "request_sha256": sha256(_canonical_json(body).encode()).hexdigest(),
             }
         )
@@ -729,8 +874,7 @@ def ingest_generation_results(
         examples = content.get("examples")
         if not isinstance(examples, list) or len(examples) != config.examples_per_request:
             raise ValueError(
-                f"generation result {custom_id} must contain "
-                f"{config.examples_per_request} examples"
+                f"generation result {custom_id} must contain {config.examples_per_request} examples"
             )
         candidates.extend(
             SyntheticCandidate.from_generation(
@@ -823,10 +967,7 @@ def _reference_ngram_matches(
         for document in iter_manifest(reference_manifest, allow_synthetic=True):
             for block in document.blocks:
                 matched.update(_ngrams(_words(block.text), ngram_size) & query_ngrams)
-    return {
-        candidate_id: ngrams & matched
-        for candidate_id, ngrams in candidate_ngrams.items()
-    }
+    return {candidate_id: ngrams & matched for candidate_id, ngrams in candidate_ngrams.items()}
 
 
 def _local_quality_reasons(candidate: SyntheticCandidate, config: QualityConfig) -> tuple[str, ...]:
@@ -843,8 +984,14 @@ def _local_quality_reasons(candidate: SyntheticCandidate, config: QualityConfig)
         reasons.append(f"line_count={len(lines)}")
     if len(set(lines)) != len(lines):
         reasons.append("repeated_lines")
+    if any(line.endswith("\\") for line in lines):
+        reasons.append("markdown_line_break")
     if repeated_bigram_rate > config.maximum_repeated_bigram_rate:
         reasons.append(f"repeated_bigram_rate={repeated_bigram_rate:.6f}")
+    normalized_poem = " ".join(words)
+    stock_phrase_count = sum(normalized_poem.count(phrase) for phrase in STOCK_PHRASES)
+    if stock_phrase_count > config.maximum_stock_phrase_count:
+        reasons.append(f"stock_phrase_count={stock_phrase_count}")
     return tuple(reasons)
 
 
@@ -922,7 +1069,7 @@ def _source_document(candidate: SyntheticCandidate, critique: Critique) -> Sourc
             "critic_model": "gpt-oss-120b",
         },
         transformation_lineage=(
-            "groq_strict_json_generation",
+            "cerebras_strict_json_generation",
             "independent_gpt_oss_critique",
             "local_quality_gates",
         ),
@@ -1012,9 +1159,7 @@ def finalize_synthetic_corpus(
             document_id=candidate.candidate_id,
             prompt=prompt.text,
             method=cast(PromptMethod, prompt.method),
-            source_attribution=(
-                f"synthetic:{candidate.generator_model}:{candidate.request_id}"
-            ),
+            source_attribution=(f"synthetic:{candidate.generator_model}:{candidate.request_id}"),
             poem_id=f"{candidate.candidate_id}:poem",
         )
         for candidate in accepted
@@ -1084,9 +1229,7 @@ def merge_corpus_artifacts(
         {prompt.document_id for prompt in prompts}.difference(document_ids)
     )
     if unknown_prompt_documents:
-        raise ValueError(
-            f"merged prompts reference unknown documents: {unknown_prompt_documents}"
-        )
+        raise ValueError(f"merged prompts reference unknown documents: {unknown_prompt_documents}")
     unknown_thought_documents = sorted(
         {thought.document_id for thought in thoughts}.difference(document_ids)
     )
@@ -1133,9 +1276,7 @@ def merge_corpus_artifacts(
     return receipt_path
 
 
-def _write_merged_manifest(
-    output_path: Path, *, manifests: Sequence[Path]
-) -> tuple[int, set[str]]:
+def _write_merged_manifest(output_path: Path, *, manifests: Sequence[Path]) -> tuple[int, set[str]]:
     def ordered_documents(path: Path) -> Iterable[SourceDocument]:
         previous_id: str | None = None
         for document in iter_manifest(path, allow_synthetic=True):
@@ -1172,25 +1313,51 @@ def _write_merged_manifest(
     return document_count, document_ids
 
 
-def _sync_request(client: Cerebras, request: Mapping[str, object]) -> dict[str, object]:
+def _request_token_estimate(body: Mapping[str, object]) -> int:
+    maximum_completion = _required_integer(
+        body.get("max_completion_tokens"),
+        name="max_completion_tokens",
+    )
+    input_bytes = len(_canonical_json(body).encode("utf-8"))
+    conservative_input_tokens = (input_bytes + 2) // 3
+    return maximum_completion + conservative_input_tokens
+
+
+def _sync_request(
+    client: Cerebras,
+    request: Mapping[str, object],
+    limiter: DualTokenBucket,
+) -> dict[str, object]:
     custom_id = _required_string(request.get("custom_id"), name="custom_id")
     body = request.get("body")
     if not isinstance(body, dict):
         raise TypeError(f"request {custom_id} body must be an object")
+    reserved_tokens = _request_token_estimate(body)
+    limiter.acquire(reserved_tokens)
     completion = client.post(
         "/v1/chat/completions",
         cast_to=ChatCompletionResponse,
         body=cast(dict[str, object], body),
     )
+    response_body = completion.model_dump(mode="json")
+    usage = response_body.get("usage")
+    total_tokens = usage.get("total_tokens") if isinstance(usage, dict) else None
+    if isinstance(total_tokens, int) and not isinstance(total_tokens, bool) and total_tokens >= 0:
+        limiter.refund_model_tokens(reserved_tokens, total_tokens)
     return {
         "custom_id": custom_id,
-        "response": {"status_code": 200, "body": completion.model_dump(mode="json")},
+        "response": {"status_code": 200, "body": response_body},
         "error": None,
     }
 
 
 def run_synchronous_batch(
-    requests_path: Path, results_path: Path, *, concurrency: int = 8
+    requests_path: Path,
+    results_path: Path,
+    *,
+    concurrency: int = 8,
+    requests_per_minute: int = 950,
+    tokens_per_minute: int = 950_000,
 ) -> None:
     if concurrency < 1:
         raise ValueError("concurrency must be positive")
@@ -1198,8 +1365,7 @@ def run_synchronous_batch(
         raise RuntimeError("CEREBRAS_API_KEY is required")
     requests = _read_jsonl(requests_path)
     request_ids = [
-        _required_string(request.get("custom_id"), name="custom_id")
-        for request in requests
+        _required_string(request.get("custom_id"), name="custom_id") for request in requests
     ]
     if len(request_ids) != len(set(request_ids)):
         raise ValueError("request file contains duplicate custom IDs")
@@ -1219,16 +1385,29 @@ def run_synchronous_batch(
         for request in requests
         if _required_string(request.get("custom_id"), name="custom_id") not in completed
     )
-    client = Cerebras(max_retries=5, timeout=180.0)
+    limiter = DualTokenBucket(
+        requests_per_minute=requests_per_minute,
+        tokens_per_minute=tokens_per_minute,
+    )
+    client = Cerebras(max_retries=0, timeout=180.0)
     results_path.parent.mkdir(parents=True, exist_ok=True)
+    failures: list[Exception] = []
     with results_path.open("a", encoding="utf-8", newline="\n") as handle:
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             futures = {
-                executor.submit(_sync_request, client, request): request
+                executor.submit(_sync_request, client, request, limiter): request
                 for request in pending
             }
             for future in as_completed(futures):
-                result = future.result()
+                try:
+                    result = future.result()
+                except Exception as error:
+                    failures.append(error)
+                    continue
                 handle.write(_canonical_json(result))
                 handle.write("\n")
                 handle.flush()
+    if failures:
+        raise RuntimeError(
+            f"{len(failures)} Cerebras requests failed; successful results were preserved"
+        ) from failures[0]

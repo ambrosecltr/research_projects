@@ -15,7 +15,7 @@ class ModelConfig:
     """Configuration shared by the conventional GPT and normalized nGPT variants.
 
     ``ffn_dim`` is explicit rather than inferred so parameter budgets remain auditable.
-    The production configuration in ``configs/model/track1_50m.yaml`` has 50,343,424
+    The production configuration in ``configs/model/track1_8m.yaml`` has 8,335,008
     trainable parameters with these assumptions (no linear biases).
     """
 

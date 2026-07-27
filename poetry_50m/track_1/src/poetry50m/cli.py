@@ -166,12 +166,11 @@ def corpus_acquire_command(args: argparse.Namespace) -> int:
 
 
 def corpus_build_command(args: argparse.Namespace) -> int:
-    from poetry50m.data.corpus_builder import build_corpus
+    from poetry50m.data.knowledge_corpus import build_knowledge_corpus
 
-    build_corpus(
+    build_knowledge_corpus(
         acquisition_directory=Path(args.acquisition),
-        catalog_path=Path(args.catalog),
-        selection_config_path=Path(args.selection_config),
+        sources_config=Path(args.sources_config),
         output_directory=Path(args.output),
     )
     return 0
@@ -531,8 +530,7 @@ def build_parser() -> argparse.ArgumentParser:
     acquire.set_defaults(handler=corpus_acquire_command)
     corpus_build = commands.add_parser("corpus-build")
     corpus_build.add_argument("--acquisition", required=True)
-    corpus_build.add_argument("--catalog", required=True)
-    corpus_build.add_argument("--selection-config", required=True)
+    corpus_build.add_argument("--sources-config", required=True)
     corpus_build.add_argument("--output", required=True)
     corpus_build.set_defaults(handler=corpus_build_command)
     prepare = commands.add_parser("prepare")

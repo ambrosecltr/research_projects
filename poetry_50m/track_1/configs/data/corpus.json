@@ -3,7 +3,7 @@
   "manifest_format": "jsonl",
   "manifest_schema": "SourceDocument",
   "split": {
-    "salt": "poetry50m-track1-v1",
+    "salt": "poetry50m-track1-8m-v1",
     "train": 0.9,
     "validation": 0.05,
     "test": 0.05
@@ -21,6 +21,6 @@
     "auxiliary_prose_ntp": 0.25
   },
   "rights": {
-    "allow_synthetic": false
+    "allow_synthetic": true
   }
 }

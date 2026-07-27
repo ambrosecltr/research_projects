@@ -2,7 +2,7 @@
 
 ## Decision
 
-Start with **verified low-rank checkpoint transport**. It is a compact endpoint-informed experiment: one reference 50M training trajectory teaches a forecast rule; one replay tests same-run compression; one sealed run tests transfer. The aim is a useful poetry model faster, not a paper-shaped grid.
+Start with **verified low-rank checkpoint transport**. It is a compact endpoint-informed experiment: one reference 8M training trajectory teaches a forecast rule; one replay tests same-run compression; one sealed run tests transfer. The aim is a useful poetry model faster, not a paper-shaped grid.
 
 The protocol treats published components as reusable. It re-tests only the integration boundaries created by this corpus, this model scale, the transport combination, and the success claim being made.
 
@@ -11,45 +11,35 @@ The protocol treats published components as reusable. It re-tests only the integ
 ### First lineage
 
 The implemented first lineage is **training from scratch with a corpus-trained
-tokenizer** on the pinned Hugging Face corpus in
-[`configs/data/huggingface_sources.json`](../configs/data/huggingface_sources.json) with the
-[`configs/data/standard_ebooks_selection.json`](../configs/data/standard_ebooks_selection.json)
-work selection.
-It is the corpus itself, not a foundation/adaptation stage. The two poetry
-datasets provide the poetry targets; the selected Standard Ebooks works provide
-auxiliary contemplative and philosophical prose. Every reference run,
-trajectory, and endpoint claim is about this exact corpus revision and build.
+tokenizer** on pinned Hugging Face knowledge artifacts in
+[`configs/data/huggingface_sources.json`](../configs/data/huggingface_sources.json)
+plus an approved, separately receipted Cerebras GPT-OSS synthetic poetry
+corpus. The pinned artifacts provide auxiliary prose and the synthetic corpus
+provides conditional poetry targets. Every reference run, trajectory, and
+endpoint claim is about the exact merged corpus and receipts.
 
 | Source | Pinned revision | Role |
 | --- | --- | --- |
-| `yoonholee/poetry-greats-public-domain` | `3201e250462905a0c8f6134e124382ac96586dc9` | poetry core |
-| `DanFosing/public-domain-poetry` | `84a87909d09ff0c3ae040c4e0af25a6344d96531` | poetry breadth after deduplication |
-| `Nelathan/standardebooks` | `a2bafeeff73d3ff553e29dffc54f07772472b409` | selected contemplative/philosophical works |
+| `sixf0ur/nano_wiki` | `be3df246bb02353de57d039918c355c212edbd67` | synthetic educational prose |
+| `sixf0ur/babylm_eng_distilled_1024` | `faa965857a012e63520f544b6b298289fe510a84` | distilled general prose |
 
-Dataset-level terms do not establish the rights status of every underlying
-edition or translation. Preserve work, edition, translator, source locator,
-and rights evidence per record; retain `unknown` where that evidence is not
-available, and exclude only explicitly denied material.
+Nano Wiki is attributed as CC BY 4.0. The BabyLM-distilled uploader declares
+CC0, but the source collection had per-document licences and the distilled rows
+lost those links, so the canonical records deliberately retain `unknown`.
 
 ### Data contract
 
-Acquire the three pinned revisions into an external acquisition directory, then
-run `corpus-build` to create the four JSONL inputs consumed by `prepare`. The
-build receipt binds the acquisition directory, acquired-file hashes, selected
-work list, and output hashes. It canonicalizes and removes exact normalized-text
-duplicate poetry **before** splitting or tokenizer training, retaining every
-contributing origin in metadata. A source document has one stable
-semantic document ID; all variants of a poem and its conditioning remain a
-single split family. Standard Ebooks selection is an exact title-and-author
-pair, not a title-only lookup.
+Acquire the two pinned revisions into an external acquisition directory, then
+run `corpus-build` to create the knowledge JSONL inputs. Generate poetry
+separately, run the blind critic and local gates, and merge only the accepted
+synthetic artifacts. The receipts bind acquired-file hashes, provider usage,
+candidate decisions, and final output hashes. A source document has one stable
+semantic document ID, so all conditioning for one poem remains in one split.
 
-Every retained source record has: immutable source ID, work/title, author,
-any edition/translator and page/section fields supplied by the source, rights
-status, raw text hash, cleaned text hash, and transformation lineage. Keep
-poems/stanzas and philosophical passages intact; do not silently flatten source
-boundaries into random blocks. The selected Standard Ebooks Markdown is
-segmented as `document`/`paragraph` and supplies auxiliary prose NTP; it does
-not create conditional poetry targets.
+Every retained source record has an immutable source ID, source locator, rights
+status, raw text, cleaned text, and transformation lineage. Knowledge rows are
+paragraph documents for auxiliary prose NTP. Accepted synthetic poems retain
+their prompts and explicit synthetic provenance.
 
 Create records with actual conditioning:
 
@@ -87,7 +77,11 @@ supervised-token ratio from the prepared artifact/run receipt with every result.
 
 ### Model contract
 
-Use one fixed approximately-50M decoder architecture for the first lineage, with a documented exact parameter count, tokenizer hash, context length, precision, optimizer, data order, and seed. A conventional normalized decoder is the control. nGPT-style per-vector normalization is a later co-design branch, not the default; [nGPT](https://arxiv.org/abs/2410.01131) establishes fewer *steps* in its experiments, not a guaranteed wall-clock multiplier or cleaner Track 1 trajectories.
+Use the fixed 8,335,008-parameter decoder in `configs/model/track1_8m.yaml` for
+the first lineage: 6 layers, width 288, 6 heads, FFN width 768, tied 8,192-token
+embeddings, and a 1,024-token context. Record tokenizer hash, precision,
+optimizer, data order, and seed. A conventional normalized decoder is the
+control; nGPT remains only a possible later co-design branch.
 
 The main optimizer should be a strong, simple baseline with all states checkpointed. Newton-Muon is eligible only after confirming its implementation and matrix-shape assumptions; its reported GPT-2 speedup in [Newton-Muon](https://arxiv.org/abs/2604.01472) is evidence for a candidate baseline, not a required dependency.
 
@@ -233,4 +227,4 @@ Stop the first branch if either (a) no transport candidate is accepted over the 
 
 If low-rank transport fails, keep the same R0 captures and train a small, layer-shared controller to output a conservative transport coefficient or baseline-update multiplier. Inputs are current/short-history loss slope, gradient and update norms, activation-similarity phase signal, and spectral summaries. Its training target is future anchor-function improvement, not an exact raw final weight.
 
-This branch is a **speculative hypothesis**. It is bounded by the same R1/R2 gate and cost accounting. It does not begin with full weight diffusion, a hypernetwork that emits 50M scalars, or a broad optimizer meta-training campaign. G.pt, RELEX, NExt, and DeepWeightFlow make those later branches credible directions; they do not make them the efficient first personal experiment.
+This branch is a **speculative hypothesis**. It is bounded by the same R1/R2 gate and cost accounting. It does not begin with full weight diffusion, a hypernetwork that emits 8M scalars, or a broad optimizer meta-training campaign. G.pt, RELEX, NExt, and DeepWeightFlow make those later branches credible directions; they do not make them the efficient first personal experiment.

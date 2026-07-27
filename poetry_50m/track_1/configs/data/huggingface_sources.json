@@ -2,62 +2,38 @@
   "format_version": 1,
   "sources": [
     {
-      "source_id": "public_domain_poetry",
-      "repository": "DanFosing/public-domain-poetry",
-      "revision": "84a87909d09ff0c3ae040c4e0af25a6344d96531",
-      "artifact_kind": "poem_records_json",
+      "source_id": "nano_wiki",
+      "repository": "sixf0ur/nano_wiki",
+      "revision": "be3df246bb02353de57d039918c355c212edbd67",
+      "artifact_kind": "synthetic_knowledge_jsonl",
       "repository_files": [
         ".gitattributes",
         "README.md",
-        "poems.json"
+        "nano_wiki_dataset.jsonl"
       ],
       "artifacts": [
         {
-          "path": "poems.json",
-          "sha256": "172cd2c5d953c7023390a8d1f337d023d7fbb2b925df0a66d0221f30c6adc308",
-          "size_bytes": 94209335
+          "path": "nano_wiki_dataset.jsonl",
+          "sha256": "11715b0b3b1a34750314a8fad81f9fe53c5bd2103e95df4cad00da2045db2576",
+          "size_bytes": 13801046
         }
       ]
     },
     {
-      "source_id": "poetry_greats_public_domain",
-      "repository": "yoonholee/poetry-greats-public-domain",
-      "revision": "3201e250462905a0c8f6134e124382ac96586dc9",
-      "artifact_kind": "poem_records_parquet",
+      "source_id": "babylm_distilled",
+      "repository": "sixf0ur/babylm_eng_distilled_1024",
+      "revision": "faa965857a012e63520f544b6b298289fe510a84",
+      "artifact_kind": "distilled_text_jsonl",
       "repository_files": [
         ".gitattributes",
         "README.md",
-        "data/train-00000-of-00001.parquet"
+        "babylm_cleaned.jsonl"
       ],
       "artifacts": [
         {
-          "path": "data/train-00000-of-00001.parquet",
-          "sha256": "9920f9c5919dbb3a68c258f2597cbb7dfaa1ff9549d992c410cc5910cffc8725",
-          "size_bytes": 4362856
-        }
-      ]
-    },
-    {
-      "source_id": "standardebooks",
-      "repository": "Nelathan/standardebooks",
-      "revision": "a2bafeeff73d3ff553e29dffc54f07772472b409",
-      "artifact_kind": "ebook_records_parquet",
-      "repository_files": [
-        ".gitattributes",
-        "README.md",
-        "data/train-00000-of-00002.parquet",
-        "data/train-00001-of-00002.parquet"
-      ],
-      "artifacts": [
-        {
-          "path": "data/train-00000-of-00002.parquet",
-          "sha256": "09a748932912092d00dffae50f49c91f8d9c122cebb2c8df3b32a63a69c44cf6",
-          "size_bytes": 219906476
-        },
-        {
-          "path": "data/train-00001-of-00002.parquet",
-          "sha256": "2fdc4af4cf4b885523adb952c5df5ae03cc133296009f3f46fb57004bf16f1ee",
-          "size_bytes": 210331958
+          "path": "babylm_cleaned.jsonl",
+          "sha256": "0d68f04f4059ca8fb743b2a20884f9300f1cf18dc3dbafc1461b00a6381a3214",
+          "size_bytes": 109184630
         }
       ]
     }

@@ -2,7 +2,7 @@
 
 ## Purpose and evidence standard
 
-Track 1 asks a concrete, deliberately open question: after observing how a 50M language model reaches a useful poetry endpoint, can part of that path be predicted well enough to reach comparable poetry quality in fewer training steps and less elapsed GPU time? The result may be a conventional optimizer, intermittent checkpoint transport, a controller of the training path, or a hybrid. It is not assumed to be any one of those before evidence selects one.
+Track 1 asks a concrete, deliberately open question: after observing how an 8M language model reaches a useful poetry endpoint, can part of that path be predicted well enough to reach comparable poetry quality in fewer training steps and less elapsed GPU time? The result may be a conventional optimizer, intermittent checkpoint transport, a controller of the training path, or a hybrid. It is not assumed to be any one of those before evidence selects one.
 
 Each claim below is labelled as one of:
 
@@ -14,17 +14,15 @@ The training regime matters. A result in **from-scratch pretraining** is closest
 
 ## Track 1 corpus contract
 
-The first lineage trains from scratch on the pinned Hugging Face corpus in
-[`configs/data/huggingface_sources.json`](../configs/data/huggingface_sources.json), with the
-Standard Ebooks works selected in
-[`configs/data/standard_ebooks_selection.json`](../configs/data/standard_ebooks_selection.json):
-the yoonholee poetry collection as its core, the DanFosing collection for
-deduplicated breadth, and a compact Standard Ebooks philosophy/contemplation
-selection. It is not an external foundation stage. The two poetry datasets
-create conditional targets; the selected Standard Ebooks paragraphs/documents
-create the auxiliary prose NTP stream. Exact normalized-text duplicates are
-removed before the whole-document split and tokenizer fit, while provenance
-keeps all origins.
+The first lineage trains from scratch on pinned Nano Wiki and distilled BabyLM
+knowledge artifacts in
+[`configs/data/huggingface_sources.json`](../configs/data/huggingface_sources.json)
+plus separately generated, critiqued, locally filtered Cerebras GPT-OSS poetry.
+The pinned sources create the auxiliary prose NTP stream and the synthetic
+records create conditional poetry targets. Exact normalized-text duplicates are
+removed before the whole-document split and tokenizer fit. Nano Wiki is
+attributed as CC BY 4.0; distilled BabyLM remains rights-unknown because its
+upstream per-document provenance was not retained.
 
 The intended 80/20 mix means four conditional-poetry batches for each
 auxiliary-prose batch (`1.0` / `0.25`), not a claim about raw documents or
@@ -38,7 +36,7 @@ tokens. Prepared artifacts report the realized packed supervised-token mix.
 
 - **Demonstrated — mixed vision transfer.** [Introspection](https://arxiv.org/abs/1704.04959) trained a compact network to forecast scalar weight evolution from a source run and used jumps while training MNIST, CIFAR-10, and ImageNet classifiers. Its authors explicitly note early jumps could harm the outcome. This is neither transformer nor language-model pretraining evidence.
 - **Demonstrated — from-scratch LM pretraining, but preliminary.** [Leap+Verify](https://arxiv.org/abs/2602.19580) evaluated analytic forecasts on GPT-2 124M and Qwen 2.5 1.5B on WikiText-103. Adam-moment extrapolation produced very large loss increases; linear and quadratic finite-difference forecasts were sometimes accepted after held-out-loss verification. Its regime detector used a fixed probe set’s activation-space cosine similarity. The paper measures acceptance, not an established end-to-end wall-clock win.
-- **Plausible extrapolation.** A 50M model is small enough that periodic checkpoints, a probe set, and several forecast candidates are cheap. The verified-jump pattern is therefore a particularly good personal-project substrate.
+- **Plausible extrapolation.** An 8M model is small enough that periodic checkpoints, a probe set, and several forecast candidates are cheap. The verified-jump pattern is therefore a particularly good personal-project substrate.
 - **Speculative hypothesis.** A forecast in a symmetry-aware, low-dimensional coordinate system will be accepted more often than a raw parameter forecast at the same compute budget.
 
 **Track 1 implication.** Direct, verified finite-difference jumps are the first control baseline. Never use extrapolated Adam moments as the first method; Leap+Verify makes that a poor bet rather than an impossibility.
@@ -65,7 +63,7 @@ tokens. Prepared artifacts report the realized packed supervised-token mix.
 - **Plausible extrapolation.** A small layer-shared controller trained from Track 1 reference checkpoints could learn when to apply a safe jump or modify a Newton-Muon/Muon-like direction without learning a full optimizer from scratch.
 - **Speculative hypothesis.** Fit a learned local controller first, then distill its behaviour by symbolic search into a concise formula. The formula is the deliverable only if it survives the unseen-run gate; no formula is assumed in advance.
 
-**Track 1 implication.** This is a second-stage branch, after the reference run establishes which local statistics forecast progress. It should predict low-dimensional controls rather than 50M independent updates.
+**Track 1 implication.** This is a second-stage branch, after the reference run establishes which local statistics forecast progress. It should predict low-dimensional controls rather than 8M independent updates.
 
 ### 4. Function-space endpoint prediction
 
@@ -93,7 +91,7 @@ This can work even when two equally good networks use different hidden-unit perm
 **Idea.** A transformer’s heads, MLP channels, and some equivalent internal bases can be re-indexed without changing the computed function. Before comparing independent trajectories, align/canonicalize them or use a representation/equivariant model that respects those transformations. Then a hypernetwork, flow, or graph model may generate a future weight state.
 
 - **Demonstrated — alignment in vision networks.** [Git Re-Basin](https://arxiv.org/abs/2209.04836) gives algorithms to permute hidden units into an aligned weight-space basin and demonstrates zero-barrier linear connectivity for independently trained ResNets on CIFAR-10. It is compelling symmetry evidence, but not a guarantee that a full decoder-only transformer can be globally re-based by the same recipe.
-- **Demonstrated — weight generation after canonicalization.** [DeepWeightFlow](https://arxiv.org/abs/2601.05052) uses re-basing/canonicalization before flow matching complete weights and reports high-performing generated weights across its tested architectures. The authors’ target settings are not 50M language models.
+- **Demonstrated — weight generation after canonicalization.** [DeepWeightFlow](https://arxiv.org/abs/2601.05052) uses re-basing/canonicalization before flow matching complete weights and reports high-performing generated weights across its tested architectures. The authors’ target settings are not 8M language models.
 - **Plausible extrapolation.** For a fixed transformer architecture, head and channel matching using activation signatures from a fixed anchor set is a practical first approximation before any cross-seed delta averaging.
 - **Speculative hypothesis.** An architecture-graph, permutation-equivariant trajectory predictor can transfer across width/depth variants more readily than a flat-vector predictor. This is a later Track 1 branch, not the first weekend experiment.
 
@@ -164,7 +162,7 @@ Level 1 is a worthwhile discovery. It must be reported as trajectory compression
 
 ### Highest-information first: verified low-rank checkpoint transport
 
-Use one 50M reference pretraining run and save a compact early/middle
+Use one 8M reference pretraining run and save a compact early/middle
 weights-only checkpoint window. Freeze the deterministic anchor selection
 before target training, then extract its logits/final residuals post hoc from
 those snapshots during verification; the first branch does not write separate

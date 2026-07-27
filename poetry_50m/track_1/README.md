@@ -4,11 +4,11 @@ This is a local, end-to-end personal research system: preparation preserves
 rights and provenance; training is deterministic and resumable; evaluation is a
 fixed three-seed suite; and transport is verified against held-out packed data
 before it can alter a checkpoint. Track 1's first lineage is the pinned,
-publicly downloadable Hugging Face corpus described by
-[`configs/data/huggingface_sources.json`](configs/data/huggingface_sources.json) and
-[`configs/data/standard_ebooks_selection.json`](configs/data/standard_ebooks_selection.json),
-not a claim that it has trained a 50M model or that a tiny synthetic run is a
-poetry result.
+publicly downloadable knowledge corpus described by
+[`configs/data/huggingface_sources.json`](configs/data/huggingface_sources.json)
+plus a separately generated and audited synthetic poetry corpus. The production
+model is an 8,335,008-parameter GPT with a 1,024-token context. A tiny synthetic
+run is a pipeline and quality-review gate, not a poetry result.
 
 ## Install and run
 
@@ -26,52 +26,36 @@ Set `CEREBRAS_API_KEY` in the environment. Start with an eight-request,
 32-candidate pilot:
 
 ```sh
-PILOT=runs/synthetic-cerebras-pilot-20260727
+PILOT="runs/synthetic-cerebras-pilot-$(date +%Y%m%d-%H%M%S)"
 uv run python scripts/generate_synthetic_corpus.py plan-generation \
-  --config configs/data/synthetic_cerebras_v1.json --requests 8 --output "$PILOT"
+  --config configs/data/synthetic_cerebras_8m_v1.json --requests 8 --output "$PILOT"
 uv run python scripts/generate_synthetic_corpus.py run-sync \
   --requests "$PILOT/generation.requests.jsonl" \
   --results "$PILOT/generation.results.jsonl" --concurrency 8
 uv run python scripts/generate_synthetic_corpus.py ingest-generation \
-  --config configs/data/synthetic_cerebras_v1.json \
+  --config configs/data/synthetic_cerebras_8m_v1.json \
   --requests "$PILOT/generation.requests.jsonl" \
   --results "$PILOT/generation.results.jsonl" --output "$PILOT"
 uv run python scripts/generate_synthetic_corpus.py run-sync \
   --requests "$PILOT/critic.requests.jsonl" \
   --results "$PILOT/critic.results.jsonl" --concurrency 8
 uv run python scripts/generate_synthetic_corpus.py finalize \
-  --config configs/data/synthetic_cerebras_v1.json \
+  --config configs/data/synthetic_cerebras_8m_v1.json \
   --candidates "$PILOT/candidates.jsonl" \
   --critic-results "$PILOT/critic.results.jsonl" \
-  --reference-manifest artifacts/corpus/manifest.jsonl \
   --output "$PILOT/corpus"
 ```
 
 Both synchronous stages append and flush one result at a time, so rerunning a
 command resumes missing request IDs. Treat the cached request and result JSONL
 as the reproducibility boundary: provider inference is not assumed to be
-byte-deterministic. Inspect the acceptance ledger and a representative sample
-before increasing the request count. Then merge accepted synthetic records
-with the pinned base artifacts:
+byte-deterministic. Calls are paced by independent request and model-token
+buckets at 95% of the stated Cerebras limits by default. Inspect the acceptance
+ledger and a representative sample before calculating or approving the full
+request count.
 
-```sh
-uv run python scripts/generate_synthetic_corpus.py merge \
-  --base-manifest artifacts/corpus/manifest.jsonl \
-  --base-prompts artifacts/corpus/prompts.jsonl \
-  --base-thoughts artifacts/corpus/thoughts.jsonl \
-  --base-pairings artifacts/corpus/pairings.jsonl \
-  --synthetic "$PILOT/corpus" --output artifacts/corpus-v2
-uv run poetry50m prepare --corpus-manifest artifacts/corpus-v2/manifest.jsonl \
-  --prompts artifacts/corpus-v2/prompts.jsonl \
-  --thoughts artifacts/corpus-v2/thoughts.jsonl \
-  --pairings artifacts/corpus-v2/pairings.jsonl \
-  --config configs/data/corpus_synthetic_v2.json --output artifacts/prepared-v2
-```
-
-Do not scale corpus generation or repeat the full 100,000-step train solely
-because these mechanics pass. First require a small held-out training probe to
-improve prompt-keyword relevance and reduce empty prompt matches relative to
-R0.
+Acquire and build the pinned knowledge sources, then merge them with an
+approved synthetic corpus:
 
 ```sh
 uv sync --extra dev
@@ -80,39 +64,52 @@ uv run poetry50m corpus-acquire \
   --output artifacts/acquired
 uv run poetry50m corpus-build \
   --acquisition artifacts/acquired \
-  --catalog artifacts/acquired/acquisition_receipt.json \
-  --selection-config configs/data/standard_ebooks_selection.json \
-  --output artifacts/corpus
+  --sources-config configs/data/huggingface_sources.json \
+  --output artifacts/knowledge
+uv run python scripts/generate_synthetic_corpus.py merge \
+  --base-manifest artifacts/knowledge/manifest.jsonl \
+  --base-prompts artifacts/knowledge/prompts.jsonl \
+  --base-thoughts artifacts/knowledge/thoughts.jsonl \
+  --base-pairings artifacts/knowledge/pairings.jsonl \
+  --synthetic "$PILOT/corpus" --output artifacts/corpus
 uv run poetry50m prepare --corpus-manifest artifacts/corpus/manifest.jsonl \
   --prompts artifacts/corpus/prompts.jsonl \
   --thoughts artifacts/corpus/thoughts.jsonl \
   --pairings artifacts/corpus/pairings.jsonl \
   --config configs/data/corpus.json --output artifacts/prepared
-uv run poetry50m train --prepared artifacts/prepared --model-config configs/model/track1_50m.yaml \
+```
+
+Do not scale corpus generation or repeat the full 100,000-step train solely
+because these mechanics pass. First require a small held-out training probe to
+improve prompt-keyword relevance and reduce empty prompt matches relative to
+R0.
+
+```sh
+uv run poetry50m train --prepared artifacts/prepared --model-config configs/model/track1_8m.yaml \
   --train-config configs/training/baseline.yaml --run-dir runs/r0 --batch-size 4 \
   --until-step 250
-uv run poetry50m train --prepared artifacts/prepared --model-config configs/model/track1_50m.yaml \
+uv run poetry50m train --prepared artifacts/prepared --model-config configs/model/track1_8m.yaml \
   --train-config configs/training/baseline.yaml --run-dir runs/r1 --batch-size 4 \
   --run-policy configs/runs/personal_weekend.yaml \
   --until-step 250 --seal-endpoint
-uv run poetry50m train --prepared artifacts/prepared --model-config configs/model/track1_50m.yaml \
+uv run poetry50m train --prepared artifacts/prepared --model-config configs/model/track1_8m.yaml \
   --train-config configs/training/baseline.yaml --run-dir runs/r2 --batch-size 4 \
   --run-policy configs/runs/personal_weekend.yaml \
   --data-seed 7331 --until-step 250 --seal-endpoint
-uv run poetry50m score --prepared artifacts/prepared --model-config configs/model/track1_50m.yaml \
+uv run poetry50m score --prepared artifacts/prepared --model-config configs/model/track1_8m.yaml \
   --train-config configs/training/baseline.yaml --run-dir runs/r0 --batch-size 4 \
   --checkpoint runs/r0/checkpoints/final.pt --output runs/r0/difficulty.jsonl
-uv run poetry50m train --prepared artifacts/prepared --model-config configs/model/track1_50m.yaml \
+uv run poetry50m train --prepared artifacts/prepared --model-config configs/model/track1_8m.yaml \
   --train-config configs/training/baseline.yaml --run-dir runs/curriculum --batch-size 4 \
   --curriculum strict_hard_to_easy --difficulty runs/r0/difficulty.jsonl
-uv run poetry50m generate --prepared artifacts/prepared --model-config configs/model/track1_50m.yaml \
+uv run poetry50m generate --prepared artifacts/prepared --model-config configs/model/track1_8m.yaml \
   --train-config configs/training/baseline.yaml --run-dir runs/r0 --batch-size 4 \
   --checkpoint runs/r0/checkpoints/final.pt --suite configs/evaluation/prompt_suite.json \
   --evaluation-manifest-id track1-fixed-v1 --output runs/r0/generations.jsonl
 uv run poetry50m metrics --prepared artifacts/prepared --suite configs/evaluation/prompt_suite.json \
   --records runs/r0/generations.jsonl --manifest runs/r0/generations.manifest.json \
   --output runs/r0/metrics.json
-uv run poetry50m eval-loss --prepared artifacts/prepared --model-config configs/model/track1_50m.yaml \
+uv run poetry50m eval-loss --prepared artifacts/prepared --model-config configs/model/track1_8m.yaml \
   --train-config configs/training/baseline.yaml --run-dir runs/r0 --batch-size 4 \
   --checkpoint runs/r0/checkpoints/final.pt --split test --output runs/r0/test-loss.json
 ```
@@ -140,7 +137,7 @@ and retain/reset policy come only from the hash-bound run policy. It is
 evaluated on separate fixed validation packs and never trains on that holdout.
 
 ```sh
-uv run poetry50m analyze --prepared artifacts/prepared --model-config configs/model/track1_50m.yaml \
+uv run poetry50m analyze --prepared artifacts/prepared --model-config configs/model/track1_8m.yaml \
   --train-config configs/training/baseline.yaml --run-dir runs/r1 --batch-size 4 \
   --run-policy configs/runs/personal_weekend.yaml \
   --checkpoint runs/r1/checkpoints/final.pt \
@@ -149,7 +146,7 @@ uv run poetry50m analyze --prepared artifacts/prepared --model-config configs/mo
   --scope level1 --reference-manifest runs/r0/run.manifest.json \
   --target-manifest runs/r1/run.manifest.json --method linear --apply \
   --output-dir runs/r1/transport
-uv run poetry50m train --prepared artifacts/prepared --model-config configs/model/track1_50m.yaml \
+uv run poetry50m train --prepared artifacts/prepared --model-config configs/model/track1_8m.yaml \
   --train-config configs/training/baseline.yaml --run-dir runs/r1 --batch-size 4 \
   --run-policy configs/runs/personal_weekend.yaml --seal-endpoint \
   --resume runs/r1/transport/post_transport_checkpoint.pt
@@ -163,7 +160,7 @@ It is endpoint-informed evidence and is forbidden as a sealed R2 fitting input:
 uv run poetry50m endpoint-analyze \
   --snapshots runs/r0/trajectory/initial.pt runs/r0/trajectory/step_00000100.pt \
   runs/r0/trajectory/final.pt \
-  --model-config configs/model/track1_50m.yaml \
+  --model-config configs/model/track1_8m.yaml \
   --output runs/r0/endpoint-geometry.json
 ```
 
@@ -263,35 +260,22 @@ fails if this objective is enabled but no training prose exists.
 
 ## Scope and storage
 
-The 50M configuration is a research target, not a weekend result. A synthetic
-tiny run checks mechanics only: it cannot validate poetry quality, training
-scaling, or transport utility. Keep acquired source snapshots and built corpus
-artifacts outside the repository. The corpus builder hashes every acquired file
-and retains the dataset revision, row locator, work plus any supplied
-edition/translator fields, rights status, and transformation lineage in the
-canonical manifest. It removes exact
-normalized-text duplicate poetry before document splitting and tokenizer
-training; duplicate origins remain in metadata. Budget at least the source
-corpus size again for prepared JSONL and tokenizer artifacts; checkpoints and
+The 8M configuration is the production research target. A synthetic tiny run
+checks mechanics only: it cannot validate poetry quality, training scaling, or
+transport utility. Keep acquired source snapshots and built corpus artifacts
+outside the repository. The acquisition and build receipts bind every input,
+revision, output, rights status, and transformation lineage. BabyLM-distilled
+rows remain explicitly `unknown` for rights because their upstream
+per-document provenance was not retained. Budget at least the source corpus
+size again for prepared JSONL and tokenizer artifacts; checkpoints and
 trajectory snapshots each store all model weights, so retain only the cadence
-needed for the chosen transport window. The production policy is recorded in
-`configs/runs/personal_weekend.yaml` without machine-specific corpus paths.
+needed for the chosen transport window.
 
-Track 1 is a deliberately compact training laboratory for endpoint-informed
-optimization experiments.  It provides two decoder-only models with the same
-auditable 50M-scale shape:
-
-- `gpt`: conventional pre-norm causal transformer with RMSNorm, RoPE, SwiGLU,
-  and tied input/output embeddings.
-- `ngpt`: an adaptation of NVIDIA nGPT. Embedding rows plus Q/K/V and MLP-input
-  rows are normalized; attention/MLP-output columns are normalized and then
-  retracted after every optimizer step. Learned scale vectors govern Q/K,
-  SwiGLU, output logits, and hypersphere residual interpolation.
-
-`configs/model/track1_50m.yaml` is exactly **50,343,424** trainable parameters
-with the present implementation. `track1_50m_ngpt.yaml` has **54,596,096**
-parameters because it deliberately follows NVIDIA nGPT's separate input/output
-embeddings (`tie_embeddings: false`). The tie setting is implemented, not ignored.
+Track 1 uses one production decoder: a conventional pre-norm causal transformer
+with RMSNorm, RoPE, SwiGLU, and tied input/output embeddings.
+`configs/model/track1_8m.yaml` is exactly **8,335,008** trainable parameters:
+6 layers, width 288, 6 attention heads, FFN width 768, an 8,192-token
+vocabulary, and a 1,024-token context.
 
 The trainer is intentionally small but real: AdamW, cosine decay, gradient
 accumulation, backend-aware mixed precision, deterministic seeding, checkpoint
@@ -301,9 +285,6 @@ capture-cadence per-layer update geometry. A trajectory snapshot requires the
 shared `SnapshotMetadata` contract (run/init/order/architecture/corpus/model/
 tokenizer/code/training-config identities) and is atomically written in the
 restricted `poetry50m.weights.v1` format used by trajectory analysis.
-
-The official-style nGPT pairing is `configs/model/track1_50m_ngpt.yaml` with
-`configs/training/ngpt.yaml`: zero weight decay and post-step matrix retraction.
 
 ## Batch interface
 

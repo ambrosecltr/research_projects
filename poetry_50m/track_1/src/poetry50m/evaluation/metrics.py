@@ -83,9 +83,7 @@ def _scan_training_shard(
     ngram_candidates: tuple[frozenset[tuple[str, ...]], ...],
 ) -> _TrainingShardMatches:
     exact_matches: set[str] = set()
-    ngram_matches: list[set[tuple[str, ...]]] = [
-        set() for _ in range(len(ngram_candidates))
-    ]
+    ngram_matches: list[set[tuple[str, ...]]] = [set() for _ in range(len(ngram_candidates))]
     for text in texts:
         words = _words(text)
         normalised = " ".join(words)
@@ -120,9 +118,7 @@ def training_overlaps(
         for words in generated_words
     )
     ngram_candidates = tuple(
-        frozenset().union(
-            *(per_text[n] for per_text in candidate_ngrams if len(per_text) > n)
-        )
+        frozenset().union(*(per_text[n] for per_text in candidate_ngrams if len(per_text) > n))
         for n in range(max((len(per_text) for per_text in candidate_ngrams), default=0))
     )
     exact_candidates = frozenset(value for value in generated_normalised if value)
@@ -133,9 +129,7 @@ def training_overlaps(
     else:
         shards = tuple(documents[index::worker_count] for index in range(worker_count))
         if worker_count == 1:
-            shard_matches = (
-                _scan_training_shard(shards[0], exact_candidates, ngram_candidates),
-            )
+            shard_matches = (_scan_training_shard(shards[0], exact_candidates, ngram_candidates),)
         else:
             with ProcessPoolExecutor(max_workers=worker_count) as executor:
                 shard_matches = tuple(
@@ -148,9 +142,7 @@ def training_overlaps(
                 )
 
     exact_matches: set[str] = set()
-    ngram_matches: list[set[tuple[str, ...]]] = [
-        set() for _ in range(len(ngram_candidates))
-    ]
+    ngram_matches: list[set[tuple[str, ...]]] = [set() for _ in range(len(ngram_candidates))]
     for shard in shard_matches:
         exact_matches.update(shard.exact)
         for aggregate, matches in zip(ngram_matches, shard.ngrams, strict=True):

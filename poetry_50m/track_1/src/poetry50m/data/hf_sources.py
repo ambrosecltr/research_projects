@@ -19,11 +19,10 @@ _COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
 _SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 _SOURCE_ID_PATTERN = re.compile(r"[a-z][a-z0-9_]*")
 _ARTIFACT_KINDS = {
-    "ebook_records_parquet",
-    "poem_records_json",
-    "poem_records_parquet",
+    "distilled_text_jsonl",
+    "synthetic_knowledge_jsonl",
 }
-_APPROVED_CONFIG_SHA256 = "e555f0b1054e91fffe08d85e8a764c663959af0a71107bbb74884aef461dcb20"
+_APPROVED_CONFIG_SHA256 = "e99314114c7a4a8f22a259cbe8bcc979288165731665cb41def3bfd7b65c692f"
 _RECEIPT_NAME = "acquisition_receipt.json"
 
 
@@ -219,7 +218,7 @@ class HfSourceSpec:
 
 @dataclass(frozen=True, slots=True)
 class HfSourcesConfig:
-    """Validated acquisition catalog for exactly three source repositories."""
+    """Validated acquisition catalog for the two approved knowledge sources."""
 
     format_version: int
     sources: tuple[HfSourceSpec, ...]
@@ -231,8 +230,8 @@ class HfSourcesConfig:
             or self.format_version != 1
         ):
             raise ValueError("Hugging Face source format_version must be 1")
-        if not isinstance(self.sources, tuple) or len(self.sources) != 3:
-            raise ValueError("Hugging Face source catalog must contain exactly three sources")
+        if not isinstance(self.sources, tuple) or len(self.sources) != 2:
+            raise ValueError("Hugging Face source catalog must contain exactly two sources")
         if any(not isinstance(source, HfSourceSpec) for source in self.sources):
             raise TypeError("sources must contain only HfSourceSpec records")
         source_ids = tuple(source.source_id for source in self.sources)
@@ -408,8 +407,8 @@ class AcquisitionReceipt:
             self.config_sha256
         ):
             raise ValueError("acquisition receipt config_sha256 must be a lowercase SHA-256")
-        if not isinstance(self.sources, tuple) or len(self.sources) != 3:
-            raise ValueError("acquisition receipt must contain exactly three sources")
+        if not isinstance(self.sources, tuple) or len(self.sources) != 2:
+            raise ValueError("acquisition receipt must contain exactly two sources")
         if any(not isinstance(source, AcquiredSource) for source in self.sources):
             raise TypeError("receipt sources must contain only AcquiredSource records")
 

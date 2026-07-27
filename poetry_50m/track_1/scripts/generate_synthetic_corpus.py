@@ -28,6 +28,8 @@ def parser() -> argparse.ArgumentParser:
     run_sync.add_argument("--requests", type=Path, required=True)
     run_sync.add_argument("--results", type=Path, required=True)
     run_sync.add_argument("--concurrency", type=int, default=8)
+    run_sync.add_argument("--requests-per-minute", type=int, default=950)
+    run_sync.add_argument("--tokens-per-minute", type=int, default=950_000)
 
     ingest = commands.add_parser("ingest-generation")
     ingest.add_argument("--config", type=Path, required=True)
@@ -58,7 +60,13 @@ def main() -> int:
     if args.command == "plan-generation":
         plan_generation(args.config, request_count=args.requests, output_directory=args.output)
     elif args.command == "run-sync":
-        run_synchronous_batch(args.requests, args.results, concurrency=args.concurrency)
+        run_synchronous_batch(
+            args.requests,
+            args.results,
+            concurrency=args.concurrency,
+            requests_per_minute=args.requests_per_minute,
+            tokens_per_minute=args.tokens_per_minute,
+        )
     elif args.command == "ingest-generation":
         ingest_generation_results(
             args.config,

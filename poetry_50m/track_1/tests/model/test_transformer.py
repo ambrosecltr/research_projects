@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 import torch
 
+from poetry50m.config import load_mapping
 from poetry50m.model import DecoderOnlyTransformer, ModelConfig, count_parameters
 from poetry50m.model.config import Architecture
 from poetry50m.model.transformer import UnitEmbedding, UnitLinear
@@ -153,35 +156,12 @@ def test_ngpt_uses_paper_projection_axes_and_post_step_retraction() -> None:
 
 
 def test_parameter_count_matches_production_shape() -> None:
-    model = DecoderOnlyTransformer(
-        ModelConfig(
-            architecture="gpt",
-            vocab_size=8192,
-            max_seq_len=1024,
-            d_model=512,
-            n_layers=11,
-            n_heads=8,
-            ffn_dim=2048,
-        )
+    config = ModelConfig.from_mapping(
+        load_mapping(Path(__file__).parents[2] / "configs/model/track1_8m.yaml")
     )
-    assert count_parameters(model, trainable_only=True) == 50_343_424
-
-
-def test_ngpt_production_count_and_separate_output_embedding() -> None:
-    model = DecoderOnlyTransformer(
-        ModelConfig(
-            architecture="ngpt",
-            vocab_size=8192,
-            max_seq_len=1024,
-            d_model=512,
-            n_layers=11,
-            n_heads=8,
-            ffn_dim=2048,
-            tie_embeddings=False,
-        )
-    )
-    assert model.output_projection is not None
-    assert count_parameters(model, trainable_only=True) == 54_596_096
+    model = DecoderOnlyTransformer(config)
+    assert config.max_seq_len == 1024
+    assert count_parameters(model, trainable_only=True) == 8_335_008
 
 
 def test_rejects_invalid_loss_mask() -> None:
