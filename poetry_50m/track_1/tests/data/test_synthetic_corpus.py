@@ -123,7 +123,14 @@ def test_plan_assigns_diverse_lanes_and_strict_schemas(tmp_path: Path) -> None:
     assert all(len(assignment["briefs"]) == 4 for assignment in plan["assignments"])
     assert all(
         set(brief)
-        == {"setting", "required_objects", "physical_event", "emotional_pressure", "form"}
+        == {
+            "setting",
+            "required_objects",
+            "physical_event",
+            "emotional_pressure",
+            "participants",
+            "form",
+        }
         for assignment in plan["assignments"]
         for brief in assignment["briefs"]
     )
@@ -255,7 +262,7 @@ def test_finalize_rejects_stock_language_and_markdown_artifacts(tmp_path: Path) 
     examples = [candidate(index) for index in range(4)]
     examples[0]["poem"] = str(examples[0]["poem"]).replace(
         "A bicycle0 bell0 crosses0 wet0 stone0",
-        "A silver thread crosses wet stone\\",
+        'A silver thread whispers across wet stone"\\',
     )
     generation_results = tmp_path / "generation.results.jsonl"
     write_jsonl(
@@ -298,6 +305,8 @@ def test_finalize_rejects_stock_language_and_markdown_artifacts(tmp_path: Path) 
     rejected = next(row for row in quality if "markdown_line_break" in row["rejection_reasons"])
     assert receipt["accepted_count"] == 3
     assert "markdown_line_break" in rejected["rejection_reasons"]
+    assert "unbalanced_quotation_marks" in rejected["rejection_reasons"]
+    assert "banned_word_count=1" in rejected["rejection_reasons"]
     assert "stock_phrase_count=1" in rejected["rejection_reasons"]
 
 

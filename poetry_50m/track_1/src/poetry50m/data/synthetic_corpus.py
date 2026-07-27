@@ -68,22 +68,22 @@ SETTINGS = (
 )
 
 OBJECT_PAIRS = (
-    "a bent loyalty card and a warm dryer door",
-    "a lane rope and a forgotten inhaler",
-    "a split crate and three bruised pears",
-    "a paper timetable and a damp wool sleeve",
-    "a camping lantern and a half-built shelf",
-    "a receipt printer and a blister pack",
-    "a ballot pencil and a folded basketball net",
-    "a stripped screw and a chipped coffee mug",
-    "a parking ticket and a bunch of supermarket flowers",
-    "a cash tin and a roll of twine",
-    "an overdue notice and a child-sized umbrella",
-    "a spray bottle and a newspaper left on a seat",
-    "a snapped bean pole and a hailstone in a glove",
-    "a steel bench and a bag of unused bread rolls",
-    "a stock clipboard and one mismatched hinge",
-    "a room key and a vending-machine coil",
+    "one payment object and one item recovered from a dryer",
+    "one piece of pool safety equipment and one forgotten personal item",
+    "one damaged shipping container and one bruised perishable food",
+    "one travel-information object and one rain-wet item of clothing",
+    "one portable light source and one unfinished repair",
+    "one dispensing-machine component and one packaged medicine",
+    "one election-counting object and one piece of stored sports equipment",
+    "one damaged fastener and one well-used drinking vessel",
+    "one parking-related document and one item brought for a patient",
+    "one object used to take payment and one packing material",
+    "one library-account document and one object from the lost-property shelf",
+    "one cleaning tool and one item a passenger left behind",
+    "one storm-damaged plant support and one object holding melting hail",
+    "one piece of closing equipment and one portion of unsold food",
+    "one inventory tool and one mismatched piece of hardware",
+    "one room-access object and one vending-machine component",
 )
 
 ACTIONS = (
@@ -135,6 +135,25 @@ FORMS = (
     "a poem organized by repeated physical actions, not repeated phrases",
 )
 
+PARTICIPANTS = (
+    "a worker and a customer deciding who owns the found item",
+    "two strangers of noticeably different ages",
+    "coworkers who normally trust each other's records",
+    "siblings who disagree about the practical task",
+    "workers from consecutive shifts who do not overlap",
+    "a child and an unrelated adult following a public procedure",
+    "coworkers near the end of a shared shift",
+    "a volunteer and someone reluctant to receive help",
+    "a supervisor and a new employee",
+    "a couple communicating mostly through tasks",
+    "neighbors who know each other only by routine",
+    "two former friends meeting unexpectedly",
+    "a supervisor and a rule-conscious new employee",
+    "one person alone, reacting to evidence that another has returned",
+    "neighbors who often misread each other's tone",
+    "workers from consecutive shifts who have never met",
+)
+
 STOCK_PHRASES = (
     "city exhales",
     "dance of",
@@ -156,6 +175,31 @@ STOCK_PHRASES = (
     "world whispers",
 )
 
+BANNED_SYNTHETIC_WORDS = frozenset(
+    {
+        "breathes",
+        "echo",
+        "echoes",
+        "flicker",
+        "flickers",
+        "ghost",
+        "heartbeat",
+        "hush",
+        "lingering",
+        "sigh",
+        "sighing",
+        "sighs",
+        "silence",
+        "soul",
+        "symphony",
+        "tapestry",
+        "timeless",
+        "whisper",
+        "whispering",
+        "whispers",
+    }
+)
+
 GENERATOR_SYSTEM_PROMPT = """\
 Create original, prompt-conditioned English poetry training examples.
 
@@ -166,15 +210,19 @@ Every example must:
 - respond concretely to its prompt rather than defaulting to generic stars, sea, dawn, or longing;
 - use grammatical language, intentional line breaks, and no invented malformed words;
 - avoid repeated lines, stock filler, explanatory notes, and title-only conditioning;
-- avoid prefab lyric language such as silver threads, whispers, echoes, tapestries,
-  symphonies, hearts, souls, timelessness, the world holding its breath, or a city exhaling;
+- never use these mode-collapse words: whisper, echo, sigh, silence, soul, symphony,
+  tapestry, timeless, ghost, heartbeat, hush, lingering, flicker, or breathes;
+- avoid prefab lyric language such as silver threads, hearts, the world holding its
+  breath, a city exhaling, or an object making a promise;
 - earn its emotional turn through observed action; never finish by explaining a lesson;
 - contain no Markdown, bullets, decorative symbols, or backslashes at line endings;
+- keep quotation marks balanced and every physical action plausible in the stated setting;
 - provide three genuinely different prompts for the same poem: theme, imagery, and paraphrase;
 - keep each prompt self-contained and suitable for a user asking a small poetry model.
 
 The user supplies one concrete brief per requested example. Follow the briefs in
-order, use every specified object naturally, and do not swap settings between examples.
+order, instantiate both object categories as specific setting-native items, make those
+items affect the action, and do not swap settings between examples.
 Return only the strict JSON object requested by the schema."""
 
 CRITIC_SYSTEM_PROMPT = """\
@@ -185,9 +233,9 @@ of prefab lyric language. A 5 is rare and publication-ready.
 
 Reject generic emotional summaries, moral explanations, arbitrary metaphor stacking,
 decorative surrealism without causal sense, repeated image families, mechanical rhyme,
-Markdown artifacts, or phrases such as silver thread, whispers, echoes, tapestry,
-symphony, heart/soul shorthand, timeless, held its breath, and city exhales. Reject if
-the poem merely names the requested objects instead of making them affect the scene.
+Markdown artifacts, unbalanced quotation marks, or prohibited mode-collapse language.
+Reject if the poem merely names the requested objects, places an object somewhere
+implausible, or jumps between actions without a physically intelligible scene.
 Also reject incoherence, degeneration, suspicious quotation, or named-author imitation.
 Set decision to accept only when prompt adherence, coherence, craft, and originality
 are all at least 4 and no rejection concern applies. Return only the strict JSON object."""
@@ -307,6 +355,7 @@ class QualityConfig:
     minimum_line_count: int
     maximum_line_count: int
     maximum_repeated_bigram_rate: float
+    maximum_banned_word_count: int
     maximum_stock_phrase_count: int
     dedup_ngram_size: int
 
@@ -322,6 +371,7 @@ class QualityConfig:
             "minimum_line_count",
             "maximum_line_count",
             "maximum_repeated_bigram_rate",
+            "maximum_banned_word_count",
             "maximum_stock_phrase_count",
             "dedup_ngram_size",
         }
@@ -352,6 +402,11 @@ class QualityConfig:
             maximum_repeated_bigram_rate=_required_number(
                 data["maximum_repeated_bigram_rate"],
                 name="maximum_repeated_bigram_rate",
+            ),
+            maximum_banned_word_count=_required_integer(
+                data["maximum_banned_word_count"],
+                name="maximum_banned_word_count",
+                minimum=0,
             ),
             maximum_stock_phrase_count=_required_integer(
                 data["maximum_stock_phrase_count"],
@@ -705,12 +760,15 @@ def _generation_briefs(index: int, count: int, seed: int) -> tuple[dict[str, str
     briefs: list[dict[str, str]] = []
     for ordinal in range(count):
         digest = sha256(f"{seed}:{index}:{ordinal}:brief".encode()).digest()
+        scenario_index = digest[0] % len(SETTINGS)
+        action_index = digest[1] % len(ACTIONS)
         briefs.append(
             {
-                "setting": SETTINGS[digest[0] % len(SETTINGS)],
-                "required_objects": OBJECT_PAIRS[digest[1] % len(OBJECT_PAIRS)],
-                "physical_event": ACTIONS[digest[2] % len(ACTIONS)],
-                "emotional_pressure": PRESSURES[digest[3] % len(PRESSURES)],
+                "setting": SETTINGS[scenario_index],
+                "required_objects": OBJECT_PAIRS[scenario_index],
+                "physical_event": ACTIONS[action_index],
+                "emotional_pressure": PRESSURES[digest[2] % len(PRESSURES)],
+                "participants": PARTICIPANTS[action_index],
                 "form": FORMS[digest[4] % len(FORMS)],
             }
         )
@@ -986,9 +1044,14 @@ def _local_quality_reasons(candidate: SyntheticCandidate, config: QualityConfig)
         reasons.append("repeated_lines")
     if any(line.endswith("\\") for line in lines):
         reasons.append("markdown_line_break")
+    if candidate.poem.count('"') % 2 != 0 or candidate.poem.count("“") != candidate.poem.count("”"):
+        reasons.append("unbalanced_quotation_marks")
     if repeated_bigram_rate > config.maximum_repeated_bigram_rate:
         reasons.append(f"repeated_bigram_rate={repeated_bigram_rate:.6f}")
     normalized_poem = " ".join(words)
+    banned_word_count = sum(word in BANNED_SYNTHETIC_WORDS for word in words)
+    if banned_word_count > config.maximum_banned_word_count:
+        reasons.append(f"banned_word_count={banned_word_count}")
     stock_phrase_count = sum(normalized_poem.count(phrase) for phrase in STOCK_PHRASES)
     if stock_phrase_count > config.maximum_stock_phrase_count:
         reasons.append(f"stock_phrase_count={stock_phrase_count}")
