@@ -5,7 +5,10 @@ from __future__ import annotations
 import re
 from collections import Counter
 from collections.abc import Iterable, Sequence
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
+from itertools import repeat
+from os import cpu_count
 
 from poetry50m.data.schema import TokenSequence
 
@@ -66,6 +69,119 @@ def training_overlap(
         ngram_overlap_rate=longest.rate if longest else 0.0,
         per_ngram=tuple(per_ngram),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class _TrainingShardMatches:
+    exact: frozenset[str]
+    ngrams: tuple[frozenset[tuple[str, ...]], ...]
+
+
+def _scan_training_shard(
+    texts: Sequence[str],
+    exact_candidates: frozenset[str],
+    ngram_candidates: tuple[frozenset[tuple[str, ...]], ...],
+) -> _TrainingShardMatches:
+    exact_matches: set[str] = set()
+    ngram_matches: list[set[tuple[str, ...]]] = [
+        set() for _ in range(len(ngram_candidates))
+    ]
+    for text in texts:
+        words = _words(text)
+        normalised = " ".join(words)
+        if normalised in exact_candidates:
+            exact_matches.add(normalised)
+        for n, candidates in enumerate(ngram_candidates, start=1):
+            if candidates and len(words) >= n:
+                ngram_matches[n - 1].update(_ngrams(words, n) & candidates)
+    return _TrainingShardMatches(
+        frozenset(exact_matches),
+        tuple(frozenset(matches) for matches in ngram_matches),
+    )
+
+
+def training_overlaps(
+    generated_texts: Iterable[str],
+    training_texts: Iterable[str],
+    *,
+    max_n: int = 12,
+    workers: int | None = None,
+) -> tuple[OverlapMetrics, ...]:
+    """Measure a generation batch against one parallel scan of the training corpus."""
+    if max_n < 1:
+        raise ValueError("max_n must be positive")
+    if workers is not None and workers < 1:
+        raise ValueError("workers must be positive")
+
+    generated_words = tuple(_words(text) for text in generated_texts)
+    generated_normalised = tuple(" ".join(words) for words in generated_words)
+    candidate_ngrams = tuple(
+        tuple(_ngrams(words, n) for n in range(1, min(max_n, len(words)) + 1))
+        for words in generated_words
+    )
+    ngram_candidates = tuple(
+        frozenset().union(
+            *(per_text[n] for per_text in candidate_ngrams if len(per_text) > n)
+        )
+        for n in range(max((len(per_text) for per_text in candidate_ngrams), default=0))
+    )
+    exact_candidates = frozenset(value for value in generated_normalised if value)
+    documents = tuple(training_texts)
+    worker_count = min(workers or cpu_count() or 1, len(documents))
+    if worker_count == 0:
+        shard_matches: tuple[_TrainingShardMatches, ...] = ()
+    else:
+        shards = tuple(documents[index::worker_count] for index in range(worker_count))
+        if worker_count == 1:
+            shard_matches = (
+                _scan_training_shard(shards[0], exact_candidates, ngram_candidates),
+            )
+        else:
+            with ProcessPoolExecutor(max_workers=worker_count) as executor:
+                shard_matches = tuple(
+                    executor.map(
+                        _scan_training_shard,
+                        shards,
+                        repeat(exact_candidates),
+                        repeat(ngram_candidates),
+                    )
+                )
+
+    exact_matches: set[str] = set()
+    ngram_matches: list[set[tuple[str, ...]]] = [
+        set() for _ in range(len(ngram_candidates))
+    ]
+    for shard in shard_matches:
+        exact_matches.update(shard.exact)
+        for aggregate, matches in zip(ngram_matches, shard.ngrams, strict=True):
+            aggregate.update(matches)
+
+    results: list[OverlapMetrics] = []
+    for normalised, per_n in zip(generated_normalised, candidate_ngrams, strict=True):
+        maximum = 0
+        per_ngram: list[NGramOverlap] = []
+        for n, candidate in enumerate(per_n, start=1):
+            matching_count = len(candidate & ngram_matches[n - 1])
+            if matching_count:
+                maximum = n
+            per_ngram.append(
+                NGramOverlap(
+                    n,
+                    len(candidate),
+                    matching_count,
+                    matching_count / max(1, len(candidate)),
+                )
+            )
+        longest = next((item for item in reversed(per_ngram) if item.matching_count), None)
+        results.append(
+            OverlapMetrics(
+                exact_match=bool(normalised) and normalised in exact_matches,
+                maximum_ngram=maximum,
+                ngram_overlap_rate=longest.rate if longest else 0.0,
+                per_ngram=tuple(per_ngram),
+            )
+        )
+    return tuple(results)
 
 
 @dataclass(frozen=True, slots=True)

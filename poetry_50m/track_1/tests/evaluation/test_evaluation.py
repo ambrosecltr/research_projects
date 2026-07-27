@@ -11,6 +11,7 @@ from poetry50m.evaluation.metrics import (
     repetition_metrics,
     structural_metrics,
     training_overlap,
+    training_overlaps,
 )
 from poetry50m.evaluation.schema import (
     BlindComparison,
@@ -180,6 +181,34 @@ def test_overlap_degeneracy_structure_relevance_and_heldout_inputs():
     assert keyword_relevance("A river holds a stone", ("river", "stone", "dawn")) == 2 / 3
     heldout = heldout_loss_inputs([TokenSequence("x", "x", (1, 2, 3), (False, True, True))])
     assert heldout[0].target_positions == (1, 2)
+
+
+def test_parallel_training_overlaps_match_reference_metrics():
+    generated = (
+        "The river waits in rain",
+        "river waits",
+        "No borrowed phrase lives here",
+        "",
+    )
+    training = (
+        "The river waits in rain.",
+        "river",
+        "waits",
+        "A borrowed phrase sleeps elsewhere",
+    )
+
+    expected = tuple(training_overlap(text, training) for text in generated)
+
+    assert training_overlaps(generated, training, workers=2) == expected
+    assert training_overlaps(generated, (), workers=2) == tuple(
+        training_overlap(text, ()) for text in generated
+    )
+
+
+@pytest.mark.parametrize("workers", [0, -1])
+def test_parallel_training_overlaps_reject_invalid_worker_count(workers: int):
+    with pytest.raises(ValueError, match="workers must be positive"):
+        training_overlaps(("river",), ("river",), workers=workers)
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])

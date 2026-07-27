@@ -33,7 +33,7 @@ from poetry50m.evaluation import (
     multi_seed_generation_requests,
     repetition_metrics,
     structural_metrics,
-    training_overlap,
+    training_overlaps,
 )
 from poetry50m.inference import (
     load_generation_records,
@@ -380,8 +380,13 @@ def metrics_command(args: argparse.Namespace) -> int:
             request.checkpoint_id,
         ):
             raise ValueError("generation records do not match their immutable request manifest")
+    overlap_metrics = training_overlaps(
+        (record.generated_text for record in records),
+        train_texts,
+        workers=args.workers,
+    )
     rows: list[dict[str, object]] = []
-    for record in records:
+    for record, overlap in zip(records, overlap_metrics, strict=True):
         case = cases.get(record.case_id)
         if case is None:
             raise ValueError(f"unknown generation case {record.case_id}")
@@ -393,7 +398,7 @@ def metrics_command(args: argparse.Namespace) -> int:
                 "keyword_relevance": keyword_relevance(record.generated_text, case.keywords),
                 "repetition": asdict(repetition_metrics(record.generated_text)),
                 "structure": asdict(structural_metrics(record.generated_text)),
-                "training_overlap": asdict(training_overlap(record.generated_text, train_texts)),
+                "training_overlap": asdict(overlap),
             }
         )
     _write_json(Path(args.output), {"record_count": len(rows), "rows": rows})
@@ -584,6 +589,7 @@ def build_parser() -> argparse.ArgumentParser:
     metrics.add_argument("--records", required=True)
     metrics.add_argument("--manifest", required=True)
     metrics.add_argument("--output", required=True)
+    metrics.add_argument("--workers", type=int)
     metrics.set_defaults(handler=metrics_command)
     blind = commands.add_parser("blind-pack")
     blind.add_argument("--suite", required=True)

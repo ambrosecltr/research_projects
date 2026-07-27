@@ -6,6 +6,7 @@ from .metrics import (
     repetition_metrics,
     structural_metrics,
     training_overlap,
+    training_overlaps,
 )
 from .schema import (
     BlindJudgment,
@@ -32,4 +33,5 @@ __all__ = [
     "repetition_metrics",
     "structural_metrics",
     "training_overlap",
+    "training_overlaps",
 ]
