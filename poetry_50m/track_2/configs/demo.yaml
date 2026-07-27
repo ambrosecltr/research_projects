@@ -1,0 +1,13 @@
+adapter:
+  project_root: ..
+  factory: examples.tiny_track1:create_adapter
+  kwargs:
+    batch_size: 16
+specimen:
+  id: tiny_R0
+  output: ../artifacts/demo/specimen
+  final_checkpoint: ../artifacts/demo/source/R0.pt
+evaluation:
+  split: development
+  max_batches: 4
+  device: cpu

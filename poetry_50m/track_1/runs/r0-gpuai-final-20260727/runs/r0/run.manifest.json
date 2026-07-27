@@ -1,0 +1,26 @@
+{
+  "architecture_signature": "gpt",
+  "code_signature": "c09204b2c2869c32017bcb9468ae163e9d3e3b39a2fd4e761827cb470f347452",
+  "corpus_signature": "2c53715d5f221c0c6b7e2d239692fa79ae9e63ca726d3fd31dc097e815bf0443",
+  "data_order_id": "63c32adceae7923bb9e86ef1814208f38443eb671af65e70ec5cbf3429b6fc78",
+  "endpoint_sealed": false,
+  "fit_checkpoint_ids": [
+    "step-00000000",
+    "step-00000100",
+    "step-00000250",
+    "step-00000500",
+    "step-00001000",
+    "step-00002500",
+    "step-00005000",
+    "step-00010000",
+    "step-00025000",
+    "step-00050000",
+    "step-00075000",
+    "step-00100000"
+  ],
+  "initialization_id": "9e4b85096f599d0be8fcddfc4bf55405e676a793bbd81ae5a2d4f71baf35a01a",
+  "model_config_hash": "fd89a48879d928d093869592ae72d293def72439ff8b45ede34e65f69380ae48",
+  "run_id": "72d1590188e4c701f7d0ee5081a8cdcea0fa5a612ab9af4cdef72cc029ac36f8",
+  "tokenizer_hash": "e021ea92a0340ad0c11666fcdec37450c21679483b49e3e7827ac79d4d6abdec",
+  "training_config_hash": "0c0ccbe2384c5962497bc52daf6a5f21e11e84747616c5d4511aca7a22712d14"
+}

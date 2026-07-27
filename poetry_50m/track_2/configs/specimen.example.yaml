@@ -1,0 +1,21 @@
+project: GENOME
+research_level: G0
+seed: 1701
+
+adapter:
+  # For poetry_50m Track 1, use configs/poetry50m_track1.example.yaml instead.
+  project_root: /absolute/path/to/a/track_1/project
+  factory: track1_genome_adapter:create_adapter
+  kwargs: {}
+
+specimen:
+  id: track1_R0
+  output: ../artifacts/specimens/track1_R0
+  final_checkpoint: /absolute/path/to/R0.pt
+  # Omit only when adapter.initial_state() exactly and repeatedly reproduces W0.
+  base_checkpoint: null
+
+evaluation:
+  split: development
+  max_batches: 16
+  device: cpu

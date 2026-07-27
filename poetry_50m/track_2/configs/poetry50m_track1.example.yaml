@@ -1,0 +1,49 @@
+project: GENOME
+research_level: G0
+seed: 1701
+
+adapter:
+  # Path is resolved relative to this YAML. Track 2 is expected to live beside Track 1:
+  # poetry_50m/track_1 and poetry_50m/track_2.
+  project_root: ../../track_1
+  factory: genome.adapters.poetry50m:create_adapter
+  kwargs:
+    track1_root: ../../track_1
+    model_config: ../../track_1/configs/model/track1_50m.yaml
+    train_config: ../../track_1/configs/training/baseline.yaml
+    prepared_dir: ../../track_1/artifacts/prepared
+    run_dir: ../../track_1/runs/r0
+    initial_snapshot: ../../track_1/runs/r0/trajectory/initial.pt
+    final_snapshot: ../../track_1/runs/r0/trajectory/final.pt
+    run_manifest: ../../track_1/runs/r0/run.manifest.json
+    train_receipt: ../../track_1/runs/r0/train.receipt.json
+    corpus_manifest: ../../track_1/artifacts/corpus/manifest.jsonl
+    default_max_batches: 16
+    # Leave true for the real R0. This prevents a partial checkpoint becoming WT.
+    require_complete_endpoint: true
+    split_map:
+      fit: train
+      fingerprint: train
+      probe: validation
+      development: validation
+      hidden: test
+
+specimen:
+  id: track1_R0
+  output: ../artifacts/specimens/track1_R0
+  # The full trainer checkpoint is supported directly. Do not point this at an in-progress file.
+  final_checkpoint: ../../track_1/runs/r0/checkpoints/final.pt
+  # The exact initial trajectory snapshot is preferred over reconstructing W0 from the seed.
+  base_checkpoint: ../../track_1/runs/r0/trajectory/initial.pt
+
+# Full canonical parity check. Null means every prepared validation pack.
+verification:
+  split: validation
+  max_batches: null
+  device: cpu
+
+# Fast repeated development gate used by codec and repair experiments.
+evaluation:
+  split: development
+  max_batches: 16
+  device: cpu
