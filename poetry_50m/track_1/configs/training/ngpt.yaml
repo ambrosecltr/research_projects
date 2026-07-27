@@ -1,0 +1,21 @@
+# NVIDIA nGPT's reference regime uses no weight decay and no warmup.
+max_steps: 100000
+learning_rate: 0.0003
+weight_decay: 0.0
+beta1: 0.9
+beta2: 0.95
+epsilon: 0.00000001
+warmup_steps: 0
+min_learning_rate_ratio: 0.0
+gradient_accumulation_steps: 1
+max_grad_norm: 1.0
+device: auto
+precision: auto
+seed: 1337
+deterministic: true
+log_every_steps: 1
+checkpoint_every_steps: 0
+trajectory_every_steps: 0
+checkpoint_steps: [1000, 5000, 10000, 25000, 50000, 75000, 100000]
+trajectory_capture_steps: [100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 75000, 100000]
+analysis_every_steps: 100

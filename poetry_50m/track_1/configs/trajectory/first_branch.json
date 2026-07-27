@@ -1,0 +1,24 @@
+{
+  "gates": {
+    "max_anchor_cosine_distance": 0.01,
+    "max_anchor_mse": 0.0001,
+    "max_anchor_symmetric_kl": 0.0001,
+    "max_post_leap_loss_increase": 0.01,
+    "max_verification_loss_increase": 0.005
+  },
+  "low_rank": {
+    "eigenvalue_relative_floor": 1e-10,
+    "energy_threshold": 0.98,
+    "max_extrapolation_ratio": 2.0,
+    "max_rank": 4,
+    "polynomial_degree": 1
+  },
+  "linear": {
+    "max_extrapolation_ratio": 2.0
+  },
+  "safety": {
+    "max_relative_tensor_norm": 4.0,
+    "min_relative_tensor_norm": 0.25,
+    "near_zero_norm": 1e-9
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "format_version": 1,
+  "standard_ebooks": {
+    "works": [
+      {"title": "Nicomachean Ethics", "author": "Aristotle"},
+      {"title": "Discourses", "author": "Epictetus"},
+      {"title": "Siddhartha", "author": "Hermann Hesse"},
+      {"title": "Gitanjali", "author": "Rabindranath Tagore"},
+      {"title": "The Prophet", "author": "Khalil Gibran"},
+      {"title": "The Madman", "author": "Khalil Gibran"},
+      {"title": "The Forerunner", "author": "Khalil Gibran"},
+      {"title": "Practical Mysticism", "author": "Evelyn Underhill"},
+      {"title": "A Confession", "author": "Leo Tolstoy"},
+      {"title": "The Kingdom of God Is Within You", "author": "Leo Tolstoy"}
+    ]
+  }
+}

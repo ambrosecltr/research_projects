@@ -1,0 +1,9 @@
+# Freeze this policy before starting a sealed R1/R2 target.
+format_version: 1
+trajectory_config_sha256: 3db479ab59384fddfdcb8dccec18bcf8fbe9918244bb1cbd36b79b3a06b9624f
+verification:
+  fixed_heldout_batches: 16
+  anchor_positions_per_batch: 8
+  fixed_probe_batches: 1
+  probe_steps: 1
+  optimizer_policy: retain

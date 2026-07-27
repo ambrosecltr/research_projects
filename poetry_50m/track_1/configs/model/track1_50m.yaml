@@ -1,0 +1,16 @@
+# 50,343,424 trainable parameters in the conventional GPT implementation.
+# d_model=512, 11 blocks, SwiGLU width=2048, tied 8,192-token embedding.
+architecture: gpt
+vocab_size: 8192
+max_seq_len: 1024
+d_model: 512
+n_layers: 11
+n_heads: 8
+ffn_dim: 2048
+dropout: 0.0
+rope_base: 10000.0
+rope_fraction: 1.0
+norm_epsilon: 0.000001
+linear_bias: false
+tie_embeddings: true
+ignore_index: -100

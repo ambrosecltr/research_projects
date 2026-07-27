@@ -1,0 +1,26 @@
+{
+  "format_version": 1,
+  "manifest_format": "jsonl",
+  "manifest_schema": "SourceDocument",
+  "split": {
+    "salt": "poetry50m-track1-v1",
+    "train": 0.9,
+    "validation": 0.05,
+    "test": 0.05
+  },
+  "tokenizer": {
+    "vocab_size": 8192,
+    "min_frequency": 2,
+    "special_tokens": ["<|pad|>", "<|bos|>", "<|eos|>", "<|prompt|>", "<|thought|>", "<|poem|>", "<|mask|>"]
+  },
+  "packing": {
+    "sequence_length": 1024
+  },
+  "objectives": {
+    "conditional_poetry": 1.0,
+    "auxiliary_prose_ntp": 0.25
+  },
+  "rights": {
+    "allow_synthetic": false
+  }
+}

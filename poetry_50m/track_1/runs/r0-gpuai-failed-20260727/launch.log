@@ -1,0 +1,35 @@
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/dist-packages/torch/storage.py", line 1000, in _pickle_storage_type
+    return _dtype_to_storage_type_map()[self.dtype]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+KeyError: torch.uint32
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/usr/local/bin/poetry50m", line 8, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/workspace/poetry50m-track1/src/poetry50m/cli.py", line 647, in main
+    return int(args.handler(args))
+               ^^^^^^^^^^^^^^^^^^
+  File "/workspace/poetry50m-track1/src/poetry50m/cli.py", line 214, in train_command
+    return execute(args, write_json=_write_json)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/poetry50m-track1/src/poetry50m/workflows/training.py", line 356, in train_command
+    checkpoint = current.save_checkpoint(run_directory / "checkpoints" / "final.pt")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/poetry50m-track1/src/poetry50m/training/engine.py", line 773, in save_checkpoint
+    _durable_torch_save(checkpoint, path)
+  File "/workspace/poetry50m-track1/src/poetry50m/training/engine.py", line 247, in _durable_torch_save
+    torch.save(payload, handle)
+  File "/usr/local/lib/python3.11/dist-packages/torch/serialization.py", line 652, in save
+    _save(obj, opened_zipfile, pickle_module, pickle_protocol, _disable_byteorder_record)
+  File "/usr/local/lib/python3.11/dist-packages/torch/serialization.py", line 864, in _save
+    pickler.dump(obj)
+  File "/usr/local/lib/python3.11/dist-packages/torch/serialization.py", line 826, in persistent_id
+    storage_type_str = obj._pickle_storage_type()
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/dist-packages/torch/storage.py", line 1002, in _pickle_storage_type
+    raise KeyError(f'dtype {self.dtype} is not recognized') from e
+KeyError: 'dtype torch.uint32 is not recognized'
