@@ -32,26 +32,17 @@ def write_results(path: Path, plan_path: Path, *, response_prefix: str = "Poem")
     }
     records = []
     for assignment in plan["assignments"]:  # type: ignore[union-attr]
-        responses = [
-            {
-                "example_id": example_id,
-                "response": "\n".join(
-                    [
-                        f"{response_prefix} {example_id} line {line_number}"
-                        for line_number in range(
-                            {
-                                "very short": 4,
-                                "short": 8,
-                                "medium": 13,
-                                "long": 21,
-                            }[examples[example_id]["prompt_spec"]["length_label"]]
-                        )
-                    ]
-                ),
-            }
-            for example_id in assignment["example_ids"]
-            if example_id in examples
-        ]
+        example_id = assignment["example_id"]
+        line_count = {
+            "very short": 4,
+            "short": 8,
+            "medium": 13,
+            "long": 21,
+        }[examples[example_id]["prompt_spec"]["length_label"]]
+        response = "\n".join(
+            f"{response_prefix} {example_id} line {line_number}"
+            for line_number in range(line_count)
+        )
         records.append(
             {
                 "custom_id": assignment["custom_id"],
@@ -59,7 +50,7 @@ def write_results(path: Path, plan_path: Path, *, response_prefix: str = "Poem")
                     "status_code": 200,
                     "body": {
                         "model": plan["model"],
-                        "choices": [{"message": {"content": json.dumps({"responses": responses})}}],
+                        "choices": [{"message": {"content": response}}],
                         "usage": {
                             "prompt_tokens": 10,
                             "completion_tokens": 20,
@@ -108,7 +99,6 @@ def test_plans_are_deterministic_disjoint_and_model_scoped(tmp_path: Path) -> No
         provider="provider-a",
         start_index=0,
         example_count=9,
-        examples_per_request=4,
     )
     _, plan_b = plan_sft_chunk(
         output_directory=tmp_path / "b",
@@ -116,7 +106,6 @@ def test_plans_are_deterministic_disjoint_and_model_scoped(tmp_path: Path) -> No
         provider="provider-b",
         start_index=9,
         example_count=9,
-        examples_per_request=4,
     )
     value_a = read_json(plan_a)
     value_b = read_json(plan_b)
@@ -124,7 +113,7 @@ def test_plans_are_deterministic_disjoint_and_model_scoped(tmp_path: Path) -> No
     assert value_a["chunk_id"] != value_b["chunk_id"]
     assert value_a["model"] == "provider/model-a"
     assert value_b["model"] == "provider/model-b"
-    assert len(requests_a.read_text().splitlines()) == 3
+    assert len(requests_a.read_text().splitlines()) == 9
     ids_a = {example["example_id"] for example in value_a["examples"]}  # type: ignore[union-attr]
     ids_b = {example["example_id"] for example in value_b["examples"]}  # type: ignore[union-attr]
     prompts_a = {example["prompt"] for example in value_a["examples"]}  # type: ignore[union-attr]
@@ -154,20 +143,20 @@ def test_plan_refuses_overwrite_and_prompt_capacity_overflow(tmp_path: Path) -> 
         )
 
 
-def test_plan_can_omit_unsupported_response_format_parameter(tmp_path: Path) -> None:
+def test_plan_requests_plain_poem_text_one_example_at_a_time(tmp_path: Path) -> None:
     requests_path, plan_path = plan_sft_chunk(
         output_directory=tmp_path / "chunk",
         model="model",
         provider="provider",
         start_index=0,
         example_count=1,
-        response_format_mode="none",
     )
 
     request = json.loads(requests_path.read_text().splitlines()[0])
     assert "response_format" not in request["body"]
-    assert read_json(plan_path)["response_format_mode"] == "none"
-    assert '{"responses":' in request["body"]["messages"][0]["content"]
+    assert read_json(plan_path)["output_mode"] == "raw-text"
+    assert request["body"]["messages"][0]["content"].endswith("Return only the poem text.")
+    assert request["body"]["messages"][1]["content"].startswith("Write ")
 
 
 def test_finalize_writes_sft_pairs_provenance_and_exact_counts(
@@ -180,7 +169,6 @@ def test_finalize_writes_sft_pairs_provenance_and_exact_counts(
         provider="provider-a",
         start_index=20,
         example_count=3,
-        examples_per_request=2,
     )
     write_results(chunk / "results.jsonl", plan_path)
     record_dispatch(plan_path)
@@ -203,9 +191,9 @@ def test_finalize_writes_sft_pairs_provenance_and_exact_counts(
     assert receipt["observed_models"] == ["provider/model-a"]
     assert receipt["missing_observed_model_records"] == 0
     assert receipt["provider_usage"] == {
-        "prompt_tokens": 20,
-        "completion_tokens": 40,
-        "total_tokens": 60,
+        "prompt_tokens": 30,
+        "completion_tokens": 60,
+        "total_tokens": 90,
         "missing_usage_records": 0,
     }
     assert receipt["token_counts"]["formatted"] > receipt["token_counts"]["supervised"]  # type: ignore[index]
@@ -222,9 +210,7 @@ def test_finalize_writes_sft_pairs_provenance_and_exact_counts(
     )
 
 
-def test_finalize_fails_closed_on_missing_or_reordered_outputs(
-    tmp_path: Path, tokenizer_path: Path
-) -> None:
+def test_finalize_fails_closed_on_duplicate_results(tmp_path: Path, tokenizer_path: Path) -> None:
     chunk = tmp_path / "chunk"
     _, plan_path = plan_sft_chunk(
         output_directory=chunk,
@@ -232,17 +218,13 @@ def test_finalize_fails_closed_on_missing_or_reordered_outputs(
         provider="provider",
         start_index=0,
         example_count=2,
-        examples_per_request=2,
     )
     write_results(chunk / "results.jsonl", plan_path)
     record_dispatch(plan_path)
-    result = json.loads((chunk / "results.jsonl").read_text().splitlines()[0])
-    content = json.loads(result["response"]["body"]["choices"][0]["message"]["content"])
-    content["responses"].reverse()
-    result["response"]["body"]["choices"][0]["message"]["content"] = json.dumps(content)
-    (chunk / "results.jsonl").write_text(json.dumps(result) + "\n", encoding="utf-8")
+    first_line = (chunk / "results.jsonl").read_text().splitlines()[0]
+    (chunk / "results.jsonl").write_text(f"{first_line}\n{first_line}\n", encoding="utf-8")
 
-    with pytest.raises(ValueError, match="IDs or order"):
+    with pytest.raises(ValueError, match="duplicate result"):
         finalize_sft_chunk(
             plan_path=plan_path,
             results_path=chunk / "results.jsonl",
@@ -262,16 +244,16 @@ def test_finalize_normalizes_newlines_and_records_local_rejections(
         provider="provider",
         start_index=0,
         example_count=2,
-        examples_per_request=2,
     )
     write_results(chunk / "results.jsonl", plan_path)
     record_dispatch(plan_path)
-    result = json.loads((chunk / "results.jsonl").read_text().splitlines()[0])
-    content = json.loads(result["response"]["body"]["choices"][0]["message"]["content"])
-    content["responses"][0]["response"] = content["responses"][0]["response"].replace("\n", "\r\n")
-    content["responses"][1]["response"] = "I cannot write that poem."
-    result["response"]["body"]["choices"][0]["message"]["content"] = json.dumps(content)
-    (chunk / "results.jsonl").write_text(json.dumps(result) + "\n", encoding="utf-8")
+    results = [json.loads(line) for line in (chunk / "results.jsonl").read_text().splitlines()]
+    first_message = results[0]["response"]["body"]["choices"][0]["message"]
+    first_message["content"] = first_message["content"].replace("\n", "\r\n")
+    results[1]["response"]["body"]["choices"][0]["message"]["content"] = "I cannot write that poem."
+    (chunk / "results.jsonl").write_text(
+        "".join(json.dumps(result) + "\n" for result in results), encoding="utf-8"
+    )
 
     receipt_path = finalize_sft_chunk(
         plan_path=plan_path,
@@ -309,7 +291,6 @@ def finalized_chunk(
         provider="test-provider",
         start_index=start_index,
         example_count=2,
-        examples_per_request=2,
     )
     write_results(chunk / "results.jsonl", plan_path, response_prefix=response_prefix)
     record_dispatch(plan_path)

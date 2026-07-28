@@ -19,7 +19,6 @@ from poetry50m.trajectory._persistence import atomic_write
 
 from .tokenizer import load_tokenizer
 
-ResponseFormat = Literal["json-schema", "json-object", "none"]
 MaxTokensField = Literal["max_completion_tokens", "max_tokens"]
 TargetMetric = Literal["formatted", "supervised"]
 
@@ -46,13 +45,10 @@ REFUSAL_MARKERS = (
 SYSTEM_PROMPT = """\
 Write original English poems for supervised fine-tuning.
 
-Follow every supplied prompt closely. Return one poem for each example_id, in the
-same order. Poems must be original rather than quotations or continuations. Do not
-mention these instructions, explain the poem, add critique, or wrap poems in
-Markdown fences. Preserve intentional line breaks. Use exactly this JSON shape:
-{"responses":[{"example_id":"the supplied ID","response":"the poem"}]}
-
-Return only the requested JSON object."""
+Follow the user's prompt closely. The poem must be original rather than a quotation
+or continuation. Do not mention these instructions, explain or critique the poem,
+add a title unless requested, or wrap it in Markdown. Preserve intentional line
+breaks. Return only the poem text."""
 
 SUBJECTS = (
     "a honey bee choosing between the last two lavender flowers",
@@ -261,28 +257,6 @@ class PlannedExample:
         )
 
 
-def _response_schema() -> dict[str, object]:
-    return {
-        "type": "object",
-        "properties": {
-            "responses": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "example_id": {"type": "string"},
-                        "response": {"type": "string"},
-                    },
-                    "required": ["example_id", "response"],
-                    "additionalProperties": False,
-                },
-            }
-        },
-        "required": ["responses"],
-        "additionalProperties": False,
-    }
-
-
 def _chunk_id(seed: int, start_index: int, example_count: int) -> str:
     stop_index = start_index + example_count
     return f"sft-v1-s{seed}-{start_index:09d}-{stop_index:09d}"
@@ -296,10 +270,8 @@ def plan_sft_chunk(
     start_index: int,
     example_count: int,
     seed: int = 20260728,
-    examples_per_request: int = 8,
     temperature: float = 0.9,
-    max_completion_tokens: int = 4096,
-    response_format_mode: ResponseFormat = "json-schema",
+    max_completion_tokens: int = 1024,
     max_tokens_field: MaxTokensField = "max_completion_tokens",
 ) -> tuple[Path, Path]:
     """Create an immutable request plan for one disjoint SFT chunk."""
@@ -308,12 +280,9 @@ def plan_sft_chunk(
     _required_integer(start_index, name="start_index")
     _required_integer(example_count, name="example_count", minimum=1)
     _required_integer(seed, name="seed")
-    _required_integer(examples_per_request, name="examples_per_request", minimum=1)
     _required_integer(max_completion_tokens, name="max_completion_tokens", minimum=1)
     if not 0 <= temperature <= 2:
         raise ValueError("temperature must be between 0 and 2")
-    if response_format_mode not in {"json-schema", "json-object", "none"}:
-        raise ValueError(f"unsupported response format mode: {response_format_mode}")
     if max_tokens_field not in {"max_completion_tokens", "max_tokens"}:
         raise ValueError(f"unsupported max token field: {max_tokens_field}")
     if start_index + example_count > PROMPT_CAPACITY:
@@ -328,38 +297,17 @@ def plan_sft_chunk(
     chunk_id = _chunk_id(seed, start_index, example_count)
     requests: list[dict[str, object]] = []
     request_assignments: list[dict[str, object]] = []
-    for request_index, offset in enumerate(range(0, example_count, examples_per_request)):
-        assigned = examples[offset : offset + examples_per_request]
+    for request_index, example in enumerate(examples):
         custom_id = f"{chunk_id}-r{request_index:06d}"
-        user_payload = [
-            {"example_id": example.example_id, "prompt": example.prompt} for example in assigned
-        ]
         body: dict[str, object] = {
             "model": model,
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": (
-                        "Write one response for each supplied item:\n"
-                        f"{_canonical_json(user_payload)}"
-                    ),
-                },
+                {"role": "user", "content": example.prompt},
             ],
             "temperature": temperature,
             max_tokens_field: max_completion_tokens,
         }
-        if response_format_mode == "json-schema":
-            body["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "poetry_sft_responses",
-                    "strict": True,
-                    "schema": _response_schema(),
-                },
-            }
-        elif response_format_mode == "json-object":
-            body["response_format"] = {"type": "json_object"}
         requests.append(
             {
                 "custom_id": custom_id,
@@ -371,7 +319,7 @@ def plan_sft_chunk(
         request_assignments.append(
             {
                 "custom_id": custom_id,
-                "example_ids": [example.example_id for example in assigned],
+                "example_id": example.example_id,
                 "request_sha256": sha256(_canonical_json(body).encode()).hexdigest(),
             }
         )
@@ -393,10 +341,9 @@ def plan_sft_chunk(
             "seed": seed,
             "start_index": start_index,
             "example_count": example_count,
-            "examples_per_request": examples_per_request,
+            "output_mode": "raw-text",
             "temperature": temperature,
             "max_completion_tokens": max_completion_tokens,
-            "response_format_mode": response_format_mode,
             "max_tokens_field": max_tokens_field,
             "requests_filename": requests_path.name,
             "requests_sha256": file_hash(requests_path),
@@ -464,7 +411,7 @@ def record_sft_dispatch(
     return dispatch_path
 
 
-def _completion_content(record: Mapping[str, object]) -> tuple[str, dict[str, object]]:
+def _completion_text(record: Mapping[str, object]) -> tuple[str, str]:
     custom_id = _required_string(record.get("custom_id"), name="result custom_id")
     if record.get("error") is not None:
         raise RuntimeError(f"result {custom_id} failed: {record['error']}")
@@ -481,13 +428,7 @@ def _completion_content(record: Mapping[str, object]) -> tuple[str, dict[str, ob
     if not isinstance(message, dict):
         raise TypeError(f"result {custom_id} message must be an object")
     content = _required_string(message.get("content"), name=f"result {custom_id} content")
-    try:
-        parsed = json.loads(content)
-    except json.JSONDecodeError as error:
-        raise ValueError(f"result {custom_id} content is not valid JSON") from error
-    if not isinstance(parsed, dict) or any(not isinstance(key, str) for key in parsed):
-        raise TypeError(f"result {custom_id} content must decode to an object")
-    return custom_id, cast(dict[str, object], parsed)
+    return custom_id, content.replace("\r\n", "\n").replace("\r", "\n")
 
 
 def _token_counts(tokenizer: Tokenizer, prompt: str, response: str) -> dict[str, int]:
@@ -575,6 +516,8 @@ def finalize_sft_chunk(
     plan = _read_json(plan_path)
     if plan.get("format_version") != FORMAT_VERSION or plan.get("recipe_version") != RECIPE_VERSION:
         raise ValueError("unsupported SFT chunk plan format")
+    if plan.get("output_mode") != "raw-text":
+        raise ValueError("SFT chunk plan must use raw-text output")
     requests_path = plan_path.parent / _required_string(
         plan.get("requests_filename"), name="requests_filename"
     )
@@ -605,51 +548,33 @@ def finalize_sft_chunk(
             raise ValueError(f"duplicate planned example {example_id}")
         planned_examples[example_id] = example
 
-    expected_by_request: dict[str, tuple[str, ...]] = {}
+    expected_by_request: dict[str, str] = {}
     for value in assignments_value:
         if not isinstance(value, dict):
             raise TypeError("request assignment must be an object")
         assignment = cast(dict[str, object], value)
         custom_id = _required_string(assignment.get("custom_id"), name="assignment custom_id")
-        raw_ids = assignment.get("example_ids")
-        if not isinstance(raw_ids, list):
-            raise TypeError(f"assignment {custom_id} example_ids must be an array")
-        expected_by_request[custom_id] = tuple(
-            _required_string(item, name=f"assignment {custom_id} example_id") for item in raw_ids
+        example_id = _required_string(
+            assignment.get("example_id"), name=f"assignment {custom_id} example_id"
         )
+        if custom_id in expected_by_request:
+            raise ValueError(f"duplicate assignment {custom_id}")
+        expected_by_request[custom_id] = example_id
 
     generated: dict[str, tuple[str, str]] = {}
     seen_requests: set[str] = set()
     result_records = _read_jsonl(results_path)
     for record in result_records:
-        custom_id, content = _completion_content(record)
+        custom_id, response = _completion_text(record)
         if custom_id not in expected_by_request:
             raise ValueError(f"unexpected result {custom_id}")
         if custom_id in seen_requests:
             raise ValueError(f"duplicate result {custom_id}")
         seen_requests.add(custom_id)
-        responses = content.get("responses")
-        if not isinstance(responses, list):
-            raise TypeError(f"result {custom_id} responses must be an array")
-        response_ids: list[str] = []
-        for value in responses:
-            if not isinstance(value, dict):
-                raise TypeError(f"result {custom_id} response must be an object")
-            response_value = cast(dict[str, object], value)
-            example_id = _required_string(
-                response_value.get("example_id"), name="response example_id"
-            )
-            text = (
-                _required_string(response_value.get("response"), name=f"response {example_id}")
-                .replace("\r\n", "\n")
-                .replace("\r", "\n")
-            )
-            if example_id in generated:
-                raise ValueError(f"duplicate generated example {example_id}")
-            generated[example_id] = (custom_id, text)
-            response_ids.append(example_id)
-        if tuple(response_ids) != expected_by_request[custom_id]:
-            raise ValueError(f"result {custom_id} IDs or order do not match its assignment")
+        example_id = expected_by_request[custom_id]
+        if example_id in generated:
+            raise ValueError(f"duplicate generated example {example_id}")
+        generated[example_id] = (custom_id, response)
 
     missing_requests = set(expected_by_request).difference(seen_requests)
     missing_examples = set(planned_examples).difference(generated)

@@ -29,14 +29,8 @@ def parser() -> argparse.ArgumentParser:
     plan.add_argument("--start-index", type=int, required=True)
     plan.add_argument("--examples", type=int, required=True)
     plan.add_argument("--seed", type=int, default=20260728)
-    plan.add_argument("--examples-per-request", type=int, default=8)
     plan.add_argument("--temperature", type=float, default=0.9)
-    plan.add_argument("--max-completion-tokens", type=int, default=4096)
-    plan.add_argument(
-        "--response-format",
-        choices=("json-schema", "json-object", "none"),
-        default="json-schema",
-    )
+    plan.add_argument("--max-completion-tokens", type=int, default=1024)
     plan.add_argument(
         "--max-tokens-field",
         choices=("max_completion_tokens", "max_tokens"),
@@ -86,10 +80,8 @@ def main() -> int:
             start_index=args.start_index,
             example_count=args.examples,
             seed=args.seed,
-            examples_per_request=args.examples_per_request,
             temperature=args.temperature,
             max_completion_tokens=args.max_completion_tokens,
-            response_format_mode=args.response_format,
             max_tokens_field=args.max_tokens_field,
         )
     elif args.command == "run-openai-compatible":
