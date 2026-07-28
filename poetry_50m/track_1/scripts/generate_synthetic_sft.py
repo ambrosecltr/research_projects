@@ -50,6 +50,7 @@ def parser() -> argparse.ArgumentParser:
     finalize.add_argument("--chunk", type=Path, required=True)
     finalize.add_argument("--tokenizer", type=Path, required=True)
     finalize.add_argument("--output", type=Path, required=True)
+    finalize.add_argument("--allow-partial", action="store_true")
 
     summarize = commands.add_parser("summarize")
     summarize.add_argument("--receipts", type=Path, nargs="+", required=True)
@@ -111,6 +112,7 @@ def main() -> int:
             results_path=args.chunk / "results.jsonl",
             tokenizer_path=args.tokenizer,
             output_directory=args.output,
+            allow_partial=args.allow_partial,
         )
         print(receipt_path)
     elif args.command == "summarize":

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import urllib.error
 import urllib.request
 from collections import Counter
@@ -1563,6 +1564,8 @@ def _execute_pending_requests(
         raise ValueError("concurrency must be positive")
     results_path.parent.mkdir(parents=True, exist_ok=True)
     failures: list[Exception] = []
+    successful_count = 0
+    total_count = len(pending)
     with results_path.open("a", encoding="utf-8", newline="\n") as handle:
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             futures = {executor.submit(worker, request): request for request in pending}
@@ -1571,10 +1574,23 @@ def _execute_pending_requests(
                     result = future.result()
                 except Exception as error:
                     failures.append(error)
-                    continue
-                handle.write(_canonical_json(result))
-                handle.write("\n")
-                handle.flush()
+                else:
+                    handle.write(_canonical_json(result))
+                    handle.write("\n")
+                    handle.flush()
+                    successful_count += 1
+                completed_count = successful_count + len(failures)
+                if (
+                    completed_count == 1
+                    or completed_count % 25 == 0
+                    or completed_count == total_count
+                ):
+                    print(
+                        f"{provider_name}: {successful_count}/{total_count} saved, "
+                        f"{len(failures)} failed",
+                        file=sys.stderr,
+                        flush=True,
+                    )
     if failures:
         raise RuntimeError(
             f"{len(failures)} {provider_name} requests failed; successful results were preserved"

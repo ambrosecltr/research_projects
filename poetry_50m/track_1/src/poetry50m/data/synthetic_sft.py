@@ -8,6 +8,7 @@ import unicodedata
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from hashlib import sha256
 from pathlib import Path
 from typing import BinaryIO, Literal, cast
@@ -23,7 +24,9 @@ MaxTokensField = Literal["max_completion_tokens", "max_tokens"]
 TargetMetric = Literal["formatted", "supervised"]
 
 FORMAT_VERSION = 1
-RECIPE_VERSION = "poetry-sft-prompts-v1"
+LEGACY_RECIPE_VERSION = "poetry-sft-prompts-v1"
+RECIPE_VERSION = "poetry-sft-prompts-v2"
+SUPPORTED_RECIPE_VERSIONS = frozenset((LEGACY_RECIPE_VERSION, RECIPE_VERSION))
 DEFAULT_TARGET_TOKENS = 15_000_000
 TRACK1_SFT_TOKENIZER_SHA256 = "f36d39162cb38a59a74f2e3b082b50711613deb2d826f2d57cd1b8542e05a84d"
 WORD = re.compile(r"[\w']+", re.UNICODE)
@@ -35,11 +38,13 @@ LENGTH_LINE_BOUNDS = {
 }
 REFUSAL_MARKERS = (
     "as an ai",
-    "i apologize",
-    "i cannot",
-    "i can't",
-    "i’m sorry",
-    "i'm sorry",
+    "i apologize, but",
+    "i cannot comply",
+    "i cannot fulfill",
+    "i can't assist",
+    "i’m sorry, but i can’t",
+    "i'm sorry, but i can't",
+    "unable to provide",
 )
 
 SYSTEM_PROMPT = """\
@@ -85,11 +90,11 @@ FORMS = (
     "free verse",
     "a compact lyric",
     "a narrative poem",
-    "a prose poem with deliberate line breaks",
+    "a prose-like free-verse poem with deliberate line breaks",
     "three restrained tercets",
     "a dramatic monologue",
     "a list poem whose final item changes the earlier items",
-    "two unequal stanzas joined by a one-line turn",
+    "two unequal stanzas separated by a one-line turn",
 )
 
 TONES = (
@@ -108,6 +113,36 @@ LENGTHS = (
     ("short", "8 to 12 lines"),
     ("medium", "13 to 20 lines"),
     ("long", "21 to 32 lines"),
+)
+
+FORM_LENGTH_LABELS = {
+    "free verse": ("very short", "short", "medium", "long"),
+    "a compact lyric": ("very short", "short", "medium"),
+    "a narrative poem": ("short", "medium", "long"),
+    "a prose-like free-verse poem with deliberate line breaks": ("short", "medium", "long"),
+    "three restrained tercets": ("short",),
+    "a dramatic monologue": ("short", "medium", "long"),
+    "a list poem whose final item changes the earlier items": (
+        "very short",
+        "short",
+        "medium",
+        "long",
+    ),
+    "two unequal stanzas separated by a one-line turn": ("short", "medium", "long"),
+}
+LENGTH_INSTRUCTIONS = dict(LENGTHS)
+FORM_LENGTHS = tuple(
+    (
+        form,
+        length_label,
+        (
+            "exactly 9 lines"
+            if form == "three restrained tercets"
+            else LENGTH_INSTRUCTIONS[length_label]
+        ),
+    )
+    for form in FORMS
+    for length_label in FORM_LENGTH_LABELS[form]
 )
 
 VOICES = (
@@ -193,17 +228,50 @@ def _normalized_text_hash(text: str) -> str:
 
 
 PROMPT_CAPACITY = (
-    len(SUBJECTS) * len(FORMS) * len(TONES) * len(LENGTHS) * len(VOICES) * len(TECHNIQUES)
+    len(SUBJECTS) * len(FORM_LENGTHS) * len(TONES) * len(VOICES) * len(TECHNIQUES)
 )
+PROMPT_BLOCK_SIZE = 2_048
 
 
-def _prompt_combination_index(index: int, seed: int) -> int:
-    offset = int.from_bytes(sha256(f"{RECIPE_VERSION}:{seed}".encode()).digest()[:8], "big")
-    return (index + offset) % PROMPT_CAPACITY
+@lru_cache(maxsize=32)
+def _prompt_axis_shifts(seed: int) -> tuple[int, int, int, int, int]:
+    digest = sha256(f"{RECIPE_VERSION}:{seed}".encode()).digest()
+    return (
+        digest[0] % len(SUBJECTS),
+        digest[1] % len(FORM_LENGTHS),
+        digest[2] % len(TONES),
+        digest[3] % len(VOICES),
+        digest[4] % len(TECHNIQUES),
+    )
 
 
-def _take_axis(combination_index: int, values: Sequence[object]) -> tuple[object, int]:
-    return values[combination_index % len(values)], combination_index // len(values)
+def _prompt_axis_indices(index: int, seed: int) -> tuple[int, int, int, int, int]:
+    block, remainder = divmod(index, PROMPT_BLOCK_SIZE)
+    tone_code = remainder & 7
+    voice_code = (remainder >> 3) & 7
+    technique_code = (remainder >> 6) & 7
+    length_code = (remainder >> 9) & 3
+    subject_block = block % len(SUBJECTS)
+    form_length_block = block // len(SUBJECTS)
+    subject_shift, form_length_shift, tone_shift, voice_shift, technique_shift = (
+        _prompt_axis_shifts(seed)
+    )
+
+    # This reversible interleaver visits every prompt combination exactly once
+    # while balancing every contiguous 2,048-example production block.
+    subject_index = (subject_block + remainder % len(SUBJECTS) + subject_shift) % len(SUBJECTS)
+    form_length_index = (
+        form_length_block * 4
+        + length_code
+        + tone_code
+        + 3 * voice_code
+        + 7 * technique_code
+        + form_length_shift
+    ) % len(FORM_LENGTHS)
+    tone_index = (tone_code + tone_shift) % len(TONES)
+    voice_index = (voice_code + voice_shift) % len(VOICES)
+    technique_index = (technique_code + technique_shift) % len(TECHNIQUES)
+    return subject_index, form_length_index, tone_index, voice_index, technique_index
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,33 +281,43 @@ class PromptSpec:
     tone: str
     length_label: str
     length_instruction: str
+    minimum_lines: int
+    maximum_lines: int
     voice: str
     technique: str
 
     @classmethod
     def for_index(cls, index: int, seed: int) -> PromptSpec:
-        combination_index = _prompt_combination_index(index, seed)
-        subject, combination_index = _take_axis(combination_index, SUBJECTS)
-        form, combination_index = _take_axis(combination_index, FORMS)
-        tone, combination_index = _take_axis(combination_index, TONES)
-        length, combination_index = _take_axis(combination_index, LENGTHS)
-        voice, combination_index = _take_axis(combination_index, VOICES)
-        technique, _ = _take_axis(combination_index, TECHNIQUES)
-        length = cast(tuple[str, str], length)
+        subject_index, form_length_index, tone_index, voice_index, technique_index = (
+            _prompt_axis_indices(index, seed)
+        )
+        subject = SUBJECTS[subject_index]
+        form, length_label, length_instruction = FORM_LENGTHS[form_length_index]
+        tone = TONES[tone_index]
+        voice = VOICES[voice_index]
+        technique = TECHNIQUES[technique_index]
+        minimum_lines, maximum_lines = (
+            (9, 9)
+            if form == "three restrained tercets"
+            else LENGTH_LINE_BOUNDS[length_label]
+        )
         return cls(
-            subject=cast(str, subject),
-            form=cast(str, form),
-            tone=cast(str, tone),
-            length_label=length[0],
-            length_instruction=length[1],
-            voice=cast(str, voice),
-            technique=cast(str, technique),
+            subject=subject,
+            form=form,
+            tone=tone,
+            length_label=length_label,
+            length_instruction=length_instruction,
+            minimum_lines=minimum_lines,
+            maximum_lines=maximum_lines,
+            voice=voice,
+            technique=technique,
         )
 
     def render(self) -> str:
         return (
             f"Write {self.form} about {self.subject}. Make it {self.tone}, using "
-            f"{self.voice}. Aim for {self.length_instruction}. {self.technique}"
+            f"{self.voice}. Use {self.length_instruction}, counting only lines containing words. "
+            f"{self.technique}"
         )
 
 
@@ -254,7 +332,7 @@ class PlannedExample:
     def create(cls, index: int, seed: int) -> PlannedExample:
         spec = PromptSpec.for_index(index, seed)
         return cls(
-            example_id=f"synthetic-sft-{index:09d}",
+            example_id=f"synthetic-sft-v2-{index:09d}",
             global_index=index,
             prompt=spec.render(),
             prompt_spec=spec,
@@ -263,7 +341,7 @@ class PlannedExample:
 
 def _chunk_id(seed: int, start_index: int, example_count: int) -> str:
     stop_index = start_index + example_count
-    return f"sft-v1-s{seed}-{start_index:09d}-{stop_index:09d}"
+    return f"sft-v2-s{seed}-{start_index:09d}-{stop_index:09d}"
 
 
 def plan_sft_chunk(
@@ -485,11 +563,17 @@ def _observed_models(records: Sequence[Mapping[str, object]]) -> tuple[tuple[str
 
 def _local_rejection_reasons(response: str, prompt_spec: Mapping[str, object]) -> tuple[str, ...]:
     reasons: list[str] = []
-    length_label = _required_string(prompt_spec.get("length_label"), name="length_label")
-    if length_label not in LENGTH_LINE_BOUNDS:
-        raise ValueError(f"unsupported prompt length label: {length_label}")
+    if "minimum_lines" in prompt_spec and "maximum_lines" in prompt_spec:
+        minimum_lines = _required_integer(prompt_spec.get("minimum_lines"), name="minimum_lines")
+        maximum_lines = _required_integer(prompt_spec.get("maximum_lines"), name="maximum_lines")
+    else:
+        length_label = _required_string(prompt_spec.get("length_label"), name="length_label")
+        if length_label not in LENGTH_LINE_BOUNDS:
+            raise ValueError(f"unsupported prompt length label: {length_label}")
+        minimum_lines, maximum_lines = LENGTH_LINE_BOUNDS[length_label]
+    if maximum_lines < minimum_lines:
+        raise ValueError("maximum_lines must be greater than or equal to minimum_lines")
     nonempty_lines = tuple(line.strip() for line in response.splitlines() if line.strip())
-    minimum_lines, maximum_lines = LENGTH_LINE_BOUNDS[length_label]
     if not minimum_lines <= len(nonempty_lines) <= maximum_lines:
         reasons.append(f"line_count={len(nonempty_lines)}_expected={minimum_lines}-{maximum_lines}")
     word_count = len(WORD.findall(response))
@@ -506,9 +590,34 @@ def _local_rejection_reasons(response: str, prompt_spec: Mapping[str, object]) -
     if any(marker in normalized for marker in REFUSAL_MARKERS):
         reasons.append("refusal_boilerplate")
     normalized_lines = [" ".join(line.casefold().split()) for line in nonempty_lines]
-    if len(normalized_lines) != len(set(normalized_lines)):
-        reasons.append("repeated_line")
+    if sum(line in {"---", "***"} for line in normalized_lines) > 1:
+        reasons.append("multiple_poem_separator")
     return tuple(reasons)
+
+
+def _legacy_salvage_prompt(
+    prompt_spec: Mapping[str, object],
+    *,
+    line_count: int,
+) -> tuple[str, dict[str, object]]:
+    subject = _required_string(prompt_spec.get("subject"), name="subject")
+    tone = _required_string(prompt_spec.get("tone"), name="tone")
+    voice = _required_string(prompt_spec.get("voice"), name="voice")
+    prompt = (
+        f"Write an original English poem about {subject}. Make it {tone}, using {voice}. "
+        f"Use exactly {line_count} non-empty lines."
+    )
+    return prompt, {
+        "subject": subject,
+        "form": "an original English poem",
+        "tone": tone,
+        "length_label": "observed",
+        "length_instruction": f"exactly {line_count} non-empty lines",
+        "minimum_lines": line_count,
+        "maximum_lines": line_count,
+        "voice": voice,
+        "technique": "Follow the requested subject, tone, voice, and line count.",
+    }
 
 
 def finalize_sft_chunk(
@@ -518,10 +627,15 @@ def finalize_sft_chunk(
     tokenizer_path: Path,
     output_directory: Path,
     expected_tokenizer_sha256: str = TRACK1_SFT_TOKENIZER_SHA256,
+    allow_partial: bool = False,
 ) -> Path:
     """Validate a complete chunk and emit canonical SFT examples with exact token counts."""
     plan = _read_json(plan_path)
-    if plan.get("format_version") != FORMAT_VERSION or plan.get("recipe_version") != RECIPE_VERSION:
+    recipe_version = _required_string(plan.get("recipe_version"), name="recipe_version")
+    if (
+        plan.get("format_version") != FORMAT_VERSION
+        or recipe_version not in SUPPORTED_RECIPE_VERSIONS
+    ):
         raise ValueError("unsupported SFT chunk plan format")
     if plan.get("output_mode") != "raw-text":
         raise ValueError("SFT chunk plan must use raw-text output")
@@ -585,9 +699,9 @@ def finalize_sft_chunk(
 
     missing_requests = set(expected_by_request).difference(seen_requests)
     missing_examples = set(planned_examples).difference(generated)
-    if missing_requests:
+    if missing_requests and not allow_partial:
         raise ValueError(f"results are missing requests: {sorted(missing_requests)}")
-    if missing_examples:
+    if missing_examples and not allow_partial:
         raise ValueError(f"results are missing examples: {sorted(missing_examples)}")
 
     tokenizer_hash = file_hash(tokenizer_path)
@@ -605,12 +719,37 @@ def finalize_sft_chunk(
     rejections: list[dict[str, object]] = []
     response_hashes: set[str] = set()
     totals = Counter[str]()
+    adjusted_prompt_count = 0
     for example_id, planned in planned_examples.items():
+        if example_id not in generated:
+            continue
         custom_id, response = generated[example_id]
         prompt_spec = planned.get("prompt_spec")
         if not isinstance(prompt_spec, dict):
             raise TypeError(f"prompt_spec {example_id} must be an object")
         rejection_reasons = list(_local_rejection_reasons(response, prompt_spec))
+        prompt_adjustment: dict[str, object] | None = None
+        if recipe_version == LEGACY_RECIPE_VERSION:
+            rejection_reasons = [
+                reason for reason in rejection_reasons if not reason.startswith("line_count=")
+            ]
+            nonempty_line_count = sum(bool(line.strip()) for line in response.splitlines())
+            prompt, training_prompt_spec = _legacy_salvage_prompt(
+                prompt_spec,
+                line_count=nonempty_line_count,
+            )
+            prompt_adjustment = {
+                "kind": "legacy-v1-observed-shape",
+                "source_prompt_sha256": sha256(
+                    _required_string(
+                        planned.get("prompt"),
+                        name=f"prompt {example_id}",
+                    ).encode()
+                ).hexdigest(),
+            }
+        else:
+            prompt = _required_string(planned.get("prompt"), name=f"prompt {example_id}")
+            training_prompt_spec = prompt_spec
         response_hash = _normalized_text_hash(response)
         if response_hash in response_hashes:
             rejection_reasons.append("duplicate_response")
@@ -625,9 +764,21 @@ def finalize_sft_chunk(
             )
             continue
         response_hashes.add(response_hash)
-        prompt = _required_string(planned.get("prompt"), name=f"prompt {example_id}")
+        if prompt_adjustment is not None:
+            adjusted_prompt_count += 1
         counts = _token_counts(tokenizer, prompt, response)
         totals.update(counts)
+        provenance: dict[str, object] = {
+            "kind": "synthetic",
+            "recipe_version": recipe_version,
+            "chunk_id": chunk_id,
+            "request_id": custom_id,
+            "generator_model": model,
+            "provider": provider,
+            "seed": seed,
+        }
+        if prompt_adjustment is not None:
+            provenance["prompt_adjustment"] = prompt_adjustment
         output_records.append(
             {
                 "format_version": FORMAT_VERSION,
@@ -636,17 +787,9 @@ def finalize_sft_chunk(
                     {"role": "user", "content": prompt},
                     {"role": "assistant", "content": response},
                 ],
-                "prompt_spec": prompt_spec,
+                "prompt_spec": training_prompt_spec,
                 "token_counts": counts,
-                "provenance": {
-                    "kind": "synthetic",
-                    "recipe_version": RECIPE_VERSION,
-                    "chunk_id": chunk_id,
-                    "request_id": custom_id,
-                    "generator_model": model,
-                    "provider": provider,
-                    "seed": seed,
-                },
+                "provenance": provenance,
             }
         )
 
@@ -663,12 +806,16 @@ def finalize_sft_chunk(
         receipt_path,
         {
             "format_version": FORMAT_VERSION,
-            "recipe_version": RECIPE_VERSION,
+            "recipe_version": recipe_version,
             "chunk_id": chunk_id,
             "model": model,
             "provider": provider,
             "seed": seed,
             "planned_example_count": len(planned_examples),
+            "completed_result_count": len(generated),
+            "missing_result_count": len(missing_requests),
+            "partial": bool(missing_requests),
+            "adjusted_prompt_count": adjusted_prompt_count,
             "example_count": len(output_records),
             "rejected_example_count": len(rejections),
             "token_counts": dict(totals),
@@ -691,14 +838,14 @@ def finalize_sft_chunk(
 
 def _validate_receipt_set(
     receipts: Sequence[Mapping[str, object]], *, expected_tokenizer_sha256: str
-) -> tuple[str, int]:
+) -> tuple[str, int, tuple[str, ...]]:
     if not receipts:
         raise ValueError("at least one chunk receipt is required")
     for receipt in receipts:
-        if (
-            receipt.get("format_version") != FORMAT_VERSION
-            or receipt.get("recipe_version") != RECIPE_VERSION
-        ):
+        if receipt.get("format_version") != FORMAT_VERSION:
+            raise ValueError("chunk receipts use an unsupported format or prompt recipe")
+        recipe_version = _required_string(receipt.get("recipe_version"), name="recipe_version")
+        if recipe_version not in SUPPORTED_RECIPE_VERSIONS:
             raise ValueError("chunk receipts use an unsupported format or prompt recipe")
     tokenizer_hashes = {
         _required_string(receipt.get("tokenizer_sha256"), name="tokenizer_sha256")
@@ -712,7 +859,15 @@ def _validate_receipt_set(
     chunk_ids = [_required_string(receipt.get("chunk_id"), name="chunk_id") for receipt in receipts]
     if len(chunk_ids) != len(set(chunk_ids)):
         raise ValueError("duplicate chunk receipt")
-    return next(iter(tokenizer_hashes)), next(iter(seeds))
+    recipe_versions = tuple(
+        sorted(
+            {
+                _required_string(receipt.get("recipe_version"), name="recipe_version")
+                for receipt in receipts
+            }
+        )
+    )
+    return next(iter(tokenizer_hashes)), next(iter(seeds)), recipe_versions
 
 
 def summarize_sft_chunks(
@@ -727,7 +882,7 @@ def summarize_sft_chunks(
     if not receipt_paths:
         raise ValueError("at least one chunk receipt is required")
     receipts = [_read_json(path) for path in receipt_paths]
-    tokenizer_hash, seed = _validate_receipt_set(
+    tokenizer_hash, seed, recipe_versions = _validate_receipt_set(
         receipts, expected_tokenizer_sha256=expected_tokenizer_sha256
     )
     chunk_ids = [_required_string(receipt.get("chunk_id"), name="chunk_id") for receipt in receipts]
@@ -748,7 +903,7 @@ def summarize_sft_chunks(
     formatted_tokens = totals["formatted"]
     summary: dict[str, object] = {
         "format_version": FORMAT_VERSION,
-        "recipe_version": RECIPE_VERSION,
+        "recipe_versions": recipe_versions,
         "target_formatted_tokens": target_tokens,
         "formatted_tokens": formatted_tokens,
         "remaining_formatted_tokens": max(0, target_tokens - formatted_tokens),
@@ -781,7 +936,7 @@ def assemble_sft_dataset(
     receipt_entries: list[tuple[Path, dict[str, object]]] = [
         (path, _read_json(path)) for path in receipt_paths
     ]
-    tokenizer_hash, seed = _validate_receipt_set(
+    tokenizer_hash, seed, recipe_versions = _validate_receipt_set(
         [receipt for _, receipt in receipt_entries],
         expected_tokenizer_sha256=expected_tokenizer_sha256,
     )
@@ -790,6 +945,7 @@ def assemble_sft_dataset(
     source_receipts: list[dict[str, str]] = []
     for receipt_path, receipt in receipt_entries:
         chunk_id = _required_string(receipt.get("chunk_id"), name="chunk_id")
+        receipt_recipe = _required_string(receipt.get("recipe_version"), name="recipe_version")
         receipt_model = _required_string(receipt.get("model"), name="model")
         receipt_provider = _required_string(receipt.get("provider"), name="provider")
         examples_path = receipt_path.parent / _required_string(
@@ -815,6 +971,7 @@ def assemble_sft_dataset(
                 raise TypeError("SFT example provenance must be an object")
             if (
                 provenance.get("chunk_id") != chunk_id
+                or provenance.get("recipe_version") != receipt_recipe
                 or provenance.get("generator_model") != receipt_model
                 or provenance.get("provider") != receipt_provider
                 or provenance.get("seed") != seed
@@ -824,17 +981,20 @@ def assemble_sft_dataset(
         source_receipts.append(
             {
                 "chunk_id": chunk_id,
+                "recipe_version": receipt_recipe,
                 "receipt_sha256": file_hash(receipt_path),
                 "examples_sha256": expected_hash,
             }
         )
 
-    def global_index(record: Mapping[str, object]) -> int:
+    def global_index(record: Mapping[str, object]) -> tuple[int, int]:
         example_id = _required_string(record.get("example_id"), name="example_id")
-        prefix = "synthetic-sft-"
-        if not example_id.startswith(prefix) or not example_id[len(prefix) :].isdigit():
-            raise ValueError(f"invalid synthetic SFT example ID: {example_id}")
-        return int(example_id[len(prefix) :])
+        prefixes = (("synthetic-sft-", 1), ("synthetic-sft-v2-", 2))
+        for prefix, recipe_order in reversed(prefixes):
+            suffix = example_id.removeprefix(prefix)
+            if suffix != example_id and suffix.isdigit():
+                return recipe_order, int(suffix)
+        raise ValueError(f"invalid synthetic SFT example ID: {example_id}")
 
     candidates.sort(key=global_index)
     validated: list[tuple[dict[str, object], dict[str, int], str]] = []
@@ -918,7 +1078,7 @@ def assemble_sft_dataset(
         receipt_path,
         {
             "format_version": FORMAT_VERSION,
-            "recipe_version": RECIPE_VERSION,
+            "recipe_versions": recipe_versions,
             "target_metric": target_metric,
             "target_tokens": target_tokens,
             "target_reached": reached_target,

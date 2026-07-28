@@ -1,15 +1,28 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from pathlib import Path
 
 import pytest
 
 from poetry50m.config import file_hash
 from poetry50m.data.synthetic_sft import (
+    FORM_LENGTH_LABELS,
+    FORMAT_VERSION,
     GENERATION_OUTPUT_INSTRUCTION,
+    LEGACY_RECIPE_VERSION,
+    PROMPT_BLOCK_SIZE,
     PROMPT_CAPACITY,
+    RECIPE_VERSION,
+    SUBJECTS,
+    TECHNIQUES,
+    TONES,
+    VOICES,
     PlannedExample,
+    _legacy_salvage_prompt,
+    _prompt_axis_indices,
+    _validate_receipt_set,
     assemble_sft_dataset,
     finalize_sft_chunk,
     plan_sft_chunk,
@@ -34,12 +47,7 @@ def write_results(path: Path, plan_path: Path, *, response_prefix: str = "Poem")
     records = []
     for assignment in plan["assignments"]:  # type: ignore[union-attr]
         example_id = assignment["example_id"]
-        line_count = {
-            "very short": 4,
-            "short": 8,
-            "medium": 13,
-            "long": 21,
-        }[examples[example_id]["prompt_spec"]["length_label"]]
+        line_count = examples[example_id]["prompt_spec"]["minimum_lines"]
         response = "\n".join(
             f"{response_prefix} {example_id} line {line_number}"
             for line_number in range(line_count)
@@ -121,6 +129,80 @@ def test_plans_are_deterministic_disjoint_and_model_scoped(tmp_path: Path) -> No
     assert ids_a.isdisjoint(ids_b)
     assert len(prompts_a) == 9
     assert PlannedExample.create(0, 20260728).prompt == value_a["examples"][0]["prompt"]  # type: ignore[index]
+
+
+@pytest.mark.parametrize("start_index", (0, 4_096, PROMPT_CAPACITY - PROMPT_BLOCK_SIZE))
+def test_production_blocks_are_balanced_and_form_length_compatible(start_index: int) -> None:
+    specs = [
+        PlannedExample.create(index, 20260728).prompt_spec
+        for index in range(start_index, start_index + PROMPT_BLOCK_SIZE)
+    ]
+
+    for values, maximum_spread in (
+        ((spec.subject for spec in specs), 1),
+        (((spec.form, spec.length_label) for spec in specs), 1),
+        ((spec.tone for spec in specs), 0),
+        ((spec.voice for spec in specs), 0),
+        ((spec.technique for spec in specs), 0),
+    ):
+        counts = Counter(values)
+        assert max(counts.values()) - min(counts.values()) <= maximum_spread
+
+    assert set(Counter(spec.subject for spec in specs)) == set(SUBJECTS)
+    assert set(Counter(spec.tone for spec in specs)) == set(TONES)
+    assert set(Counter(spec.voice for spec in specs)) == set(VOICES)
+    assert set(Counter(spec.technique for spec in specs)) == set(TECHNIQUES)
+    assert all(spec.length_label in FORM_LENGTH_LABELS[spec.form] for spec in specs)
+    assert all(
+        (spec.minimum_lines, spec.maximum_lines, spec.length_instruction)
+        == (9, 9, "exactly 9 lines")
+        for spec in specs
+        if spec.form == "three restrained tercets"
+    )
+
+
+def test_prompt_interleaver_is_collision_free_across_full_capacity() -> None:
+    combinations = {
+        _prompt_axis_indices(index, 20260728) for index in range(PROMPT_CAPACITY)
+    }
+    assert len(combinations) == PROMPT_CAPACITY
+    assert _prompt_axis_indices(0, 20260728) != _prompt_axis_indices(0, 20260729)
+
+
+def test_legacy_prompt_salvage_and_mixed_recipe_receipts_are_explicit() -> None:
+    prompt, prompt_spec = _legacy_salvage_prompt(
+        {
+            "subject": "rain",
+            "tone": "quiet",
+            "voice": "plain language",
+        },
+        line_count=11,
+    )
+    assert prompt.endswith("Use exactly 11 non-empty lines.")
+    assert prompt_spec["minimum_lines"] == 11
+    assert prompt_spec["maximum_lines"] == 11
+
+    tokenizer_hash = "a" * 64
+    base_receipt = {
+        "format_version": FORMAT_VERSION,
+        "tokenizer_sha256": tokenizer_hash,
+        "seed": 20260728,
+    }
+    assert _validate_receipt_set(
+        [
+            {
+                **base_receipt,
+                "recipe_version": LEGACY_RECIPE_VERSION,
+                "chunk_id": "legacy",
+            },
+            {
+                **base_receipt,
+                "recipe_version": RECIPE_VERSION,
+                "chunk_id": "current",
+            },
+        ],
+        expected_tokenizer_sha256=tokenizer_hash,
+    ) == (tokenizer_hash, 20260728, (LEGACY_RECIPE_VERSION, RECIPE_VERSION))
 
 
 def test_plan_refuses_overwrite_and_prompt_capacity_overflow(tmp_path: Path) -> None:
@@ -238,6 +320,39 @@ def test_finalize_fails_closed_on_duplicate_results(tmp_path: Path, tokenizer_pa
         )
 
 
+def test_finalize_can_preserve_an_explicitly_partial_paid_chunk(
+    tmp_path: Path, tokenizer_path: Path
+) -> None:
+    chunk = tmp_path / "chunk"
+    _, plan_path = plan_sft_chunk(
+        output_directory=chunk,
+        model="model",
+        provider="provider",
+        start_index=0,
+        example_count=3,
+    )
+    write_results(chunk / "results.jsonl", plan_path)
+    record_dispatch(plan_path)
+    completed = (chunk / "results.jsonl").read_text().splitlines()[:2]
+    (chunk / "results.jsonl").write_text("\n".join(completed) + "\n", encoding="utf-8")
+
+    receipt_path = finalize_sft_chunk(
+        plan_path=plan_path,
+        results_path=chunk / "results.jsonl",
+        tokenizer_path=tokenizer_path,
+        output_directory=tmp_path / "finalized",
+        expected_tokenizer_sha256=file_hash(tokenizer_path),
+        allow_partial=True,
+    )
+
+    receipt = read_json(receipt_path)
+    assert receipt["planned_example_count"] == 3
+    assert receipt["completed_result_count"] == 2
+    assert receipt["missing_result_count"] == 1
+    assert receipt["partial"] is True
+    assert receipt["example_count"] == 2
+
+
 def test_finalize_normalizes_newlines_and_records_local_rejections(
     tmp_path: Path, tokenizer_path: Path
 ) -> None:
@@ -254,7 +369,9 @@ def test_finalize_normalizes_newlines_and_records_local_rejections(
     results = [json.loads(line) for line in (chunk / "results.jsonl").read_text().splitlines()]
     first_message = results[0]["response"]["body"]["choices"][0]["message"]
     first_message["content"] = first_message["content"].replace("\n", "\r\n")
-    results[1]["response"]["body"]["choices"][0]["message"]["content"] = "I cannot write that poem."
+    results[1]["response"]["body"]["choices"][0]["message"]["content"] = (
+        "As an AI, I cannot fulfill this request."
+    )
     (chunk / "results.jsonl").write_text(
         "".join(json.dumps(result) + "\n" for result in results), encoding="utf-8"
     )
@@ -351,7 +468,7 @@ def test_summary_and_assembly_combine_multiple_models_deterministically(
     ]
     assert assembly["target_reached"] is True
     assert assembly["example_count"] == 1
-    assert dataset[0]["example_id"] == "synthetic-sft-000000000"
+    assert dataset[0]["example_id"] == "synthetic-sft-v2-000000000"
 
 
 def test_assembly_fails_closed_when_validated_data_is_under_target(
