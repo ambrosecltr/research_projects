@@ -18,3 +18,5 @@ __pycache__/
 *.parquet
 /poetry_50m/track_1/artifacts
 /poetry_50m/track_1/runs
+/track_1/artifacts
+/track_1/runs

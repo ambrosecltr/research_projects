@@ -48,6 +48,11 @@ REFUSAL_MARKERS = (
     "i'm sorry, but i can't",
     "unable to provide",
 )
+DISALLOWED_QUOTATIONS = (
+    "what stands in the way becomes the way",
+)
+MARKDOWN_ITALIC = re.compile(r"\*([^*]+)\*", re.DOTALL)
+MARKDOWN_HORIZONTAL_RULE = re.compile(r"^\s*(?:\*{1,3}|-{3,}|_{3,})\s*$")
 
 SYSTEM_PROMPT = """\
 Write original English poems for supervised fine-tuning.
@@ -761,10 +766,55 @@ def _local_rejection_reasons(response: str, prompt_spec: Mapping[str, object]) -
     normalized = unicodedata.normalize("NFKC", response).casefold()
     if any(marker in normalized for marker in REFUSAL_MARKERS):
         reasons.append("refusal_boilerplate")
+    if any(quotation in normalized for quotation in DISALLOWED_QUOTATIONS):
+        reasons.append("disallowed_quotation")
     normalized_lines = [" ".join(line.casefold().split()) for line in nonempty_lines]
     if sum(line in {"---", "***"} for line in normalized_lines) > 1:
         reasons.append("multiple_poem_separator")
     return tuple(reasons)
+
+
+def _sanitize_poem_markdown(response: str) -> tuple[str, tuple[str, ...]]:
+    transformations: list[str] = []
+    lines: list[str] = []
+    for line in response.splitlines():
+        if MARKDOWN_HORIZONTAL_RULE.fullmatch(line):
+            transformations.append("horizontal_rule")
+            lines.append("")
+        else:
+            lines.append(line)
+    sanitized = "\n".join(lines)
+    sanitized, italic_count = MARKDOWN_ITALIC.subn(r"\1", sanitized)
+    if italic_count:
+        transformations.extend("italic_delimiters" for _ in range(italic_count))
+    remaining_asterisks = sanitized.count("*")
+    if remaining_asterisks:
+        sanitized = sanitized.replace("*", "")
+        transformations.extend("asterisk" for _ in range(remaining_asterisks))
+    sanitized = sanitized.strip()
+    return sanitized, tuple(transformations)
+
+
+def _stanza_line_counts(response: str) -> tuple[int, ...]:
+    return tuple(
+        sum(bool(line.strip()) for line in stanza.splitlines())
+        for stanza in re.split(r"\n\s*\n", response.strip())
+        if stanza.strip()
+    )
+
+
+def _structural_mismatch(response: str, prompt_spec: Mapping[str, object]) -> bool:
+    form = _required_string(prompt_spec.get("form"), name="form")
+    stanza_counts = _stanza_line_counts(response)
+    if form == "three restrained tercets":
+        return stanza_counts != (3, 3, 3)
+    if form == "two unequal stanzas separated by a one-line turn":
+        return not (
+            len(stanza_counts) == 3
+            and stanza_counts[1] == 1
+            and stanza_counts[0] != stanza_counts[2]
+        )
+    return False
 
 
 def _observed_shape_prompt(
@@ -907,6 +957,8 @@ def finalize_sft_chunk(
     response_hashes: set[str] = set()
     totals = Counter[str]()
     adjusted_prompt_count = 0
+    markdown_sanitized_count = 0
+    markdown_transformations = Counter[str]()
     for example_id, planned in planned_examples.items():
         if example_id in truncated_results:
             custom_id, response_hash = truncated_results[example_id]
@@ -932,7 +984,11 @@ def finalize_sft_chunk(
             continue
         if example_id not in generated:
             continue
-        custom_id, response = generated[example_id]
+        custom_id, raw_response = generated[example_id]
+        response, markdown_changes = _sanitize_poem_markdown(raw_response)
+        if markdown_changes:
+            markdown_sanitized_count += 1
+            markdown_transformations.update(markdown_changes)
         prompt_spec = planned.get("prompt_spec")
         if not isinstance(prompt_spec, dict):
             raise TypeError(f"prompt_spec {example_id} must be an object")
@@ -940,11 +996,12 @@ def finalize_sft_chunk(
         line_count_mismatch = any(
             reason.startswith("line_count=") for reason in rejection_reasons
         )
+        structural_mismatch = _structural_mismatch(response, prompt_spec)
         rejection_reasons = [
             reason for reason in rejection_reasons if not reason.startswith("line_count=")
         ]
         prompt_adjustment: dict[str, object] | None = None
-        if recipe_version == LEGACY_RECIPE_VERSION or line_count_mismatch:
+        if recipe_version == LEGACY_RECIPE_VERSION or line_count_mismatch or structural_mismatch:
             nonempty_line_count = sum(bool(line.strip()) for line in response.splitlines())
             prompt, training_prompt_spec = _observed_shape_prompt(
                 prompt_spec,
@@ -952,6 +1009,15 @@ def finalize_sft_chunk(
             )
             prompt_adjustment = {
                 "kind": "observed-shape",
+                "reasons": [
+                    reason
+                    for reason, applies in (
+                        ("legacy_recipe", recipe_version == LEGACY_RECIPE_VERSION),
+                        ("line_count", line_count_mismatch),
+                        ("stanza_structure", structural_mismatch),
+                    )
+                    if applies
+                ],
                 "source_prompt_sha256": sha256(
                     _required_string(
                         planned.get("prompt"),
@@ -1031,6 +1097,8 @@ def finalize_sft_chunk(
             "missing_result_count": len(missing_requests),
             "partial": bool(missing_requests),
             "adjusted_prompt_count": adjusted_prompt_count,
+            "markdown_sanitized_count": markdown_sanitized_count,
+            "markdown_transformations": dict(sorted(markdown_transformations.items())),
             "example_count": len(output_records),
             "rejected_example_count": len(rejections),
             "token_counts": dict(totals),

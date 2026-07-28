@@ -59,6 +59,8 @@ def coordinate_source_hash(root: Path) -> str:
             "training/engine.py",
             "training/stream.py",
             "data/batch_stream.py",
+            "data/sft_training.py",
+            "workflows/sft.py",
             "workflows/training.py",
         )
         if (path := root / relative).is_file()

@@ -22,7 +22,7 @@ an index range. Assembly enforces one recipe, seed, and tokenizer across all chu
 
 ```bash
 uv run python scripts/generate_synthetic_sft.py plan-chunk \
-  --output artifacts/sft_synthetic/raw/chunk-000 \
+  --output artifacts/sft/provenance/synthetic/raw/chunk-000 \
   --model provider/model-a \
   --provider provider-name \
   --start-index 0 \
@@ -30,14 +30,14 @@ uv run python scripts/generate_synthetic_sft.py plan-chunk \
 
 SYNTH_API_KEY=... uv run python scripts/generate_synthetic_sft.py \
   run-openai-compatible \
-  --chunk artifacts/sft_synthetic/raw/chunk-000 \
+  --chunk artifacts/sft/provenance/synthetic/raw/chunk-000 \
   --base-url https://provider.example/v1 \
   --api-key-env SYNTH_API_KEY
 
 uv run python scripts/generate_synthetic_sft.py finalize-chunk \
-  --chunk artifacts/sft_synthetic/raw/chunk-000 \
+  --chunk artifacts/sft/provenance/synthetic/raw/chunk-000 \
   --tokenizer artifacts/prepared_v3/tokenizer.json \
-  --output artifacts/sft_synthetic/final/chunk-000
+  --output artifacts/sft/provenance/synthetic/cleaned-chunks/chunk-000
 ```
 
 `run-openai-compatible` is resumable. Successful responses are appended to
@@ -60,7 +60,7 @@ For the next model, use the next range:
 
 ```bash
 uv run python scripts/generate_synthetic_sft.py plan-chunk \
-  --output artifacts/sft_synthetic/raw/chunk-001 \
+  --output artifacts/sft/provenance/synthetic/raw/chunk-001 \
   --model other-provider/model-b \
   --provider other-provider \
   --start-index 1024 \
@@ -81,12 +81,12 @@ later disjoint chunks fill the token shortfall.
 
 ```bash
 uv run python scripts/generate_synthetic_sft.py summarize \
-  --receipts artifacts/sft_synthetic/final/chunk-*/receipt.json \
-  --output artifacts/sft_synthetic/progress.json
+  --receipts artifacts/sft/provenance/synthetic/cleaned-chunks/chunk-*/receipt.json \
+  --output artifacts/sft/provenance/synthetic/progress.json
 
 uv run python scripts/generate_synthetic_sft.py assemble \
-  --receipts artifacts/sft_synthetic/final/chunk-*/receipt.json \
-  --output artifacts/sft_synthetic/dataset-v1
+  --receipts artifacts/sft/provenance/synthetic/cleaned-chunks/chunk-*/receipt.json \
+  --output artifacts/sft/provenance/synthetic/dataset-v1
 ```
 
 `summarize` adds already accepted per-chunk counts before cross-chunk response

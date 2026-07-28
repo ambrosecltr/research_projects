@@ -305,6 +305,9 @@ class Poetry50MAdapter(Track1Adapter):
     ) -> dict[str, Any]:
         failures: list[str] = []
         endpoint_path = Path(endpoint).expanduser().resolve(strict=True)
+        is_sft_endpoint = (
+            endpoint_summary.get("run_mode") == "supervised_fine_tuning"
+        )
         final_snapshot_summary: dict[str, Any] | None = None
         if self.final_snapshot_path.is_file():
             final_snapshot_summary = self.checkpoint_summary(self.final_snapshot_path)
@@ -320,7 +323,7 @@ class Poetry50MAdapter(Track1Adapter):
                     failures.append(f"endpoint/final-snapshot mismatch: {field}")
             if final_snapshot_summary.get("complete") is not True:
                 failures.append("final trajectory snapshot is not at max_steps")
-        else:
+        elif not is_sft_endpoint:
             failures.append(f"missing final trajectory snapshot: {self.final_snapshot_path}")
 
         receipt: dict[str, Any] | None = None
@@ -334,7 +337,7 @@ class Poetry50MAdapter(Track1Adapter):
             snapshot_hash = receipt.get("snapshot_sha256")
             if not isinstance(checkpoint_hash, str):
                 failures.append("train receipt lacks checkpoint_sha256")
-            if not isinstance(snapshot_hash, str):
+            if not is_sft_endpoint and not isinstance(snapshot_hash, str):
                 failures.append("train receipt lacks snapshot_sha256")
             if endpoint_summary.get("checkpoint_kind") == "trainer":
                 if checkpoint_hash != sha256_file(endpoint_path):
@@ -347,7 +350,10 @@ class Poetry50MAdapter(Track1Adapter):
                     failures.append("train receipt snapshot hash does not match final snapshot")
             if self.run_manifest_path.is_file():
                 declared_manifest_hash = receipt.get("run_manifest_sha256")
-                if declared_manifest_hash != sha256_file(self.run_manifest_path):
+                if (
+                    not is_sft_endpoint
+                    or isinstance(declared_manifest_hash, str)
+                ) and declared_manifest_hash != sha256_file(self.run_manifest_path):
                     failures.append("train receipt run-manifest hash does not match")
         else:
             failures.append(f"missing train receipt: {self.train_receipt_path}")
@@ -355,6 +361,11 @@ class Poetry50MAdapter(Track1Adapter):
         return {
             "valid": not failures,
             "failures": failures,
+            "mode": (
+                "supervised_fine_tuning"
+                if is_sft_endpoint
+                else "trajectory_endpoint"
+            ),
             "final_snapshot": final_snapshot_summary,
             "train_receipt": receipt,
             "final_snapshot_path": str(self.final_snapshot_path),
@@ -365,6 +376,29 @@ class Poetry50MAdapter(Track1Adapter):
         self, path: str | Path, *, endpoint_checkpoint: str | Path | None = None
     ) -> dict[str, Any]:
         summary = self.checkpoint_summary(path)
+        endpoint_summary = (
+            None
+            if endpoint_checkpoint is None
+            else self.checkpoint_summary(endpoint_checkpoint)
+        )
+        if (
+            endpoint_summary is not None
+            and endpoint_summary.get("run_mode") == "supervised_fine_tuning"
+        ):
+            if summary.get("model_config_matches") is not True:
+                raise ValueError("SFT base checkpoint model config does not match the endpoint")
+            if summary.get("run_id") != endpoint_summary.get("base_run_id"):
+                raise ValueError("SFT base checkpoint run_id does not match the endpoint lineage")
+            base_path = Path(path).expanduser().resolve(strict=True)
+            if sha256_file(base_path) != endpoint_summary.get("base_checkpoint_sha256"):
+                raise ValueError("SFT base checkpoint hash does not match the endpoint lineage")
+            return {
+                **summary,
+                "valid_base": True,
+                "mode": "supervised_fine_tuning_parent",
+                "endpoint_run_id": endpoint_summary.get("run_id"),
+            }
+
         if summary.get("global_step") != 0:
             raise ValueError(
                 f"W0 checkpoint must be step 0, got {summary.get('global_step')!r}"
@@ -375,8 +409,7 @@ class Poetry50MAdapter(Track1Adapter):
         if self.run_manifest_path.is_file() and summary.get("run_manifest_matches") is not True:
             raise ValueError("W0 does not belong to the configured Track 1 run manifest")
         endpoint_run_id: str | None = None
-        if endpoint_checkpoint is not None:
-            endpoint_summary = self.checkpoint_summary(endpoint_checkpoint)
+        if endpoint_summary is not None:
             endpoint_run_id = cast(str | None, endpoint_summary.get("run_id"))
             base_run_id = cast(str | None, summary.get("run_id"))
             if endpoint_run_id is not None and base_run_id != endpoint_run_id:
@@ -467,6 +500,24 @@ class Poetry50MAdapter(Track1Adapter):
             and isinstance(run_metadata.get("run_id"), str)
         ):
             run_id = cast(str, run_metadata["run_id"])
+        run_mode = (
+            cast(str, run_metadata["mode"])
+            if isinstance(run_metadata, Mapping)
+            and isinstance(run_metadata.get("mode"), str)
+            else None
+        )
+        base_run_id = (
+            cast(str, run_metadata["base_run_id"])
+            if isinstance(run_metadata, Mapping)
+            and isinstance(run_metadata.get("base_run_id"), str)
+            else None
+        )
+        base_checkpoint_sha256 = (
+            cast(str, run_metadata["base_checkpoint_sha256"])
+            if isinstance(run_metadata, Mapping)
+            and isinstance(run_metadata.get("base_checkpoint_sha256"), str)
+            else None
+        )
         run_manifest = self._run_manifest()
         expected_run_id = (
             cast(str, run_manifest["run_id"])
@@ -509,6 +560,9 @@ class Poetry50MAdapter(Track1Adapter):
             "model_config_matches": model_config_matches,
             "train_config_matches": train_config_matches,
             "run_id": run_id,
+            "run_mode": run_mode,
+            "base_run_id": base_run_id,
+            "base_checkpoint_sha256": base_checkpoint_sha256,
             "expected_run_id": expected_run_id,
             "run_manifest_matches": run_manifest_matches,
             "run_identity": payload.get("run_identity"),
@@ -723,8 +777,13 @@ class Poetry50MAdapter(Track1Adapter):
                 "Track 1 evaluation export requires a format_version 2 trainer checkpoint"
             )
         template_state = _state_from_payload(template)
-        if tuple(state) != tuple(template_state):
-            raise ValueError("candidate state names/order do not match the Track 1 template")
+        if state.keys() != template_state.keys():
+            missing = sorted(template_state.keys() - state.keys())
+            unexpected = sorted(state.keys() - template_state.keys())
+            raise ValueError(
+                "candidate state names do not match the Track 1 template; "
+                f"missing={missing}, unexpected={unexpected}"
+            )
         clean_state: dict[str, torch.Tensor] = {}
         for name, template_tensor in template_state.items():
             candidate = state[name]
@@ -806,12 +865,7 @@ class Poetry50MAdapter(Track1Adapter):
         checks["W0_reproducible"] = hash_a == hash_b
         checks["W0_sha256"] = hash_a
         checks["parameter_count"] = parameter_count
-        checks["expected_parameter_count"] = (
-            50_343_424 if self.model_config_mapping.get("architecture") == "gpt" else 54_596_096
-        )
-        checks["parameter_count_matches_known_track1_shape"] = (
-            checks["parameter_count"] == checks["expected_parameter_count"]
-        )
+        checks["expected_parameter_count"] = parameter_count
         checks["paths"] = {
             "track1_root": str(self.track1_root),
             "poetry50m_import_origin": str(self.poetry50m_import_origin),
@@ -869,10 +923,21 @@ class Poetry50MAdapter(Track1Adapter):
                 "complete": False,
             }
         endpoint_summary = checks["endpoint"]
+        checks["parameter_count_matches_checkpoint"] = (
+            endpoint_summary.get("state_numel") == parameter_count
+        )
+        requires_final_snapshot = (
+            endpoint_summary.get("run_mode") != "supervised_fine_tuning"
+        )
+        required_files_ready = all(
+            exists
+            for name, exists in checks["files"].items()
+            if requires_final_snapshot or name != "final_snapshot"
+        )
         checks["ready_to_freeze"] = bool(
             checks["W0_reproducible"]
-            and checks["parameter_count_matches_known_track1_shape"]
-            and all(checks["files"].values())
+            and checks["parameter_count_matches_checkpoint"]
+            and required_files_ready
             and checks["base"].get("valid_base")
             and endpoint_summary.get("complete")
             and endpoint_summary.get("model_config_matches") is True

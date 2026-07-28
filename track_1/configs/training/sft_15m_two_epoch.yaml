@@ -1,0 +1,21 @@
+# Two-epoch ceiling with an explicit one-epoch review point at step 600.
+max_steps: 1200
+learning_rate: 0.0001
+weight_decay: 0.0
+beta1: 0.9
+beta2: 0.95
+epsilon: 0.00000001
+warmup_steps: 30
+min_learning_rate_ratio: 0.1
+gradient_accumulation_steps: 1
+max_grad_norm: 1.0
+device: auto
+precision: auto
+seed: 1337
+deterministic: true
+log_every_steps: 1
+checkpoint_every_steps: 0
+trajectory_every_steps: 0
+checkpoint_steps: [300, 600, 900]
+trajectory_capture_steps: []
+analysis_every_steps: 0

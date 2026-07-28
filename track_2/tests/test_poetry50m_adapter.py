@@ -206,6 +206,7 @@ def test_poetry50m_adapter_replays_w0_and_rejects_partial_endpoint(tmp_path: Pat
     candidate = {name: tensor.clone() for name, tensor in first.items()}
     first_name = next(iter(candidate))
     candidate[first_name].view(-1)[0] += 0.01
+    candidate = dict(reversed(tuple(candidate.items())))
     export = adapter.export_evaluation_checkpoint(
         candidate,
         template_checkpoint=complete,
@@ -222,6 +223,92 @@ def test_poetry50m_adapter_replays_w0_and_rejects_partial_endpoint(tmp_path: Pat
     adapter.train_receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
     with pytest.raises(ValueError, match="completion artifacts failed validation"):
         adapter.validate_endpoint_checkpoint(complete)
+    _clear_fake_modules()
+
+
+def test_poetry50m_adapter_accepts_verified_sft_parent_checkpoint(tmp_path: Path) -> None:
+    root = tmp_path / "track_1"
+    _write_fake_track1(root)
+    _clear_fake_modules()
+    sft_config_path = root / "configs/training/sft.yaml"
+    sft_config_path.write_text(
+        yaml.safe_dump(
+            {
+                "seed": 17,
+                "deterministic": True,
+                "max_steps": 20,
+                "learning_rate": 0.001,
+            }
+        ),
+        encoding="utf-8",
+    )
+    adapter = Poetry50MAdapter(
+        track1_root=root,
+        train_config=sft_config_path,
+        require_complete_endpoint=True,
+    )
+    state = adapter.initial_state()
+    base_run_id = "fake-pretrain"
+    sft_run_id = "fake-sft"
+    base = tmp_path / "pretrain-final.pt"
+    torch.save(
+        {
+            "format_version": 2,
+            "model": state,
+            "training_state": {"global_step": 10},
+            "model_config": adapter.model_config_mapping,
+            "train_config": {
+                "seed": 17,
+                "deterministic": True,
+                "max_steps": 10,
+            },
+            "run_metadata": {"run_id": base_run_id},
+        },
+        base,
+    )
+    adapter.run_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    adapter.run_manifest_path.write_text(
+        json.dumps({"run_id": sft_run_id}),
+        encoding="utf-8",
+    )
+    endpoint = tmp_path / "sft-final.pt"
+    torch.save(
+        {
+            "format_version": 2,
+            "model": state,
+            "training_state": {"global_step": 20},
+            "model_config": adapter.model_config_mapping,
+            "train_config": adapter.train_config_mapping,
+            "run_metadata": {
+                "run_id": sft_run_id,
+                "mode": "supervised_fine_tuning",
+                "base_run_id": base_run_id,
+                "base_checkpoint_sha256": sha256_file(base),
+            },
+        },
+        endpoint,
+    )
+    adapter.train_receipt_path.write_text(
+        json.dumps(
+            {
+                "run_id": sft_run_id,
+                "global_step": 20,
+                "checkpoint_sha256": sha256_file(endpoint),
+                "mode": "supervised_fine_tuning",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    endpoint_summary = adapter.validate_endpoint_checkpoint(endpoint)
+    assert endpoint_summary["completion_artifacts"]["valid"] is True
+    assert endpoint_summary["completion_artifacts"]["final_snapshot"] is None
+    base_summary = adapter.validate_base_checkpoint(
+        base,
+        endpoint_checkpoint=endpoint,
+    )
+    assert base_summary["valid_base"] is True
+    assert base_summary["mode"] == "supervised_fine_tuning_parent"
     _clear_fake_modules()
 
 

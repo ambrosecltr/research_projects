@@ -535,6 +535,87 @@ def test_finalize_keeps_off_length_poems_with_an_adjusted_prompt(
     assert "Use exactly" in example["messages"][0]["content"]
 
 
+def test_finalize_strips_poem_markdown_and_records_transformations(
+    tmp_path: Path, tokenizer_path: Path
+) -> None:
+    chunk = tmp_path / "chunk"
+    _, plan_path = plan_sft_chunk(
+        output_directory=chunk,
+        model="model",
+        provider="provider",
+        start_index=0,
+        example_count=1,
+    )
+    write_results(chunk / "results.jsonl", plan_path)
+    record_dispatch(plan_path)
+    result = json.loads((chunk / "results.jsonl").read_text())
+    result["response"]["body"]["choices"][0]["message"]["content"] = (
+        "*First line*\nSecond line\n***\nThird *line\nFourth line"
+    )
+    (chunk / "results.jsonl").write_text(json.dumps(result) + "\n", encoding="utf-8")
+
+    receipt_path = finalize_sft_chunk(
+        plan_path=plan_path,
+        results_path=chunk / "results.jsonl",
+        tokenizer_path=tokenizer_path,
+        output_directory=tmp_path / "finalized",
+        expected_tokenizer_sha256=file_hash(tokenizer_path),
+    )
+
+    receipt = read_json(receipt_path)
+    example = json.loads(
+        (tmp_path / "finalized" / "examples.jsonl").read_text().splitlines()[0]
+    )
+    assert example["messages"][1]["content"] == (
+        "First line\nSecond line\n\nThird line\nFourth line"
+    )
+    assert receipt["markdown_sanitized_count"] == 1
+    assert receipt["markdown_transformations"] == {
+        "asterisk": 1,
+        "horizontal_rule": 1,
+        "italic_delimiters": 1,
+    }
+
+
+def test_finalize_relabels_incorrect_stanza_structure(
+    tmp_path: Path, tokenizer_path: Path
+) -> None:
+    chunk = tmp_path / "chunk"
+    _, plan_path = plan_sft_chunk(
+        output_directory=chunk,
+        model="model",
+        provider="provider",
+        start_index=6166,
+        example_count=1,
+    )
+    write_results(chunk / "results.jsonl", plan_path)
+    record_dispatch(plan_path)
+    plan = read_json(plan_path)
+    assert plan["examples"][0]["prompt_spec"]["form"] == (
+        "two unequal stanzas separated by a one-line turn"
+    )
+    line_count = plan["examples"][0]["prompt_spec"]["minimum_lines"]
+    result = json.loads((chunk / "results.jsonl").read_text())
+    result["response"]["body"]["choices"][0]["message"]["content"] = "\n".join(
+        f"Single stanza line {index}" for index in range(line_count)
+    )
+    (chunk / "results.jsonl").write_text(json.dumps(result) + "\n", encoding="utf-8")
+
+    finalize_sft_chunk(
+        plan_path=plan_path,
+        results_path=chunk / "results.jsonl",
+        tokenizer_path=tokenizer_path,
+        output_directory=tmp_path / "finalized",
+        expected_tokenizer_sha256=file_hash(tokenizer_path),
+    )
+
+    example = json.loads(
+        (tmp_path / "finalized" / "examples.jsonl").read_text().splitlines()[0]
+    )
+    assert example["prompt_spec"]["form"] == "an original English poem"
+    assert example["provenance"]["prompt_adjustment"]["reasons"] == ["stanza_structure"]
+
+
 def test_finalize_normalizes_newlines_and_records_local_rejections(
     tmp_path: Path, tokenizer_path: Path
 ) -> None:

@@ -288,6 +288,18 @@ def train_command(args: argparse.Namespace) -> int:
     return execute(args, write_json=_write_json)
 
 
+def sft_train_command(args: argparse.Namespace) -> int:
+    from poetry50m.workflows.sft import sft_train_command as execute
+
+    return execute(args, write_json=_write_json)
+
+
+def sft_validate_command(args: argparse.Namespace) -> int:
+    from poetry50m.workflows.sft import sft_validate_command as execute
+
+    return execute(args, write_json=_write_json)
+
+
 def score_command(args: argparse.Namespace) -> int:
     trainer, _ = _trainer(args, resume=Path(args.checkpoint), read_only=True)
     tokenizer = Tokenizer.from_file(str(Path(args.prepared) / "tokenizer.json"))
@@ -656,6 +668,28 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--until-step", type=int)
     train.add_argument("--seal-endpoint", action="store_true")
     train.set_defaults(handler=train_command)
+
+    def sft_arguments(command: argparse.ArgumentParser) -> None:
+        command.add_argument("--mixture", required=True)
+        command.add_argument("--tokenizer", required=True)
+        command.add_argument("--base-checkpoint", required=True)
+        command.add_argument("--base-manifest", required=True)
+        command.add_argument("--base-receipt", required=True)
+        command.add_argument("--model-config", required=True)
+        command.add_argument("--train-config", required=True)
+        command.add_argument("--batch-size", type=int, required=True)
+        command.add_argument("--data-seed", type=int)
+
+    sft_validate = commands.add_parser("sft-validate")
+    sft_arguments(sft_validate)
+    sft_validate.add_argument("--output", required=True)
+    sft_validate.set_defaults(handler=sft_validate_command)
+    sft_train = commands.add_parser("sft-train")
+    sft_arguments(sft_train)
+    sft_train.add_argument("--run-dir", required=True)
+    sft_train.add_argument("--resume")
+    sft_train.add_argument("--until-step", type=int)
+    sft_train.set_defaults(handler=sft_train_command)
     score = commands.add_parser("score")
     training_arguments(score)
     score.add_argument("--checkpoint", required=True)
