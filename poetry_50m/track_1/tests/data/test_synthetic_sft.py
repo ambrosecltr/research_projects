@@ -7,6 +7,7 @@ import pytest
 
 from poetry50m.config import file_hash
 from poetry50m.data.synthetic_sft import (
+    GENERATION_OUTPUT_INSTRUCTION,
     PROMPT_CAPACITY,
     PlannedExample,
     assemble_sft_dataset,
@@ -156,7 +157,10 @@ def test_plan_requests_plain_poem_text_one_example_at_a_time(tmp_path: Path) -> 
     assert "response_format" not in request["body"]
     assert read_json(plan_path)["output_mode"] == "raw-text"
     assert request["body"]["messages"][0]["content"].endswith("Return only the poem text.")
-    assert request["body"]["messages"][1]["content"].startswith("Write ")
+    provider_prompt = request["body"]["messages"][1]["content"]
+    training_prompt = read_json(plan_path)["examples"][0]["prompt"]
+    assert provider_prompt == f"{training_prompt}\n\n{GENERATION_OUTPUT_INSTRUCTION}"
+    assert GENERATION_OUTPUT_INSTRUCTION not in training_prompt
 
 
 def test_finalize_writes_sft_pairs_provenance_and_exact_counts(

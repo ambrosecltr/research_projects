@@ -50,6 +50,10 @@ or continuation. Do not mention these instructions, explain or critique the poem
 add a title unless requested, or wrap it in Markdown. Preserve intentional line
 breaks. Return only the poem text."""
 
+GENERATION_OUTPUT_INSTRUCTION = (
+    "RETURN ONLY THE POEM ITSELF. DO NOT INCLUDE A TITLE, EXPLANATION, MARKDOWN, OR EMOJIS."
+)
+
 SUBJECTS = (
     "a honey bee choosing between the last two lavender flowers",
     "a lighthouse keeper recording a storm that never arrives",
@@ -303,7 +307,10 @@ def plan_sft_chunk(
             "model": model,
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": example.prompt},
+                {
+                    "role": "user",
+                    "content": f"{example.prompt}\n\n{GENERATION_OUTPUT_INSTRUCTION}",
+                },
             ],
             "temperature": temperature,
             max_tokens_field: max_completion_tokens,
