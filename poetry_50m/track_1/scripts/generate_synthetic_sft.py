@@ -36,6 +36,10 @@ def parser() -> argparse.ArgumentParser:
         choices=("max_completion_tokens", "max_tokens"),
         default="max_completion_tokens",
     )
+    plan.add_argument(
+        "--reasoning-effort",
+        choices=("none", "low", "medium", "high"),
+    )
 
     run = commands.add_parser("run-openai-compatible")
     run.add_argument("--chunk", type=Path, required=True)
@@ -84,6 +88,7 @@ def main() -> int:
             temperature=args.temperature,
             max_completion_tokens=args.max_completion_tokens,
             max_tokens_field=args.max_tokens_field,
+            reasoning_effort=args.reasoning_effort,
         )
     elif args.command == "run-openai-compatible":
         record_sft_dispatch(

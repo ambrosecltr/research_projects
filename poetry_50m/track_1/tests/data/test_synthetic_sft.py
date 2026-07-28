@@ -245,6 +245,21 @@ def test_plan_requests_plain_poem_text_one_example_at_a_time(tmp_path: Path) -> 
     assert GENERATION_OUTPUT_INSTRUCTION not in training_prompt
 
 
+def test_plan_can_disable_provider_reasoning(tmp_path: Path) -> None:
+    requests_path, plan_path = plan_sft_chunk(
+        output_directory=tmp_path / "chunk",
+        model="reasoning-model",
+        provider="provider",
+        start_index=0,
+        example_count=1,
+        reasoning_effort="none",
+    )
+
+    request = json.loads(requests_path.read_text().splitlines()[0])
+    assert request["body"]["reasoning"] == {"effort": "none"}
+    assert read_json(plan_path)["reasoning_effort"] == "none"
+
+
 def test_finalize_writes_sft_pairs_provenance_and_exact_counts(
     tmp_path: Path, tokenizer_path: Path
 ) -> None:

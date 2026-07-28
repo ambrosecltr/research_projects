@@ -21,6 +21,7 @@ from poetry50m.trajectory._persistence import atomic_write
 from .tokenizer import load_tokenizer
 
 MaxTokensField = Literal["max_completion_tokens", "max_tokens"]
+ReasoningEffort = Literal["none", "low", "medium", "high"]
 TargetMetric = Literal["formatted", "supervised"]
 
 FORMAT_VERSION = 1
@@ -355,6 +356,7 @@ def plan_sft_chunk(
     temperature: float = 0.9,
     max_completion_tokens: int = 1024,
     max_tokens_field: MaxTokensField = "max_completion_tokens",
+    reasoning_effort: ReasoningEffort | None = None,
 ) -> tuple[Path, Path]:
     """Create an immutable request plan for one disjoint SFT chunk."""
     model = _required_string(model, name="model")
@@ -367,6 +369,8 @@ def plan_sft_chunk(
         raise ValueError("temperature must be between 0 and 2")
     if max_tokens_field not in {"max_completion_tokens", "max_tokens"}:
         raise ValueError(f"unsupported max token field: {max_tokens_field}")
+    if reasoning_effort not in {None, "none", "low", "medium", "high"}:
+        raise ValueError(f"unsupported reasoning effort: {reasoning_effort}")
     if start_index + example_count > PROMPT_CAPACITY:
         raise ValueError(
             f"chunk exceeds the {PROMPT_CAPACITY:,}-example collision-free prompt capacity"
@@ -393,6 +397,8 @@ def plan_sft_chunk(
             "temperature": temperature,
             max_tokens_field: max_completion_tokens,
         }
+        if reasoning_effort is not None:
+            body["reasoning"] = {"effort": reasoning_effort}
         requests.append(
             {
                 "custom_id": custom_id,
@@ -430,6 +436,7 @@ def plan_sft_chunk(
             "temperature": temperature,
             "max_completion_tokens": max_completion_tokens,
             "max_tokens_field": max_tokens_field,
+            "reasoning_effort": reasoning_effort,
             "requests_filename": requests_path.name,
             "requests_sha256": file_hash(requests_path),
             "examples": [
