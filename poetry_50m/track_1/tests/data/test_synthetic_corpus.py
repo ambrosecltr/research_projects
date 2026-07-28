@@ -16,51 +16,12 @@ from poetry50m.data.loaders import iter_manifest, write_manifest
 from poetry50m.data.schema import ContentBlock, Provenance, SourceDocument
 from poetry50m.data.synthetic_corpus import (
     SyntheticCorpusConfig,
-    _final_text_only_response_body,
     finalize_synthetic_corpus,
     ingest_generation_results,
     merge_corpus_artifacts,
     plan_generation,
     run_openai_compatible_batch,
 )
-
-
-def test_final_text_storage_drops_reasoning_and_rejects_reasoning_only() -> None:
-    stored = _final_text_only_response_body(
-        {
-            "model": "provider/model",
-            "choices": [
-                {
-                    "message": {
-                        "content": "A clean poem",
-                        "reasoning": "Private working",
-                    }
-                }
-            ],
-            "usage": {"total_tokens": 12},
-        },
-        custom_id="request-1",
-    )
-
-    assert stored == {
-        "model": "provider/model",
-        "choices": [{"message": {"role": "assistant", "content": "A clean poem"}}],
-        "usage": {"total_tokens": 12},
-    }
-    with pytest.raises(ValueError, match="returned reasoning without final content"):
-        _final_text_only_response_body(
-            {
-                "choices": [
-                    {
-                        "message": {
-                            "content": None,
-                            "reasoning": "A draft without a final answer",
-                        }
-                    }
-                ]
-            },
-            custom_id="request-2",
-        )
 
 
 def config_path() -> Path:
@@ -231,7 +192,14 @@ def test_openai_compatible_runner_posts_and_preserves_result(
         def read() -> bytes:
             return json.dumps(
                 {
-                    "choices": [{"message": {"content": '{"examples":[]}'}}],
+                    "choices": [
+                        {
+                            "message": {
+                                "content": '{"examples":[]}',
+                                "reasoning": "provider metadata",
+                            }
+                        }
+                    ],
                     "usage": {"total_tokens": 10},
                 }
             ).encode()
@@ -263,6 +231,10 @@ def test_openai_compatible_runner_posts_and_preserves_result(
     result = json.loads(results_path.read_text().splitlines()[0])
     assert result["custom_id"] == "poetry-synthetic-00000000"
     assert result["response"]["status_code"] == 200
+    assert (
+        result["response"]["body"]["choices"][0]["message"]["reasoning"]
+        == "provider metadata"
+    )
     assert captured["url"] == "https://example.test/v1/chat/completions"
     assert captured["authorization"] == "Bearer test-secret"
     assert captured["body"]["model"] == "provider/good-model"

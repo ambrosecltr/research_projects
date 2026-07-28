@@ -1464,38 +1464,6 @@ def _request_token_estimate(body: Mapping[str, object]) -> int:
     return maximum_completion + conservative_input_tokens
 
 
-def _final_text_only_response_body(
-    response_body: Mapping[str, object],
-    *,
-    custom_id: str,
-) -> dict[str, object]:
-    choices = response_body.get("choices")
-    if not isinstance(choices, list) or len(choices) != 1 or not isinstance(choices[0], dict):
-        raise ValueError(f"request {custom_id} must return exactly one choice")
-    message = choices[0].get("message")
-    if not isinstance(message, dict):
-        raise TypeError(f"request {custom_id} message must be an object")
-    try:
-        content = _required_string(
-            message.get("content"),
-            name=f"request {custom_id} final content",
-        )
-    except ValueError as error:
-        if message.get("reasoning") is not None or message.get("reasoning_content") is not None:
-            raise ValueError(
-                f"request {custom_id} returned reasoning without final content"
-            ) from error
-        raise
-
-    result: dict[str, object] = {
-        "choices": [{"message": {"role": "assistant", "content": content}}],
-    }
-    for key in ("model", "usage"):
-        if key in response_body:
-            result[key] = response_body[key]
-    return result
-
-
 def _sync_request(
     client: Cerebras,
     request: Mapping[str, object],
@@ -1633,7 +1601,6 @@ def _sync_openai_compatible_request(
     request: Mapping[str, object],
     limiter: DualTokenBucket,
     timeout_seconds: float,
-    store_final_text_only: bool,
 ) -> dict[str, object]:
     custom_id = _required_string(request.get("custom_id"), name="custom_id")
     body = request.get("body")
@@ -1669,14 +1636,9 @@ def _sync_openai_compatible_request(
     total_tokens = usage.get("total_tokens") if isinstance(usage, dict) else None
     if isinstance(total_tokens, int) and not isinstance(total_tokens, bool) and total_tokens >= 0:
         limiter.refund_model_tokens(reserved_tokens, total_tokens)
-    stored_body = (
-        _final_text_only_response_body(response_body, custom_id=custom_id)
-        if store_final_text_only
-        else response_body
-    )
     return {
         "custom_id": custom_id,
-        "response": {"status_code": status_code, "body": stored_body},
+        "response": {"status_code": status_code, "body": response_body},
         "error": None,
     }
 
@@ -1691,7 +1653,6 @@ def run_openai_compatible_batch(
     requests_per_minute: int = 60,
     tokens_per_minute: int = 100_000,
     timeout_seconds: float = 180.0,
-    store_final_text_only: bool = False,
 ) -> None:
     _required_string(base_url, name="base_url")
     _required_string(api_key_environment_variable, name="api_key_environment_variable")
@@ -1713,7 +1674,6 @@ def run_openai_compatible_batch(
             request=request,
             limiter=limiter,
             timeout_seconds=timeout_seconds,
-            store_final_text_only=store_final_text_only,
         )
 
     _execute_pending_requests(

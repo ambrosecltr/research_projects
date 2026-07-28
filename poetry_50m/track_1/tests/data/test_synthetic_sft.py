@@ -368,6 +368,47 @@ def test_finalize_can_preserve_an_explicitly_partial_paid_chunk(
     assert receipt["example_count"] == 2
 
 
+def test_finalize_records_unusable_paid_responses_without_aborting(
+    tmp_path: Path, tokenizer_path: Path
+) -> None:
+    chunk = tmp_path / "chunk"
+    _, plan_path = plan_sft_chunk(
+        output_directory=chunk,
+        model="model",
+        provider="provider",
+        start_index=0,
+        example_count=2,
+    )
+    write_results(chunk / "results.jsonl", plan_path)
+    record_dispatch(plan_path)
+    results = [json.loads(line) for line in (chunk / "results.jsonl").read_text().splitlines()]
+    message = results[1]["response"]["body"]["choices"][0]["message"]
+    message["content"] = None
+    message["reasoning"] = "provider reasoning without a final message"
+    (chunk / "results.jsonl").write_text(
+        "".join(json.dumps(result) + "\n" for result in results),
+        encoding="utf-8",
+    )
+
+    receipt_path = finalize_sft_chunk(
+        plan_path=plan_path,
+        results_path=chunk / "results.jsonl",
+        tokenizer_path=tokenizer_path,
+        output_directory=tmp_path / "finalized",
+        expected_tokenizer_sha256=file_hash(tokenizer_path),
+    )
+
+    receipt = read_json(receipt_path)
+    rejection = json.loads(
+        (tmp_path / "finalized" / "rejections.jsonl").read_text().splitlines()[0]
+    )
+    assert receipt["completed_result_count"] == 2
+    assert receipt["usable_result_count"] == 1
+    assert receipt["unusable_result_count"] == 1
+    assert receipt["example_count"] == 1
+    assert rejection["reasons"] == ["unusable_provider_response"]
+
+
 def test_finalize_normalizes_newlines_and_records_local_rejections(
     tmp_path: Path, tokenizer_path: Path
 ) -> None:

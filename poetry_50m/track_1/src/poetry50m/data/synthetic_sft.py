@@ -690,22 +690,28 @@ def finalize_sft_chunk(
         expected_by_request[custom_id] = example_id
 
     generated: dict[str, tuple[str, str]] = {}
+    unusable_results: dict[str, tuple[str, str]] = {}
     seen_requests: set[str] = set()
     result_records = _read_jsonl(results_path)
     for record in result_records:
-        custom_id, response = _completion_text(record)
+        custom_id = _required_string(record.get("custom_id"), name="result custom_id")
         if custom_id not in expected_by_request:
             raise ValueError(f"unexpected result {custom_id}")
         if custom_id in seen_requests:
             raise ValueError(f"duplicate result {custom_id}")
         seen_requests.add(custom_id)
         example_id = expected_by_request[custom_id]
+        try:
+            _, response = _completion_text(record)
+        except (RuntimeError, TypeError, ValueError) as error:
+            unusable_results[example_id] = (custom_id, str(error))
+            continue
         if example_id in generated:
             raise ValueError(f"duplicate generated example {example_id}")
         generated[example_id] = (custom_id, response)
 
     missing_requests = set(expected_by_request).difference(seen_requests)
-    missing_examples = set(planned_examples).difference(generated)
+    missing_examples = set(planned_examples).difference(generated).difference(unusable_results)
     if missing_requests and not allow_partial:
         raise ValueError(f"results are missing requests: {sorted(missing_requests)}")
     if missing_examples and not allow_partial:
@@ -728,6 +734,17 @@ def finalize_sft_chunk(
     totals = Counter[str]()
     adjusted_prompt_count = 0
     for example_id, planned in planned_examples.items():
+        if example_id in unusable_results:
+            custom_id, detail = unusable_results[example_id]
+            rejections.append(
+                {
+                    "example_id": example_id,
+                    "request_id": custom_id,
+                    "reasons": ["unusable_provider_response"],
+                    "detail": detail,
+                }
+            )
+            continue
         if example_id not in generated:
             continue
         custom_id, response = generated[example_id]
@@ -819,7 +836,9 @@ def finalize_sft_chunk(
             "provider": provider,
             "seed": seed,
             "planned_example_count": len(planned_examples),
-            "completed_result_count": len(generated),
+            "completed_result_count": len(seen_requests),
+            "usable_result_count": len(generated),
+            "unusable_result_count": len(unusable_results),
             "missing_result_count": len(missing_requests),
             "partial": bool(missing_requests),
             "adjusted_prompt_count": adjusted_prompt_count,
