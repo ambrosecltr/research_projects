@@ -12,6 +12,7 @@ from .packing import PackedSequence
 from .schema import (
     ConditionalExample,
     CrossDocumentPairing,
+    PoetryNTPExample,
     PromptRecord,
     ProseNTPExample,
     ThoughtRecord,
@@ -124,6 +125,14 @@ def write_prose_examples(path: Path, records: Iterable[ProseNTPExample]) -> None
 
 def read_prose_examples(path: Path) -> tuple[ProseNTPExample, ...]:
     return _read_unique(path, lambda value: ProseNTPExample(**value), lambda item: item.example_id)
+
+
+def write_poetry_ntp_examples(path: Path, records: Iterable[PoetryNTPExample]) -> None:
+    _write_records(path, records, lambda item: item.example_id, asdict)
+
+
+def read_poetry_ntp_examples(path: Path) -> tuple[PoetryNTPExample, ...]:
+    return _read_unique(path, lambda value: PoetryNTPExample(**value), lambda item: item.example_id)
 
 
 def write_packed_sequences(path: Path, records: Iterable[PackedSequence]) -> None:

@@ -10,6 +10,7 @@ from .schema import (
     ConditionalExample,
     ContentBlock,
     CrossDocumentPairing,
+    PoetryNTPExample,
     PromptRecord,
     ProseNTPExample,
     SourceDocument,
@@ -218,4 +219,22 @@ def build_auxiliary_prose_ntp_examples(
                 examples.append(
                     ProseNTPExample(example_id, document.document_id, block.block_id, block.text)
                 )
+    return tuple(sorted(examples, key=lambda item: item.example_id))
+
+
+def build_poetry_ntp_examples(documents: Iterable[SourceDocument]) -> tuple[PoetryNTPExample, ...]:
+    """Expose Gutenberg book verse as raw NTP without inventing poem-level prompts."""
+    examples: list[PoetryNTPExample] = []
+    for document in documents:
+        if document.metadata.get("training_role") != "unconditional_book_verse_ntp":
+            continue
+        for block in document.blocks:
+            if block.kind != "verse_document":
+                continue
+            example_id = sha256(f"{document.document_id}\0{block.block_id}".encode()).hexdigest()[
+                :24
+            ]
+            examples.append(
+                PoetryNTPExample(example_id, document.document_id, block.block_id, block.text)
+            )
     return tuple(sorted(examples, key=lambda item: item.example_id))

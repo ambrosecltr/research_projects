@@ -14,19 +14,19 @@ The training regime matters. A result in **from-scratch pretraining** is closest
 
 ## Track 1 corpus contract
 
-The first lineage trains from scratch on pinned Nano Wiki and distilled BabyLM
-knowledge artifacts in
-[`configs/data/huggingface_sources.json`](../configs/data/huggingface_sources.json)
-plus separately generated, critiqued, locally filtered Cerebras GPT-OSS poetry.
-The pinned sources create the auxiliary prose NTP stream and the synthetic
-records create conditional poetry targets. Exact normalized-text duplicates are
-removed before the whole-document split and tokenizer fit. Nano Wiki is
-attributed as CC BY 4.0; distilled BabyLM remains rights-unknown because its
-upstream per-document provenance was not retained.
+The first lineage trains from scratch on three commit-pinned artifacts in
+[`configs/data/huggingface_sources.json`](../configs/data/huggingface_sources.json):
+Ultra-FineWeb-L3 English Multi-Style for auxiliary prose NTP, the Gutenberg
+line corpus for unconditional book-verse NTP, and Poetry Greats for
+conditional prompt-to-poem training. BabyLM, Nano Wiki, and Cerebras-generated
+poetry are excluded. A committed hash-priority policy bounds Ultra-FineWeb to
+200,000 rows; source-specific cleaning, deduplication, provenance, rights
+limitations, and output hashes are recorded in the build receipt.
 
-The intended 80/20 mix means four conditional-poetry batches for each
-auxiliary-prose batch (`1.0` / `0.25`), not a claim about raw documents or
-tokens. Prepared artifacts report the realized packed supervised-token mix.
+The intended 10/40/50 conditional/prose/verse mix is enforced against actual
+unpadded data tokens, not whole-batch counts. `plan-exposure` freezes the exact
+stream prefix for two 20x exposure passes and reports each unique pool's repeat
+multiple before a full run can begin.
 
 ## The six mechanism families
 

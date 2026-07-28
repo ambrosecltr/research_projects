@@ -9,7 +9,7 @@ from hashlib import sha256
 from typing import Any, Literal
 
 SplitName = Literal["train", "validation", "test"]
-BlockKind = Literal["document", "poem", "stanza", "paragraph"]
+BlockKind = Literal["document", "verse_document", "poem", "stanza", "paragraph"]
 PromptMethod = Literal[
     "title", "author_style", "generic", "theme", "imagery", "paraphrase", "passage"
 ]
@@ -161,7 +161,7 @@ class ContentBlock:
     def __post_init__(self) -> None:
         _required_text("block_id", self.block_id)
         _required_text("text", self.text)
-        if self.kind not in {"document", "poem", "stanza", "paragraph"}:
+        if self.kind not in {"document", "verse_document", "poem", "stanza", "paragraph"}:
             raise ValueError(f"unsupported block kind: {self.kind}")
         if self.kind in {"poem", "stanza"} and not self.poem_id:
             raise ValueError(f"{self.kind} blocks require poem_id")
@@ -384,14 +384,30 @@ class ProseNTPExample:
 
 
 @dataclass(frozen=True, slots=True)
+class PoetryNTPExample:
+    """Unconditional next-token verse from a source book, kept distinct from prompts."""
+
+    example_id: str
+    document_id: str
+    block_id: str
+    text: str
+    objective: Literal["poetry_ntp"] = "poetry_ntp"
+
+    def __post_init__(self) -> None:
+        for name in ("example_id", "document_id", "block_id", "text"):
+            _required_text(name, getattr(self, name))
+
+
+@dataclass(frozen=True, slots=True)
 class ObjectiveMix:
-    """Validated weights for the two explicit training objectives."""
+    """Validated data-token exposure weights for the explicit training objectives."""
 
     conditional_poetry: float = 1.0
     auxiliary_prose_ntp: float = 0.0
+    poetry_ntp: float = 0.0
 
     def __post_init__(self) -> None:
-        values = (self.conditional_poetry, self.auxiliary_prose_ntp)
+        values = (self.conditional_poetry, self.auxiliary_prose_ntp, self.poetry_ntp)
         if (
             any(
                 isinstance(value, bool)
@@ -476,7 +492,9 @@ class TokenSequence:
     boundary_key: str
     input_ids: tuple[int, ...]
     loss_mask: tuple[bool, ...]
-    objective: Literal["conditional_poetry", "auxiliary_prose_ntp"] = "conditional_poetry"
+    objective: Literal["conditional_poetry", "auxiliary_prose_ntp", "poetry_ntp"] = (
+        "conditional_poetry"
+    )
 
     def __post_init__(self) -> None:
         _required_text("example_id", self.example_id)
@@ -490,5 +508,5 @@ class TokenSequence:
             for token in self.input_ids
         ):
             raise ValueError("token IDs must be non-negative")
-        if self.objective not in {"conditional_poetry", "auxiliary_prose_ntp"}:
+        if self.objective not in {"conditional_poetry", "auxiliary_prose_ntp", "poetry_ntp"}:
             raise ValueError("token sequence has an unsupported objective")

@@ -9,7 +9,7 @@ from typing import cast
 
 from tokenizers import Tokenizer, decoders, models, pre_tokenizers, processors, trainers
 
-from .schema import ConditionalExample, ProseNTPExample, TokenSequence
+from .schema import ConditionalExample, PoetryNTPExample, ProseNTPExample, TokenSequence
 
 SPECIAL_TOKENS = (
     "<|pad|>",
@@ -158,4 +158,18 @@ def encode_auxiliary_prose_ntp_example(
         input_ids=input_ids,
         loss_mask=(False,) + (True,) * (len(input_ids) - 1),
         objective="auxiliary_prose_ntp",
+    )
+
+
+def encode_poetry_ntp_example(tokenizer: Tokenizer, example: PoetryNTPExample) -> TokenSequence:
+    """Encode unconditional book verse with its own named objective."""
+    bos_id = _required_token_id(tokenizer, "<|bos|>")
+    eos_id = _required_token_id(tokenizer, "<|eos|>")
+    input_ids = (bos_id, *_ids(tokenizer, example.text), eos_id)
+    return TokenSequence(
+        example_id=example.example_id,
+        boundary_key=example.document_id,
+        input_ids=input_ids,
+        loss_mask=(False,) + (True,) * (len(input_ids) - 1),
+        objective="poetry_ntp",
     )

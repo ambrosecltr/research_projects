@@ -222,6 +222,7 @@ def test_prepared_metadata_reports_realized_supervised_token_mix(tmp_path: Path)
     assert artifact.metadata["config"]["objective_mix"] == {
         "conditional_poetry": 1.0,
         "auxiliary_prose_ntp": 0.25,
+        "poetry_ntp": 0.0,
     }
 
 
@@ -387,6 +388,32 @@ def test_objective_scheduler_tracks_weights_and_rejects_changed_pack_contents():
         ).load_state_dict(state)
 
 
+def test_objective_scheduler_accounts_for_actual_data_tokens_not_batch_counts():
+    conditional = (PackedSequence(0, "short", ("short",), (1, 2), (False, True)),)
+    prose = (
+        PackedSequence(
+            0,
+            "long",
+            ("long",),
+            tuple(range(10, 30)),
+            (False,) + (True,) * 19,
+            "auxiliary_prose_ntp",
+        ),
+    )
+    stream = PreparedBatchStream(
+        {"conditional_poetry": conditional, "auxiliary_prose_ntp": prose},
+        batch_size=1,
+        pad_token_id=0,
+        objective_mix=ObjectiveMix(0.5, 0.5),
+    )
+    for _ in range(40):
+        next(stream)
+    exposure = stream.data_tokens_by_objective
+    assert exposure["conditional_poetry"] == 38
+    assert exposure["auxiliary_prose_ntp"] == 38
+    assert abs(exposure["conditional_poetry"] - exposure["auxiliary_prose_ntp"]) <= 19
+
+
 def test_objective_scheduler_preserves_small_decimal_ratios_and_resume_boundaries():
     conditional = (PackedSequence(0, "poem", ("poetry",), (1, 2, 3), (False, True, True)),)
     prose = (
@@ -485,7 +512,11 @@ def test_nested_data_config_unknown_keys_are_rejected(tmp_path: Path):
         "split": {"salt": "x", "train": 0.9, "validation": 0.05, "test": 0.05},
         "tokenizer": {"vocab_size": 300, "min_frequency": 1, "special_tokens": []},
         "packing": {"sequence_length": 8, "typo": True},
-        "objectives": {"conditional_poetry": 1.0, "auxiliary_prose_ntp": 0.0},
+        "objectives": {
+            "conditional_poetry": 1.0,
+            "auxiliary_prose_ntp": 0.0,
+            "poetry_ntp": 0.0,
+        },
         "rights": {"allow_synthetic": False},
     }
     path = tmp_path / "config.json"
@@ -502,7 +533,11 @@ def test_data_config_rejects_boolean_format_version(tmp_path: Path):
         "split": {"salt": "x", "train": 0.9, "validation": 0.05, "test": 0.05},
         "tokenizer": {"vocab_size": 300, "min_frequency": 1, "special_tokens": []},
         "packing": {"sequence_length": 8},
-        "objectives": {"conditional_poetry": 1.0, "auxiliary_prose_ntp": 0.0},
+        "objectives": {
+            "conditional_poetry": 1.0,
+            "auxiliary_prose_ntp": 0.0,
+            "poetry_ntp": 0.0,
+        },
         "rights": {"allow_synthetic": False},
     }
     path = tmp_path / "config.json"

@@ -144,9 +144,9 @@ def _shingles(text: str, width: int = 5) -> _ShingleSet:
     return _normalized_shingles(_normalised_target(text), width)
 
 
-def _conditional_texts(example: ConditionalExample) -> tuple[str, ...]:
+def _source_texts(example: ConditionalExample) -> tuple[str, ...]:
+    """Texts whose reuse would expose held-out target or source material."""
     return (
-        example.prompt,
         *((example.thought,) if example.thought is not None else ()),
         example.poem_target,
     )
@@ -384,20 +384,27 @@ def _identity_family_edges(
 def _lexical_family_edges(
     examples: Sequence[ConditionalExample],
 ) -> Iterator[tuple[int, int]]:
-    index = LexicalFamilyIndex(
+    source_index = LexicalFamilyIndex(
         (text, example_index)
         for example_index, example in enumerate(examples)
-        for text in _conditional_texts(example)
+        for text in _source_texts(example)
     )
-    for signature in index._signatures:
+    for signature in source_index._signatures:
         representative = signature.entries[0][1]
         for _, example_index in signature.entries[1:]:
             yield representative, example_index
-    for left_id, right_id, _ in index._matching_signature_pairs():
+    for left_id, right_id, _ in source_index._matching_signature_pairs():
         yield (
-            index._signatures[left_id].entries[0][1],
-            index._signatures[right_id].entries[0][1],
+            source_index._signatures[left_id].entries[0][1],
+            source_index._signatures[right_id].entries[0][1],
         )
+    # A prompt that copies source/target text must stay with that source
+    # family. Boilerplate prompt-to-prompt similarity is not target leakage
+    # and must not transitively collapse an otherwise valid held-out split.
+    for example_index, example in enumerate(examples):
+        for hit in source_index.find_matches(example.prompt):
+            if hit.payload != example_index:
+                yield hit.payload, example_index
 
 
 def _indexed_family_edges(

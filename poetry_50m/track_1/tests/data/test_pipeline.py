@@ -7,7 +7,11 @@ import pytest
 
 from poetry50m.data.artifacts import read_prompt_records, write_prompt_records
 from poetry50m.data.difficulty import DifficultyLedger, DifficultyRecord
-from poetry50m.data.examples import build_auxiliary_prose_ntp_examples, build_conditional_examples
+from poetry50m.data.examples import (
+    build_auxiliary_prose_ntp_examples,
+    build_conditional_examples,
+    build_poetry_ntp_examples,
+)
 from poetry50m.data.loaders import assert_ingestible, iter_manifest, write_manifest
 from poetry50m.data.packing import chunk_sequence, pack_sequences
 from poetry50m.data.schema import (
@@ -33,6 +37,7 @@ from poetry50m.data.tokenizer import (
     TokenizerSpec,
     encode_auxiliary_prose_ntp_example,
     encode_conditional_example,
+    encode_poetry_ntp_example,
     load_tokenizer,
     reserved_token_ids,
     save_tokenizer,
@@ -80,6 +85,32 @@ def test_manifest_round_trip_preserves_provenance_and_boundaries(tmp_path):
     assert restored == (source_document(),)
     assert restored[0].blocks[1].text == "Wild geese\ncall."
     assert restored[0].raw_content_hash and restored[0].cleaned_content_hash
+
+
+def test_gutenberg_book_verse_has_an_explicit_unconditional_objective():
+    document = SourceDocument(
+        document_id="gutenberg:123",
+        provenance=Provenance(
+            "Public domain verse",
+            "Anonymous",
+            "public_domain",
+            "fixture",
+            rights_status="public_domain",
+            rights_evidence="fixture public-domain record",
+        ),
+        text="A first line\nA second line",
+        blocks=(
+            ContentBlock("gutenberg:123:verse", "verse_document", "A first line\nA second line"),
+        ),
+        metadata={"training_role": "unconditional_book_verse_ntp"},
+    )
+    examples = build_poetry_ntp_examples((document,))
+    assert len(examples) == 1
+    tokenizer = train_tokenizer((document.text,), TokenizerSpec(vocab_size=512))
+    sequence = encode_poetry_ntp_example(tokenizer, examples[0])
+    assert sequence.objective == "poetry_ntp"
+    assert sequence.boundary_key == document.document_id
+    assert all(sequence.loss_mask[1:])
 
 
 def test_manifest_schema_rejects_nested_coercions_and_weak_types(tmp_path):
@@ -251,6 +282,36 @@ def test_cross_field_near_duplicates_bind_conditional_examples_to_one_split():
     splits = split_examples((first, second), ratios, salt=salt)
     owners = {example.example_id: name for name, examples in splits.items() for example in examples}
     assert owners["heldout"] == owners["copied"]
+    assert_no_poem_leakage(splits)
+
+
+def test_reused_boilerplate_prompt_does_not_collapse_distinct_targets():
+    first = ConditionalExample(
+        "first",
+        "first-document",
+        "first-poem",
+        "Write a poem in this author's style.",
+        "a river carries moonlight beyond the reeds",
+    )
+    second = ConditionalExample(
+        "second",
+        "second-document",
+        "second-poem",
+        "Write a poem in this author's style.",
+        "an iron bell wakes sparrows beneath winter roofs",
+    )
+    ratios = SplitRatios(0.34, 0.33, 0.33)
+    salt = next(
+        f"shared-prompt-{index}"
+        for index in range(10_000)
+        if split_for_key(first.poem_target, ratios, salt=f"shared-prompt-{index}")
+        != split_for_key(second.poem_target, ratios, salt=f"shared-prompt-{index}")
+    )
+
+    splits = split_examples((first, second), ratios, salt=salt)
+    owners = {example.example_id: name for name, examples in splits.items() for example in examples}
+
+    assert owners["first"] != owners["second"]
     assert_no_poem_leakage(splits)
 
 

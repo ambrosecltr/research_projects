@@ -17,3 +17,4 @@ __pycache__/
 *.safetensors
 *.parquet
 /poetry_50m/track_1/artifacts
+/poetry_50m/track_1/runs

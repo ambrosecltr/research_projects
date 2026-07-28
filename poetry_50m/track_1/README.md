@@ -3,94 +3,18 @@
 This is a local, end-to-end personal research system: preparation preserves
 rights and provenance; training is deterministic and resumable; evaluation is a
 fixed three-seed suite; and transport is verified against held-out packed data
-before it can alter a checkpoint. Track 1's first lineage is the pinned,
-publicly downloadable knowledge corpus described by
-[`configs/data/huggingface_sources.json`](configs/data/huggingface_sources.json)
-plus a separately generated and audited synthetic poetry corpus. The production
-model is an 8,335,008-parameter GPT with a 1,024-token context. A tiny synthetic
-run is a pipeline and quality-review gate, not a poetry result.
+before it can alter a checkpoint. The current lineage is a three-source corpus:
+Ultra-FineWeb-L3 English Multi-Style (synthetic rewriting, general prose), the
+CC0-released Gutenberg line corpus (unconditional poetry NTP), and Poetry
+Greats public-domain poems (conditional prompt-to-poem training). It excludes
+BabyLM, Nano Wiki, Cerebras output, and every synthetic merge step. The
+production model is an 8,335,008-parameter GPT with a 1,024-token context.
 
-## Install and run
+## Build and freeze the reviewed run
 
-### Synthetic prompt/poem corpus
-
-`scripts/generate_synthetic_corpus.py` builds a resumable, auditable synthetic
-corpus with Cerebras `gpt-oss-120b`. Generation requests rotate through
-temperature, reasoning, and creative lanes and use distinct integer seeds.
-A separate blind critique call scores every candidate. Local gates enforce
-length, repetition, exact and 12-token deduplication, and 12-token overlap
-against the original corpus. Accepted records retain synthetic provenance;
-this does not claim that model output cannot reproduce memorized text.
-
-Set `CEREBRAS_API_KEY` in the environment. Start with an eight-request,
-32-candidate pilot:
-
-```sh
-PILOT="runs/synthetic-cerebras-pilot-$(date +%Y%m%d-%H%M%S)"
-uv run python scripts/generate_synthetic_corpus.py plan-generation \
-  --config configs/data/synthetic_cerebras_8m_v1.json --requests 8 --output "$PILOT"
-uv run python scripts/generate_synthetic_corpus.py run-sync \
-  --requests "$PILOT/generation.requests.jsonl" \
-  --results "$PILOT/generation.results.jsonl" --concurrency 8
-uv run python scripts/generate_synthetic_corpus.py ingest-generation \
-  --config configs/data/synthetic_cerebras_8m_v1.json \
-  --requests "$PILOT/generation.requests.jsonl" \
-  --results "$PILOT/generation.results.jsonl" --output "$PILOT"
-uv run python scripts/generate_synthetic_corpus.py run-sync \
-  --requests "$PILOT/critic.requests.jsonl" \
-  --results "$PILOT/critic.results.jsonl" --concurrency 8
-uv run python scripts/generate_synthetic_corpus.py finalize \
-  --config configs/data/synthetic_cerebras_8m_v1.json \
-  --candidates "$PILOT/candidates.jsonl" \
-  --critic-results "$PILOT/critic.results.jsonl" \
-  --output "$PILOT/corpus"
-```
-
-Both synchronous stages append and flush one result at a time, so rerunning a
-command resumes missing request IDs. Treat the cached request and result JSONL
-as the reproducibility boundary: provider inference is not assumed to be
-byte-deterministic. Calls are paced by independent request and model-token
-buckets at 95% of the stated Cerebras limits by default. Inspect the acceptance
-ledger and a representative sample before calculating or approving the full
-request count.
-
-For a better model served by an OpenAI-compatible endpoint, skip the paid
-critic pass but retain all deterministic local quality gates. The base URL must
-be the API root ending in `/v1`:
-
-```sh
-export SYNTH_API_KEY="..."
-SYNTH_BASE_URL="https://provider.example/v1"
-SYNTH_MODEL="provider/model-name"
-SMOKE="runs/synthetic-openai-smoke-$(date +%Y%m%d-%H%M%S)"
-
-uv run python scripts/generate_synthetic_corpus.py plan-generation \
-  --config configs/data/synthetic_cerebras_8m_v1.json \
-  --requests 2 --output "$SMOKE" \
-  --model "$SYNTH_MODEL" --openai-compatible
-uv run python scripts/generate_synthetic_corpus.py run-openai-compatible \
-  --requests "$SMOKE/generation.requests.jsonl" \
-  --results "$SMOKE/generation.results.jsonl" \
-  --base-url "$SYNTH_BASE_URL" --api-key-env SYNTH_API_KEY \
-  --concurrency 2 --requests-per-minute 60 --tokens-per-minute 100000
-uv run python scripts/generate_synthetic_corpus.py ingest-generation \
-  --config configs/data/synthetic_cerebras_8m_v1.json \
-  --requests "$SMOKE/generation.requests.jsonl" \
-  --results "$SMOKE/generation.results.jsonl" \
-  --output "$SMOKE" --skip-critic
-uv run python scripts/generate_synthetic_corpus.py finalize-local \
-  --config configs/data/synthetic_cerebras_8m_v1.json \
-  --candidates "$SMOKE/candidates.jsonl" \
-  --output "$SMOKE/corpus"
-```
-
-If the endpoint uses the legacy completion-token field, add
-`--max-tokens-field max_tokens` to `plan-generation`. If it does not implement
-strict JSON Schema output, add `--response-format json-object` or, as a last
-resort, `--response-format none`. The prompt still requires a JSON object.
-
-Acquire and build the pinned knowledge sources, then merge them with an
-approved synthetic corpus:
+All artifacts live outside Git. The commit-pinned acquisition config and the
+hash-priority selection policy are the corpus contract; do not replace either
+source or selection with a convenient substitute.
 
 ```sh
 uv sync --extra dev
@@ -100,54 +24,28 @@ uv run poetry50m corpus-acquire \
 uv run poetry50m corpus-build \
   --acquisition artifacts/acquired \
   --sources-config configs/data/huggingface_sources.json \
-  --output artifacts/knowledge
-uv run python scripts/generate_synthetic_corpus.py merge \
-  --base-manifest artifacts/knowledge/manifest.jsonl \
-  --base-prompts artifacts/knowledge/prompts.jsonl \
-  --base-thoughts artifacts/knowledge/thoughts.jsonl \
-  --base-pairings artifacts/knowledge/pairings.jsonl \
-  --synthetic "$PILOT/corpus" --output artifacts/corpus
+  --selection-config configs/data/knowledge_corpus_selection.json \
+  --output artifacts/corpus
 uv run poetry50m prepare --corpus-manifest artifacts/corpus/manifest.jsonl \
   --prompts artifacts/corpus/prompts.jsonl \
   --thoughts artifacts/corpus/thoughts.jsonl \
   --pairings artifacts/corpus/pairings.jsonl \
   --config configs/data/corpus.json --output artifacts/prepared
+uv run poetry50m plan-exposure --prepared artifacts/prepared \
+  --model-config configs/model/track1_8m.yaml \
+  --train-config configs/training/baseline.yaml --batch-size 4 \
+  --tokens-per-parameter-per-pass 20 --passes 2 \
+  --output artifacts/full-pretrain-plan
 ```
 
-Do not scale corpus generation or repeat the full 100,000-step train solely
-because these mechanics pass. First require a small held-out training probe to
-improve prompt-keyword relevance and reduce empty prompt matches relative to
-R0.
-
-```sh
-uv run poetry50m train --prepared artifacts/prepared --model-config configs/model/track1_8m.yaml \
-  --train-config configs/training/baseline.yaml --run-dir runs/r0 --batch-size 4 \
-  --until-step 250
-uv run poetry50m train --prepared artifacts/prepared --model-config configs/model/track1_8m.yaml \
-  --train-config configs/training/baseline.yaml --run-dir runs/r1 --batch-size 4 \
-  --run-policy configs/runs/personal_weekend.yaml \
-  --until-step 250 --seal-endpoint
-uv run poetry50m train --prepared artifacts/prepared --model-config configs/model/track1_8m.yaml \
-  --train-config configs/training/baseline.yaml --run-dir runs/r2 --batch-size 4 \
-  --run-policy configs/runs/personal_weekend.yaml \
-  --data-seed 7331 --until-step 250 --seal-endpoint
-uv run poetry50m score --prepared artifacts/prepared --model-config configs/model/track1_8m.yaml \
-  --train-config configs/training/baseline.yaml --run-dir runs/r0 --batch-size 4 \
-  --checkpoint runs/r0/checkpoints/final.pt --output runs/r0/difficulty.jsonl
-uv run poetry50m train --prepared artifacts/prepared --model-config configs/model/track1_8m.yaml \
-  --train-config configs/training/baseline.yaml --run-dir runs/curriculum --batch-size 4 \
-  --curriculum strict_hard_to_easy --difficulty runs/r0/difficulty.jsonl
-uv run poetry50m generate --prepared artifacts/prepared --model-config configs/model/track1_8m.yaml \
-  --train-config configs/training/baseline.yaml --run-dir runs/r0 --batch-size 4 \
-  --checkpoint runs/r0/checkpoints/final.pt --suite configs/evaluation/prompt_suite.json \
-  --evaluation-manifest-id track1-fixed-v1 --output runs/r0/generations.jsonl
-uv run poetry50m metrics --prepared artifacts/prepared --suite configs/evaluation/prompt_suite.json \
-  --records runs/r0/generations.jsonl --manifest runs/r0/generations.manifest.json \
-  --output runs/r0/metrics.json
-uv run poetry50m eval-loss --prepared artifacts/prepared --model-config configs/model/track1_8m.yaml \
-  --train-config configs/training/baseline.yaml --run-dir runs/r0 --batch-size 4 \
-  --checkpoint runs/r0/checkpoints/final.pt --split test --output runs/r0/test-loss.json
-```
+Review `artifacts/corpus/knowledge.receipt.json`, `artifacts/prepared/metadata.json`,
+and `artifacts/full-pretrain-plan/receipt.json` before training. The plan must
+show at least 333,400,320 unpadded data tokens and a 10/40/50 conditional/
+general-prose/book-verse mix. Its `objective_exposure` records the actual mix,
+each unique train pool's data-token count, and its planned repeat multiple.
+Only after approval, use the derived frozen
+`artifacts/full-pretrain-plan/train_config.json` with the same reviewed batch
+size; `plan-exposure` itself never constructs a trainer or starts training.
 
 R0 is the policy-free teacher: its observed trajectory may inform a method, but
 not a sealed target. After inspecting R0, freeze
@@ -286,23 +184,21 @@ that exact ledger with `--difficulty`; the CLI rejects missing or surplus pack
 rows. Curriculum and ledger content are part of the stream identity, so a
 checkpoint cannot silently resume under a different order.
 
-The production data config assigns an intended **80/20 objective-batch mix**:
-conditional poetry `1.0` and auxiliary prose NTP `0.25`, or four conditional
-batches per prose batch. This is a stream-scheduling ratio, not a raw-document
-or token ratio. The prepared-artifact report is the record of the realized
-packed supervised-token ratio; report that value with every run. Preparation
-fails if this objective is enabled but no training prose exists.
+The production data config assigns an intended **10/40/50 data-token mix**:
+conditional Poetry Greats `0.1`, Ultra-FineWeb auxiliary prose NTP `0.4`, and
+Gutenberg book-verse NTP `0.5`. The scheduler accounts for unpadded data tokens
+after every batch, so varying pack lengths cannot silently turn this into a
+batch-count ratio. Preparation fails if an enabled objective produces no
+attributable training packs.
 
 ## Scope and storage
 
-The 8M configuration is the production research target. A synthetic tiny run
+The 8M configuration is the production research target. A tiny fixture run
 checks mechanics only: it cannot validate poetry quality, training scaling, or
 transport utility. Keep acquired source snapshots and built corpus artifacts
 outside the repository. The acquisition and build receipts bind every input,
-revision, output, rights status, and transformation lineage. BabyLM-distilled
-rows remain explicitly `unknown` for rights because their upstream
-per-document provenance was not retained. Budget at least the source corpus
-size again for prepared JSONL and tokenizer artifacts; checkpoints and
+revision, output, rights status, and transformation lineage. Budget at least
+the source corpus size again for prepared JSONL and tokenizer artifacts; checkpoints and
 trajectory snapshots each store all model weights, so retain only the cadence
 needed for the chosen transport window.
 

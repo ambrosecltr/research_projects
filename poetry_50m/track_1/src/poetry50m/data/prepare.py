@@ -6,11 +6,11 @@ import json
 import os
 import shutil
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TypeVar, cast
 
 from .artifacts import (
     read_pairings,
@@ -18,12 +18,17 @@ from .artifacts import (
     read_thought_records,
     write_conditional_examples,
     write_packed_sequences,
+    write_poetry_ntp_examples,
     write_prose_examples,
 )
-from .examples import build_auxiliary_prose_ntp_examples, build_conditional_examples
+from .examples import (
+    build_auxiliary_prose_ntp_examples,
+    build_conditional_examples,
+    build_poetry_ntp_examples,
+)
 from .loaders import iter_manifest
 from .packing import PackedSequence, pack_sequences
-from .schema import ObjectiveMix, SplitName
+from .schema import ObjectiveMix, PoetryNTPExample, ProseNTPExample, SplitName
 from .splits import (
     LEXICAL_FAMILY_THRESHOLD,
     LexicalFamilyIndex,
@@ -36,11 +41,13 @@ from .tokenizer import (
     TokenizerSpec,
     encode_auxiliary_prose_ntp_example,
     encode_conditional_example,
+    encode_poetry_ntp_example,
     save_tokenizer,
     train_tokenizer,
 )
 
 _HeldoutLexicalPayload = tuple[SplitName, str, str, tuple[str, ...]]
+_NTPExample = TypeVar("_NTPExample", ProseNTPExample, PoetryNTPExample)
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,7 +142,7 @@ def load_preparation_config(path: Path) -> PreparedDataConfig:
         "split": {"salt", "train", "validation", "test"},
         "tokenizer": {"vocab_size", "min_frequency", "special_tokens"},
         "packing": {"sequence_length"},
-        "objectives": {"conditional_poetry", "auxiliary_prose_ntp"},
+        "objectives": {"conditional_poetry", "auxiliary_prose_ntp", "poetry_ntp"},
         "rights": {"allow_synthetic"},
     }
     for name, mapping in (
@@ -175,6 +182,7 @@ def load_preparation_config(path: Path) -> PreparedDataConfig:
         objective_mix=ObjectiveMix(
             conditional_poetry=number_field(objectives, "conditional_poetry"),
             auxiliary_prose_ntp=number_field(objectives, "auxiliary_prose_ntp"),
+            poetry_ntp=number_field(objectives, "poetry_ntp"),
         ),
         allow_synthetic=allow_synthetic,
     )
@@ -198,12 +206,17 @@ def _match_sort_key(
 def _train_objective_stats(
     packs: tuple[PackedSequence, ...],
 ) -> dict[str, dict[str, int | float]]:
-    objective_names = ("conditional_poetry", "auxiliary_prose_ntp")
+    objective_names = ("conditional_poetry", "auxiliary_prose_ntp", "poetry_ntp")
     supervised_by_objective = {
         name: sum(sum(pack.loss_mask) for pack in packs if pack.objective == name)
         for name in objective_names
     }
+    data_by_objective = {
+        name: sum(len(pack.input_ids) - 1 for pack in packs if pack.objective == name)
+        for name in objective_names
+    }
     total_supervised = sum(supervised_by_objective.values())
+    total_data = sum(data_by_objective.values())
     if packs and total_supervised < 1:
         raise ValueError("prepared train packs contain no supervised tokens")
     return {
@@ -213,6 +226,8 @@ def _train_objective_stats(
             "supervised_token_ratio": (
                 supervised_by_objective[name] / total_supervised if total_supervised else 0.0
             ),
+            "data_token_count": data_by_objective[name],
+            "data_token_ratio": data_by_objective[name] / total_data if total_data else 0.0,
         }
         for name in objective_names
     }
@@ -279,78 +294,95 @@ def _prepare_data_in_directory(
         for text in (example.prompt, example.thought or "", example.poem_target)
         if text and text.casefold() not in held_out_texts
     ]
-    prose_examples_list = []
     excluded_prose: list[dict[str, object]] = []
-    for prose_example in build_auxiliary_prose_ntp_examples(documents):
-        owner = document_splits.get(
-            prose_example.document_id,
-            split_for_key(prose_example.document_id, config.split_ratios, salt=config.split_salt),
-        )
-        if owner != "train":
-            heldout_examples = sorted(
-                example.example_id
-                for example in split[owner]
-                if prose_example.document_id in example.source_document_ids
+    excluded_poetry_ntp: list[dict[str, object]] = []
+
+    def retain_train_ntp_examples(
+        raw_examples: Iterable[_NTPExample],
+        excluded: list[dict[str, object]],
+    ) -> tuple[_NTPExample, ...]:
+        retained: list[_NTPExample] = []
+        for example in raw_examples:
+            owner = document_splits.get(
+                example.document_id,
+                split_for_key(example.document_id, config.split_ratios, salt=config.split_salt),
             )
-            excluded_prose.append(
-                {
-                    "example_id": prose_example.example_id,
-                    "block_id": prose_example.block_id,
-                    "document_id": prose_example.document_id,
-                    "reason": (
-                        "heldout_document_family"
-                        if heldout_examples
-                        else "non_train_document_assignment"
-                    ),
-                    "evidence": {
-                        "assigned_split": owner,
-                        "heldout_example_ids": heldout_examples,
-                    },
-                }
-            )
-            continue
-        matches: list[tuple[LexicalFamilyMatch, SplitName, str, str, tuple[str, ...]]] = []
-        for hit in heldout_lexical_index.find_matches(prose_example.text):
-            split_name, heldout_example_id, field_name, source_document_ids = hit.payload
-            matches.append(
-                (
-                    hit.match,
-                    split_name,
-                    heldout_example_id,
-                    field_name,
-                    source_document_ids,
+            if owner != "train":
+                heldout_examples = sorted(
+                    item.example_id
+                    for item in split[owner]
+                    if example.document_id in item.source_document_ids
                 )
-            )
-        if matches:
-            match, split_name, heldout_example_id, field_name, source_document_ids = min(
-                matches, key=_match_sort_key
-            )
-            excluded_prose.append(
-                {
-                    "example_id": prose_example.example_id,
-                    "block_id": prose_example.block_id,
-                    "document_id": prose_example.document_id,
-                    "reason": "heldout_lexical_family",
-                    "evidence": {
-                        "metric": match.metric,
-                        "score": match.score,
-                        "threshold": (
-                            1.0 if match.metric == "normalized_exact" else LEXICAL_FAMILY_THRESHOLD
+                excluded.append(
+                    {
+                        "example_id": example.example_id,
+                        "block_id": example.block_id,
+                        "document_id": example.document_id,
+                        "reason": (
+                            "heldout_document_family"
+                            if heldout_examples
+                            else "non_train_document_assignment"
                         ),
-                        "shared_shingles": match.shared_shingles,
-                        "comparison_shingles": match.comparison_shingles,
-                        "heldout_split": split_name,
-                        "heldout_example_id": heldout_example_id,
-                        "heldout_field": field_name,
-                        "heldout_source_document_ids": list(source_document_ids),
-                    },
-                }
-            )
-            continue
-        prose_examples_list.append(prose_example)
-    prose_examples = tuple(prose_examples_list)
+                        "evidence": {
+                            "assigned_split": owner,
+                            "heldout_example_ids": heldout_examples,
+                        },
+                    }
+                )
+                continue
+            matches: list[tuple[LexicalFamilyMatch, SplitName, str, str, tuple[str, ...]]] = []
+            for hit in heldout_lexical_index.find_matches(example.text):
+                split_name, heldout_example_id, field_name, source_document_ids = hit.payload
+                matches.append(
+                    (
+                        hit.match,
+                        split_name,
+                        heldout_example_id,
+                        field_name,
+                        source_document_ids,
+                    )
+                )
+            if matches:
+                match, split_name, heldout_example_id, field_name, source_document_ids = min(
+                    matches, key=_match_sort_key
+                )
+                excluded.append(
+                    {
+                        "example_id": example.example_id,
+                        "block_id": example.block_id,
+                        "document_id": example.document_id,
+                        "reason": "heldout_lexical_family",
+                        "evidence": {
+                            "metric": match.metric,
+                            "score": match.score,
+                            "threshold": (
+                                1.0
+                                if match.metric == "normalized_exact"
+                                else LEXICAL_FAMILY_THRESHOLD
+                            ),
+                            "shared_shingles": match.shared_shingles,
+                            "comparison_shingles": match.comparison_shingles,
+                            "heldout_split": split_name,
+                            "heldout_example_id": heldout_example_id,
+                            "heldout_field": field_name,
+                            "heldout_source_document_ids": list(source_document_ids),
+                        },
+                    }
+                )
+                continue
+            retained.append(example)
+        return tuple(retained)
+
+    prose_examples = retain_train_ntp_examples(
+        build_auxiliary_prose_ntp_examples(documents), excluded_prose
+    )
+    poetry_ntp_examples = retain_train_ntp_examples(
+        build_poetry_ntp_examples(documents), excluded_poetry_ntp
+    )
     write_prose_examples(output_directory / "train.prose.jsonl", prose_examples)
+    write_poetry_ntp_examples(output_directory / "train.poetry_ntp.jsonl", poetry_ntp_examples)
     train_texts.extend(example.text for example in prose_examples)
+    train_texts.extend(example.text for example in poetry_ntp_examples)
     tokenizer = train_tokenizer(train_texts, config.tokenizer)
     actual_vocab_size = tokenizer.get_vocab_size(with_added_tokens=True)
     if actual_vocab_size != config.tokenizer.vocab_size:
@@ -359,6 +391,9 @@ def _prepare_data_in_directory(
     save_tokenizer(tokenizer, tokenizer_path)
     prose_sequences = tuple(
         encode_auxiliary_prose_ntp_example(tokenizer, example) for example in prose_examples
+    )
+    poetry_ntp_sequences = tuple(
+        encode_poetry_ntp_example(tokenizer, example) for example in poetry_ntp_examples
     )
     packs_by_split: dict[str, tuple[PackedSequence, ...]] = {}
     for packed_split_name, values in split.items():
@@ -371,18 +406,32 @@ def _prepare_data_in_directory(
         if config.objective_mix.auxiliary_prose_ntp > 0
         else ()
     )
-    offset_prose = tuple(
-        PackedSequence(
-            pack_id=len(packs_by_split["train"]) + index,
-            boundary_key=pack.boundary_key,
-            example_ids=pack.example_ids,
-            input_ids=pack.input_ids,
-            loss_mask=pack.loss_mask,
-            objective=pack.objective,
+
+    def offset_packs(
+        source_packs: tuple[PackedSequence, ...], *, offset: int
+    ) -> tuple[PackedSequence, ...]:
+        return tuple(
+            PackedSequence(
+                pack_id=offset + index,
+                boundary_key=pack.boundary_key,
+                example_ids=pack.example_ids,
+                input_ids=pack.input_ids,
+                loss_mask=pack.loss_mask,
+                objective=pack.objective,
+            )
+            for index, pack in enumerate(source_packs)
         )
-        for index, pack in enumerate(prose_packs)
-    )
+
+    offset_prose = offset_packs(prose_packs, offset=len(packs_by_split["train"]))
     packs_by_split["train"] = packs_by_split["train"] + offset_prose
+    poetry_ntp_packs = (
+        pack_sequences(poetry_ntp_sequences, sequence_length=config.sequence_length)
+        if config.objective_mix.poetry_ntp > 0
+        else ()
+    )
+    packs_by_split["train"] = packs_by_split["train"] + offset_packs(
+        poetry_ntp_packs, offset=len(packs_by_split["train"])
+    )
     for artifact_split_name, packs_for_split in packs_by_split.items():
         write_packed_sequences(
             output_directory / f"{artifact_split_name}.packed.jsonl", packs_for_split
@@ -404,7 +453,9 @@ def _prepare_data_in_directory(
             path.name: _file_hash(path) for path in sorted(output_directory.glob("*.jsonl"))
         },
         "train_prose_block_ids": sorted(example.block_id for example in prose_examples),
+        "train_poetry_ntp_block_ids": sorted(example.block_id for example in poetry_ntp_examples),
         "excluded_prose": excluded_prose,
+        "excluded_poetry_ntp": excluded_poetry_ntp,
     }
     (output_directory / "metadata.json").write_text(
         json.dumps(metadata, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8"
@@ -438,6 +489,7 @@ def prepare_data(
         "tokenizer.json",
         "metadata.json",
         "train.prose.jsonl",
+        "train.poetry_ntp.jsonl",
     }
     try:
         _prepare_data_in_directory(

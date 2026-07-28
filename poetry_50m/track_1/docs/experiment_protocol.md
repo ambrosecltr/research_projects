@@ -11,35 +11,39 @@ The protocol treats published components as reusable. It re-tests only the integ
 ### First lineage
 
 The implemented first lineage is **training from scratch with a corpus-trained
-tokenizer** on pinned Hugging Face knowledge artifacts in
-[`configs/data/huggingface_sources.json`](../configs/data/huggingface_sources.json)
-plus an approved, separately receipted Cerebras GPT-OSS synthetic poetry
-corpus. The pinned artifacts provide auxiliary prose and the synthetic corpus
-provides conditional poetry targets. Every reference run, trajectory, and
-endpoint claim is about the exact merged corpus and receipts.
+tokenizer** on the three pinned Hugging Face artifacts in
+[`configs/data/huggingface_sources.json`](../configs/data/huggingface_sources.json).
+Every run, trajectory, and endpoint claim is about that exact corpus plus its
+acquisition, build, preparation, and exposure-plan receipts. There is no
+Cerebras generation or synthetic merge in this lineage.
 
 | Source | Pinned revision | Role |
 | --- | --- | --- |
-| `sixf0ur/nano_wiki` | `be3df246bb02353de57d039918c355c212edbd67` | synthetic educational prose |
-| `sixf0ur/babylm_eng_distilled_1024` | `faa965857a012e63520f544b6b298289fe510a84` | distilled general prose |
+| `openbmb/Ultra-FineWeb-L3` | pinned in source config | English Multi-Style general-prose NTP (synthetic rewriting) |
+| `biglam/gutenberg-poetry-corpus` | pinned in source config | CC0-released line corpus, unconditional book-verse NTP |
+| `yoonholee/poetry-greats-public-domain` | pinned in source config | public-domain poems, conditional prompt-to-poem |
 
-Nano Wiki is attributed as CC BY 4.0. The BabyLM-distilled uploader declares
-CC0, but the source collection had per-document licences and the distilled rows
-lost those links, so the canonical records deliberately retain `unknown`.
+Ultra-FineWeb-L3 is synthetic rewriting, not human-reviewed prose; its role is
+explicitly bounded to auxiliary NTP. The Gutenberg line corpus does not retain
+per-book rights records, so its individual books remain marked unverified.
+Poetry Greats is retained under its dataset-card public-domain assertion. Do
+not call the whole blend "human reviewed" or uniformly public domain.
 
 ### Data contract
 
-Acquire the two pinned revisions into an external acquisition directory, then
-run `corpus-build` to create the knowledge JSONL inputs. Generate poetry
-separately, run the blind critic and local gates, and merge only the accepted
-synthetic artifacts. The receipts bind acquired-file hashes, provider usage,
-candidate decisions, and final output hashes. A source document has one stable
-semantic document ID, so all conditioning for one poem remains in one split.
+Acquire the three pinned revisions into an external acquisition directory, then
+run `corpus-build --selection-config configs/data/knowledge_corpus_selection.json`
+to create the canonical JSONL inputs. The selection policy fixes the
+hash-priority Ultra-FineWeb subset. The receipts bind source revisions,
+artifact hashes, selection, transformations, and final output hashes. A source
+document has one stable semantic document ID, so all conditioning for one poem
+remains in one split.
 
 Every retained source record has an immutable source ID, source locator, rights
-status, raw text, cleaned text, and transformation lineage. Knowledge rows are
-paragraph documents for auxiliary prose NTP. Accepted synthetic poems retain
-their prompts and explicit synthetic provenance.
+status, raw text, cleaned text, and transformation lineage. Ultra-FineWeb rows
+are auxiliary prose NTP; Gutenberg rows are contiguous `verse_document` book
+records for raw poetry NTP; Poetry Greats rows carry deterministic title or
+author-style prompts for conditional poetry.
 
 Create records with actual conditioning:
 
@@ -52,15 +56,15 @@ Create records with actual conditioning:
 {poem or source excerpt}
 ```
 
-The corpus builder deterministically uses a clean source title, then falls back
-to a source-author conditioning prompt when a title is absent or unusable.
+For Poetry Greats, the corpus builder deterministically uses a clean source
+title, then falls back to a source-author conditioning prompt when a title is
+absent or unusable.
 All variants retain their shared source ID so none cross the split boundary.
 The fixed suite contains 40 predeclared, deliberately novel generation
 requests and a separate 10-request development set. Hold out poem/passage
 material separately for NTP validation and testing. Do not generate evaluation
 prompts from evaluation outputs after inspecting models. This protocol records
-provenance and does not assert redistribution or publication rights; synthetic
-fixtures enter the corpus only through an explicit opt-in.
+provenance and does not assert redistribution or publication rights.
 
 Every prompt/poem relation produces a prompt-only
 `<PROMPT>…<POEM>` training example matching the public generation interface.
@@ -70,10 +74,11 @@ the prompt-only row.
 
 For curriculum, use three predeclared orderings only: shuffled baseline, document-level hard-to-easy scored by the reference model’s first-pass loss, and one selected ordering for the accelerated run. The hard-to-easy option is supported by [Agrawal et al.](https://aclanthology.org/2021.sustainlp-1.15/) in a different LM setting; it is an integration experiment here, not an assumed improvement. Do not substitute token masking studies for this claim.
 
-The approved objective mix is conditional poetry `1.0` and auxiliary prose NTP
-`0.25`: four conditional-poetry batches per prose batch, intended as 80/20
-objective batches. It is not an 80/20 token guarantee. Record the actual packed
-supervised-token ratio from the prepared artifact/run receipt with every result.
+The approved objective mix is conditional poetry `0.1`, auxiliary prose NTP `0.4`,
+and Gutenberg book-verse NTP `0.5`. The scheduler uses actual unpadded data-token
+exposure rather than whole-batch counts. Before a full run, `plan-exposure` must
+freeze an immutable receipt and derived training configuration for two 20x passes
+(at least 333,400,320 tokens for the 8,335,008-parameter model).
 
 ### Model contract
 

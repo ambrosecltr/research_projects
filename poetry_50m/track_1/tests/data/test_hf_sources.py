@@ -31,17 +31,41 @@ def test_catalog_contains_only_the_frozen_sources_and_raw_artifacts() -> None:
 
     assert tuple((source.repository, source.revision) for source in config.sources) == (
         (
-            "sixf0ur/nano_wiki",
-            "be3df246bb02353de57d039918c355c212edbd67",
+            "openbmb/Ultra-FineWeb-L3",
+            "c68ab81ad03b2d2f476fa8ab3c72bed3528da359",
         ),
         (
-            "sixf0ur/babylm_eng_distilled_1024",
-            "faa965857a012e63520f544b6b298289fe510a84",
+            "biglam/gutenberg-poetry-corpus",
+            "fcd42e249fed48dbd1d3b9b969528ef9298d3464",
+        ),
+        (
+            "yoonholee/poetry-greats-public-domain",
+            "3201e250462905a0c8f6134e124382ac96586dc9",
         ),
     )
     assert tuple(artifact.path for source in config.sources for artifact in source.artifacts) == (
-        "nano_wiki_dataset.jsonl",
-        "babylm_cleaned.jsonl",
+        "data/ultrafineweb_en_l3/multi_style/part-00000-f36f5a53-4a77-434b-b9bc-67ed69b93fe2-c000.snappy.parquet",
+        "data/train-00000-of-00001-fa9fb9e1f16eed7e.parquet",
+        "data/train-00000-of-00001.parquet",
+    )
+    assert tuple(source.repository_files for source in config.sources) == (
+        (
+            ".gitattributes",
+            "LICENSE",
+            "README.md",
+            "data/ultrafineweb_en_l3/multi_style/part-00000-f36f5a53-4a77-434b-b9bc-67ed69b93fe2-c000.snappy.parquet",
+        ),
+        (
+            ".gitattributes",
+            "README.md",
+            "dataset_infos.json",
+            "data/train-00000-of-00001-fa9fb9e1f16eed7e.parquet",
+        ),
+        (
+            ".gitattributes",
+            "README.md",
+            "data/train-00000-of-00001.parquet",
+        ),
     )
 
 
@@ -78,10 +102,12 @@ class FakeHubApi:
         *,
         resolved_revision: str | None = None,
         extra_repository_file: str | None = None,
+        missing_repository_file: str | None = None,
     ) -> None:
         self._config = config
         self._resolved_revision = resolved_revision
         self._extra_repository_file = extra_repository_file
+        self._missing_repository_file = missing_repository_file
         self.calls: list[tuple[str, str, bool]] = []
 
     def dataset_info(
@@ -93,7 +119,11 @@ class FakeHubApi:
     ) -> SimpleNamespace:
         self.calls.append((repo_id, revision, files_metadata))
         source = next(item for item in self._config.sources if item.repository == repo_id)
-        siblings = [SimpleNamespace(rfilename=filename) for filename in source.repository_files]
+        siblings = [
+            SimpleNamespace(rfilename=filename)
+            for filename in source.repository_files
+            if filename != self._missing_repository_file
+        ]
         if self._extra_repository_file is not None:
             siblings.append(SimpleNamespace(rfilename=self._extra_repository_file))
         return SimpleNamespace(
@@ -195,7 +225,7 @@ def test_acquisition_uses_dataset_api_pins_and_writes_verified_canonical_receipt
     assert verify_acquisition(CATALOG_PATH, destination) == receipt
 
 
-def test_acquisition_rejects_remote_revision_and_repository_file_drift(
+def test_acquisition_rejects_remote_revision_and_missing_required_repository_file(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -212,15 +242,32 @@ def test_acquisition_rejects_remote_revision_and_repository_file_drift(
         )
     assert not (tmp_path / "wrong-revision").exists()
 
-    api = FakeHubApi(config, extra_repository_file="unexpected.bin")
-    with pytest.raises(ValueError, match="repository files drifted"):
+    api = FakeHubApi(config, missing_repository_file=config.sources[0].repository_files[0])
+    with pytest.raises(ValueError, match="missing required inspected files"):
         acquire_hf_sources(
             CATALOG_PATH,
-            tmp_path / "wrong-files",
+            tmp_path / "missing-required-file",
             api=cast(HfApi, api),
             downloader=cast(HubDownloader, downloader),
         )
-    assert not (tmp_path / "wrong-files").exists()
+    assert not (tmp_path / "missing-required-file").exists()
+
+
+def test_acquisition_allows_unrelated_files_at_the_pinned_revision(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config, content = _small_config()
+    _install_small_config(monkeypatch, config)
+
+    receipt = acquire_hf_sources(
+        CATALOG_PATH,
+        tmp_path / "raw",
+        api=cast(HfApi, FakeHubApi(config, extra_repository_file="unrelated.bin")),
+        downloader=cast(HubDownloader, FakeDownloader(tmp_path / "cache", content)),
+    )
+
+    assert receipt.sources[0].source_id == "ultrafineweb_l3"
 
 
 def test_acquisition_rejects_bad_download_and_cleans_staging_directory(

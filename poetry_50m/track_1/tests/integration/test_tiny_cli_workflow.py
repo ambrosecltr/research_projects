@@ -128,7 +128,11 @@ def test_tiny_synthetic_cli_workflow(tmp_path: Path, device: str) -> None:
                 ],
             },
             "packing": {"sequence_length": 64},
-            "objectives": {"conditional_poetry": 1.0, "auxiliary_prose_ntp": 0.0},
+            "objectives": {
+                "conditional_poetry": 1.0,
+                "auxiliary_prose_ntp": 0.0,
+                "poetry_ntp": 0.0,
+            },
             "rights": {"allow_synthetic": True},
         },
     )

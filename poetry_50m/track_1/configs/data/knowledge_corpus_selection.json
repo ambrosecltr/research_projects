@@ -1,0 +1,8 @@
+{
+  "format_version": 1,
+  "ultrafineweb_l3": {
+    "max_documents": 200000,
+    "method": "sha256_uid_priority_v1",
+    "seed": "poetry50m-ultrafineweb-l3-20260728"
+  }
+}

@@ -37,7 +37,7 @@ class PackedSequence:
             raise ValueError("packed token IDs must be non-negative integers")
         if any(not isinstance(enabled, bool) for enabled in self.loss_mask):
             raise ValueError("packed loss mask values must be booleans")
-        if self.objective not in {"conditional_poetry", "auxiliary_prose_ntp"}:
+        if self.objective not in {"conditional_poetry", "auxiliary_prose_ntp", "poetry_ntp"}:
             raise ValueError("packed sequence has unsupported objective")
 
 

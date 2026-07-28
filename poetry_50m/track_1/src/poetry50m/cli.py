@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
+import tempfile
 from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
@@ -20,6 +23,7 @@ from poetry50m.data import PreparedBatchStream, PreparedDataConfig, prepare_data
 from poetry50m.data.artifacts import (
     read_conditional_examples,
     read_packed_sequences,
+    read_poetry_ntp_examples,
     read_prose_examples,
 )
 from poetry50m.data.difficulty import DifficultyLedger, DifficultyRecord
@@ -100,7 +104,7 @@ def _data_config(path: Path) -> PreparedDataConfig:
         set(split) != {"salt", "train", "validation", "test"}
         or set(tokenizer) != {"vocab_size", "min_frequency", "special_tokens"}
         or set(packing) != {"sequence_length"}
-        or set(objectives) != {"conditional_poetry", "auxiliary_prose_ntp"}
+        or set(objectives) != {"conditional_poetry", "auxiliary_prose_ntp", "poetry_ntp"}
         or set(rights) != {"allow_synthetic"}
     ):
         raise ValueError("data configuration contains unknown or missing keys")
@@ -118,6 +122,7 @@ def _data_config(path: Path) -> PreparedDataConfig:
         packing["sequence_length"],
         objectives["conditional_poetry"],
         objectives["auxiliary_prose_ntp"],
+        objectives["poetry_ntp"],
     )
     if any(isinstance(item, bool) or not isinstance(item, (int, float)) for item in numeric):
         raise ValueError("data configuration numeric values must be numbers")
@@ -138,7 +143,9 @@ def _data_config(path: Path) -> PreparedDataConfig:
         TokenizerSpec(tokenizer["vocab_size"], tokenizer["min_frequency"], tuple(special_tokens)),
         packing["sequence_length"],
         ObjectiveMix(
-            float(objectives["conditional_poetry"]), float(objectives["auxiliary_prose_ntp"])
+            float(objectives["conditional_poetry"]),
+            float(objectives["auxiliary_prose_ntp"]),
+            float(objectives["poetry_ntp"]),
         ),
         rights["allow_synthetic"],
     )
@@ -171,6 +178,7 @@ def corpus_build_command(args: argparse.Namespace) -> int:
     build_knowledge_corpus(
         acquisition_directory=Path(args.acquisition),
         sources_config=Path(args.sources_config),
+        selection_config=Path(args.selection_config),
         output_directory=Path(args.output),
     )
     return 0
@@ -186,16 +194,28 @@ def prepare_command(args: argparse.Namespace) -> int:
         output_directory=Path(args.output),
         config=data_config,
     )
-    if data_config.objective_mix.auxiliary_prose_ntp > 0.0 and (
-        not read_prose_examples(artifact.root / "train.prose.jsonl")
-        or not any(
-            pack.objective == "auxiliary_prose_ntp"
-            for pack in read_packed_sequences(artifact.root / "train.packed.jsonl")
-        )
+    objective_stats = artifact.metadata.get("train_objective_stats")
+    if not isinstance(objective_stats, dict):
+        raise ValueError("prepared metadata lacks train objective statistics")
+
+    def prepared_pack_count(objective: str) -> int:
+        stats = objective_stats.get(objective)
+        if not isinstance(stats, dict):
+            raise ValueError(f"prepared metadata lacks {objective} statistics")
+        count = stats.get("pack_count")
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            raise ValueError(f"prepared metadata has an invalid {objective} pack count")
+        return count
+
+    if (
+        data_config.objective_mix.auxiliary_prose_ntp > 0.0
+        and prepared_pack_count("auxiliary_prose_ntp") == 0
     ):
         raise ValueError(
             "auxiliary_prose_ntp is enabled but preparation produced no attributed prose packs"
         )
+    if data_config.objective_mix.poetry_ntp > 0.0 and prepared_pack_count("poetry_ntp") == 0:
+        raise ValueError("poetry_ntp is enabled but preparation produced no book-verse packs")
     _write_json(
         Path(args.output) / "prepare.receipt.json",
         {
@@ -204,6 +224,61 @@ def prepare_command(args: argparse.Namespace) -> int:
             "synthetic_allowed": artifact.metadata["config"]["allow_synthetic"],
         },
     )
+    return 0
+
+
+def plan_exposure_command(args: argparse.Namespace) -> int:
+    """Write a reviewable two-pass training horizon without creating a trainer."""
+    from poetry50m.workflows.exposure_plan import (
+        derived_train_config,
+        exact_trainable_parameter_count,
+        exposure_receipt,
+        plan_exposure,
+    )
+    from poetry50m.workflows.training import prepared_stream
+
+    prepared = Path(args.prepared)
+    model_config_path = Path(args.model_config)
+    train_config_path = Path(args.train_config)
+    base_train = _train_config(train_config_path)
+    model = _model_config(model_config_path)
+    parameter_count = exact_trainable_parameter_count(model)
+    if parameter_count != args.expected_parameter_count:
+        raise ValueError(
+            f"model has {parameter_count:,} trainable parameters; expected "
+            f"{args.expected_parameter_count:,}"
+        )
+    data_seed = args.data_seed if args.data_seed is not None else base_train.seed
+    stream = prepared_stream(prepared, args.batch_size, data_seed)
+    plan = plan_exposure(
+        stream,
+        parameter_count=parameter_count,
+        tokens_per_parameter_per_pass=args.tokens_per_parameter_per_pass,
+        passes=args.passes,
+    )
+    derived = derived_train_config(base_train, planned_steps=plan.planned_steps)
+    receipt = exposure_receipt(
+        prepared=prepared,
+        model_config_path=model_config_path,
+        train_config_path=train_config_path,
+        batch_size=args.batch_size,
+        data_seed=data_seed,
+        plan=plan,
+        derived_config=derived,
+    )
+    output = Path(args.output)
+    if output.exists():
+        raise FileExistsError(f"exposure-plan output already exists: {output}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = Path(tempfile.mkdtemp(prefix=f".{output.name}.planning-", dir=output.parent))
+    try:
+        _write_json(temporary / "receipt.json", receipt)
+        _write_json(temporary / "train_config.json", asdict(derived))
+        os.replace(temporary, output)
+    except BaseException:
+        if temporary.exists():
+            shutil.rmtree(temporary)
+        raise
     return 0
 
 
@@ -362,6 +437,10 @@ def metrics_command(args: argparse.Namespace) -> int:
     ]
     train_texts.extend(
         example.text for example in read_prose_examples(Path(args.prepared) / "train.prose.jsonl")
+    )
+    train_texts.extend(
+        example.text
+        for example in read_poetry_ntp_examples(Path(args.prepared) / "train.poetry_ntp.jsonl")
     )
     records = load_generation_records(Path(args.records))
     if receipt["request_count"] != len(requests) or receipt["record_count"] != len(records):
@@ -531,6 +610,7 @@ def build_parser() -> argparse.ArgumentParser:
     corpus_build = commands.add_parser("corpus-build")
     corpus_build.add_argument("--acquisition", required=True)
     corpus_build.add_argument("--sources-config", required=True)
+    corpus_build.add_argument("--selection-config", required=True)
     corpus_build.add_argument("--output", required=True)
     corpus_build.set_defaults(handler=corpus_build_command)
     prepare = commands.add_parser("prepare")
@@ -541,6 +621,17 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--config", required=True)
     prepare.add_argument("--output", required=True)
     prepare.set_defaults(handler=prepare_command)
+    exposure = commands.add_parser("plan-exposure")
+    exposure.add_argument("--prepared", required=True)
+    exposure.add_argument("--model-config", required=True)
+    exposure.add_argument("--train-config", required=True)
+    exposure.add_argument("--batch-size", type=int, required=True)
+    exposure.add_argument("--data-seed", type=int)
+    exposure.add_argument("--tokens-per-parameter-per-pass", type=int, default=20)
+    exposure.add_argument("--passes", type=int, default=2)
+    exposure.add_argument("--expected-parameter-count", type=int, default=8_335_008)
+    exposure.add_argument("--output", required=True)
+    exposure.set_defaults(handler=plan_exposure_command)
 
     def training_arguments(
         command: argparse.ArgumentParser, *, run_policy_required: bool = False

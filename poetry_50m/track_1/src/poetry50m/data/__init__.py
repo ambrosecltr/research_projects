@@ -2,13 +2,18 @@
 
 from .artifacts import read_prose_examples
 from .batch_stream import PreparedBatchStream
-from .examples import build_auxiliary_prose_ntp_examples, build_conditional_examples
+from .examples import (
+    build_auxiliary_prose_ntp_examples,
+    build_conditional_examples,
+    build_poetry_ntp_examples,
+)
 from .prepare import PreparedDataConfig, load_prepared_data, prepare_data
 from .schema import (
     ConditionalExample,
     ContentBlock,
     CrossDocumentPairing,
     ObjectiveMix,
+    PoetryNTPExample,
     PromptRecord,
     ProseNTPExample,
     Provenance,
@@ -24,6 +29,7 @@ __all__ = [
     "ContentBlock",
     "CrossDocumentPairing",
     "ObjectiveMix",
+    "PoetryNTPExample",
     "PreparedBatchStream",
     "PreparedDataConfig",
     "RESERVED_TOKEN_PREFIX",
@@ -36,6 +42,7 @@ __all__ = [
     "ThoughtRecord",
     "build_auxiliary_prose_ntp_examples",
     "build_conditional_examples",
+    "build_poetry_ntp_examples",
     "load_prepared_data",
     "prepare_data",
     "read_prose_examples",

@@ -19,10 +19,11 @@ _COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
 _SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 _SOURCE_ID_PATTERN = re.compile(r"[a-z][a-z0-9_]*")
 _ARTIFACT_KINDS = {
-    "distilled_text_jsonl",
-    "synthetic_knowledge_jsonl",
+    "gutenberg_poetry_parquet",
+    "poetry_greats_parquet",
+    "ultrafineweb_multistyle_parquet",
 }
-_APPROVED_CONFIG_SHA256 = "e99314114c7a4a8f22a259cbe8bcc979288165731665cb41def3bfd7b65c692f"
+_APPROVED_CONFIG_SHA256 = "296a6bd7809612ec7e4018edc22c3ca4ddf563ff34607e5dc203d8075f111381"
 _RECEIPT_NAME = "acquisition_receipt.json"
 
 
@@ -141,7 +142,13 @@ class ArtifactSpec:
 
 @dataclass(frozen=True, slots=True)
 class HfSourceSpec:
-    """One approved dataset repository and its complete raw-file contract."""
+    """One pinned repository and its required inspected-file contract.
+
+    ``repository_files`` lists only the exact files needed to establish the
+    approved source contract (such as its card, license, and selected raw
+    artifact). The immutable commit pins the complete repository snapshot;
+    unrelated files present at that same commit are intentionally not acquired.
+    """
 
     source_id: str
     repository: str
@@ -218,7 +225,7 @@ class HfSourceSpec:
 
 @dataclass(frozen=True, slots=True)
 class HfSourcesConfig:
-    """Validated acquisition catalog for the two approved knowledge sources."""
+    """Validated acquisition catalog for the three approved training sources."""
 
     format_version: int
     sources: tuple[HfSourceSpec, ...]
@@ -230,8 +237,8 @@ class HfSourcesConfig:
             or self.format_version != 1
         ):
             raise ValueError("Hugging Face source format_version must be 1")
-        if not isinstance(self.sources, tuple) or len(self.sources) != 2:
-            raise ValueError("Hugging Face source catalog must contain exactly two sources")
+        if not isinstance(self.sources, tuple) or len(self.sources) != 3:
+            raise ValueError("Hugging Face source catalog must contain exactly three sources")
         if any(not isinstance(source, HfSourceSpec) for source in self.sources):
             raise TypeError("sources must contain only HfSourceSpec records")
         source_ids = tuple(source.source_id for source in self.sources)
@@ -407,8 +414,8 @@ class AcquisitionReceipt:
             self.config_sha256
         ):
             raise ValueError("acquisition receipt config_sha256 must be a lowercase SHA-256")
-        if not isinstance(self.sources, tuple) or len(self.sources) != 2:
-            raise ValueError("acquisition receipt must contain exactly two sources")
+        if not isinstance(self.sources, tuple) or len(self.sources) != 3:
+            raise ValueError("acquisition receipt must contain exactly three sources")
         if any(not isinstance(source, AcquiredSource) for source in self.sources):
             raise TypeError("receipt sources must contain only AcquiredSource records")
 
@@ -464,11 +471,9 @@ def _verify_remote_repository(api: HfApi, source: HfSourceSpec) -> str:
     if len(remote_files) != len(set(remote_files)):
         raise ValueError(f"{source.repository} returned duplicate repository filenames")
     missing = set(source.repository_files).difference(remote_files)
-    unexpected = set(remote_files).difference(source.repository_files)
-    if missing or unexpected:
+    if missing:
         raise ValueError(
-            f"{source.repository} repository files drifted: "
-            f"missing={sorted(missing)}, unexpected={sorted(unexpected)}"
+            f"{source.repository} is missing required inspected files: {sorted(missing)}"
         )
     return info.sha
 

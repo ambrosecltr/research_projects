@@ -2,38 +2,58 @@
   "format_version": 1,
   "sources": [
     {
-      "source_id": "nano_wiki",
-      "repository": "sixf0ur/nano_wiki",
-      "revision": "be3df246bb02353de57d039918c355c212edbd67",
-      "artifact_kind": "synthetic_knowledge_jsonl",
+      "source_id": "ultrafineweb_l3",
+      "repository": "openbmb/Ultra-FineWeb-L3",
+      "revision": "c68ab81ad03b2d2f476fa8ab3c72bed3528da359",
+      "artifact_kind": "ultrafineweb_multistyle_parquet",
       "repository_files": [
         ".gitattributes",
+        "LICENSE",
         "README.md",
-        "nano_wiki_dataset.jsonl"
+        "data/ultrafineweb_en_l3/multi_style/part-00000-f36f5a53-4a77-434b-b9bc-67ed69b93fe2-c000.snappy.parquet"
       ],
       "artifacts": [
         {
-          "path": "nano_wiki_dataset.jsonl",
-          "sha256": "11715b0b3b1a34750314a8fad81f9fe53c5bd2103e95df4cad00da2045db2576",
-          "size_bytes": 13801046
+          "path": "data/ultrafineweb_en_l3/multi_style/part-00000-f36f5a53-4a77-434b-b9bc-67ed69b93fe2-c000.snappy.parquet",
+          "sha256": "71c87c7336f1bdd1a2b0435486bf6992370d100c33e7fefe0820ec6172b1ea35",
+          "size_bytes": 1076790541
         }
       ]
     },
     {
-      "source_id": "babylm_distilled",
-      "repository": "sixf0ur/babylm_eng_distilled_1024",
-      "revision": "faa965857a012e63520f544b6b298289fe510a84",
-      "artifact_kind": "distilled_text_jsonl",
+      "source_id": "gutenberg_poetry",
+      "repository": "biglam/gutenberg-poetry-corpus",
+      "revision": "fcd42e249fed48dbd1d3b9b969528ef9298d3464",
+      "artifact_kind": "gutenberg_poetry_parquet",
       "repository_files": [
         ".gitattributes",
         "README.md",
-        "babylm_cleaned.jsonl"
+        "dataset_infos.json",
+        "data/train-00000-of-00001-fa9fb9e1f16eed7e.parquet"
       ],
       "artifacts": [
         {
-          "path": "babylm_cleaned.jsonl",
-          "sha256": "0d68f04f4059ca8fb743b2a20884f9300f1cf18dc3dbafc1461b00a6381a3214",
-          "size_bytes": 109184630
+          "path": "data/train-00000-of-00001-fa9fb9e1f16eed7e.parquet",
+          "sha256": "c7117a3c7e613162679cc1fbca4b0ac4a1f105c7f6d00cebb9ec35d6788d64d2",
+          "size_bytes": 91142247
+        }
+      ]
+    },
+    {
+      "source_id": "poetry_greats",
+      "repository": "yoonholee/poetry-greats-public-domain",
+      "revision": "3201e250462905a0c8f6134e124382ac96586dc9",
+      "artifact_kind": "poetry_greats_parquet",
+      "repository_files": [
+        ".gitattributes",
+        "README.md",
+        "data/train-00000-of-00001.parquet"
+      ],
+      "artifacts": [
+        {
+          "path": "data/train-00000-of-00001.parquet",
+          "sha256": "9920f9c5919dbb3a68c258f2597cbb7dfaa1ff9549d992c410cc5910cffc8725",
+          "size_bytes": 4362856
         }
       ]
     }

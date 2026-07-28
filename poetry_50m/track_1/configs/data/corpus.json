@@ -3,7 +3,7 @@
   "manifest_format": "jsonl",
   "manifest_schema": "SourceDocument",
   "split": {
-    "salt": "poetry50m-track1-8m-v1",
+    "salt": "poetry50m-track1-8m-v2-ultrafineweb-gutenberg",
     "train": 0.9,
     "validation": 0.05,
     "test": 0.05
@@ -17,8 +17,9 @@
     "sequence_length": 1024
   },
   "objectives": {
-    "conditional_poetry": 1.0,
-    "auxiliary_prose_ntp": 0.25
+    "conditional_poetry": 0.1,
+    "auxiliary_prose_ntp": 0.4,
+    "poetry_ntp": 0.5
   },
   "rights": {
     "allow_synthetic": true
