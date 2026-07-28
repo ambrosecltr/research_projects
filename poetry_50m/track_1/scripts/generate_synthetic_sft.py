@@ -103,6 +103,7 @@ def main() -> int:
             requests_per_minute=args.requests_per_minute,
             tokens_per_minute=args.tokens_per_minute,
             timeout_seconds=args.timeout_seconds,
+            store_final_text_only=True,
         )
     elif args.command == "finalize-chunk":
         receipt_path = finalize_sft_chunk(
