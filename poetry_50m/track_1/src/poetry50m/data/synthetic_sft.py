@@ -7,6 +7,7 @@ import re
 import unicodedata
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
+from copy import deepcopy
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from hashlib import sha256
@@ -354,7 +355,7 @@ def plan_sft_chunk(
     example_count: int,
     seed: int = 20260728,
     temperature: float = 0.9,
-    max_completion_tokens: int = 1024,
+    max_completion_tokens: int | None = None,
     max_tokens_field: MaxTokensField = "max_completion_tokens",
     reasoning_effort: ReasoningEffort | None = None,
 ) -> tuple[Path, Path]:
@@ -364,7 +365,8 @@ def plan_sft_chunk(
     _required_integer(start_index, name="start_index")
     _required_integer(example_count, name="example_count", minimum=1)
     _required_integer(seed, name="seed")
-    _required_integer(max_completion_tokens, name="max_completion_tokens", minimum=1)
+    if max_completion_tokens is not None:
+        _required_integer(max_completion_tokens, name="max_completion_tokens", minimum=1)
     if not 0 <= temperature <= 2:
         raise ValueError("temperature must be between 0 and 2")
     if max_tokens_field not in {"max_completion_tokens", "max_tokens"}:
@@ -395,8 +397,9 @@ def plan_sft_chunk(
                 },
             ],
             "temperature": temperature,
-            max_tokens_field: max_completion_tokens,
         }
+        if max_completion_tokens is not None:
+            body[max_tokens_field] = max_completion_tokens
         if reasoning_effort is not None:
             body["reasoning"] = {"effort": reasoning_effort}
         requests.append(
@@ -454,6 +457,165 @@ def plan_sft_chunk(
     return requests_path, plan_path
 
 
+def _retry_reason(record: Mapping[str, object] | None) -> str | None:
+    if record is None:
+        return "missing_result"
+    response = record.get("response")
+    body = response.get("body") if isinstance(response, dict) else None
+    choices = body.get("choices") if isinstance(body, dict) else None
+    if not isinstance(choices, list) or len(choices) != 1 or not isinstance(choices[0], dict):
+        return "invalid_response"
+    message = choices[0].get("message")
+    content = message.get("content") if isinstance(message, dict) else None
+    if not isinstance(content, str) or not content.strip():
+        return "missing_message_content"
+    if choices[0].get("finish_reason") == "length":
+        return "completion_limit"
+    return None
+
+
+def plan_uncapped_sft_retry(
+    *,
+    source_plan_path: Path,
+    source_results_path: Path,
+    output_directory: Path,
+) -> tuple[Path, Path]:
+    """Plan retries for incomplete paid responses without an artificial output-token cap."""
+    source_plan = _read_json(source_plan_path)
+    if (
+        source_plan.get("format_version") != FORMAT_VERSION
+        or source_plan.get("recipe_version") not in SUPPORTED_RECIPE_VERSIONS
+        or source_plan.get("output_mode") != "raw-text"
+    ):
+        raise ValueError("source is not a supported raw-text SFT plan")
+    source_requests_path = source_plan_path.parent / _required_string(
+        source_plan.get("requests_filename"),
+        name="requests_filename",
+    )
+    if file_hash(source_requests_path) != _required_string(
+        source_plan.get("requests_sha256"),
+        name="requests_sha256",
+    ):
+        raise ValueError("source request file hash does not match its plan")
+
+    source_request_records = _read_jsonl(source_requests_path)
+    source_requests = {
+        _required_string(record.get("custom_id"), name="request custom_id"): record
+        for record in source_request_records
+    }
+    if len(source_requests) != len(source_request_records):
+        raise ValueError("source requests contain duplicate custom IDs")
+    source_result_records = _read_jsonl(source_results_path)
+    source_results = {
+        _required_string(record.get("custom_id"), name="result custom_id"): record
+        for record in source_result_records
+    }
+    if len(source_results) != len(source_result_records):
+        raise ValueError("source results contain duplicate custom IDs")
+    unexpected_results = set(source_results).difference(source_requests)
+    if unexpected_results:
+        raise ValueError(f"source results contain unknown IDs: {sorted(unexpected_results)}")
+
+    examples_value = source_plan.get("examples")
+    assignments_value = source_plan.get("assignments")
+    if not isinstance(examples_value, list) or not isinstance(assignments_value, list):
+        raise TypeError("source plan examples and assignments must be arrays")
+    examples = {
+        _required_string(example.get("example_id"), name="example_id"): example
+        for example in examples_value
+        if isinstance(example, dict)
+    }
+    if len(examples) != len(examples_value):
+        raise ValueError("source plan contains invalid or duplicate examples")
+
+    source_chunk_id = _required_string(source_plan.get("chunk_id"), name="chunk_id")
+    chunk_id = f"{source_chunk_id}-uncapped-retry"
+    requests: list[dict[str, object]] = []
+    retry_examples: list[dict[str, object]] = []
+    assignments: list[dict[str, object]] = []
+    reason_counts = Counter[str]()
+    for assignment in assignments_value:
+        if not isinstance(assignment, dict):
+            raise TypeError("source assignment must be an object")
+        source_custom_id = _required_string(
+            assignment.get("custom_id"),
+            name="assignment custom_id",
+        )
+        example_id = _required_string(assignment.get("example_id"), name="example_id")
+        reason = _retry_reason(source_results.get(source_custom_id))
+        if reason is None:
+            continue
+        source_request = source_requests[source_custom_id]
+        source_body = source_request.get("body")
+        if not isinstance(source_body, dict):
+            raise TypeError(f"request {source_custom_id} body must be an object")
+        body = deepcopy(source_body)
+        body.pop("max_completion_tokens", None)
+        body.pop("max_tokens", None)
+        body.pop("reasoning", None)
+        custom_id = f"{chunk_id}-r{len(requests):06d}"
+        requests.append(
+            {
+                "custom_id": custom_id,
+                "method": "POST",
+                "url": "/v1/chat/completions",
+                "body": body,
+            }
+        )
+        retry_examples.append(examples[example_id])
+        assignments.append(
+            {
+                "custom_id": custom_id,
+                "example_id": example_id,
+                "source_request_id": source_custom_id,
+                "retry_reason": reason,
+                "request_sha256": sha256(_canonical_json(body).encode()).hexdigest(),
+            }
+        )
+        reason_counts[reason] += 1
+
+    if not requests:
+        raise ValueError("source chunk has no responses requiring retry")
+    output_directory.mkdir(parents=True, exist_ok=True)
+    requests_path = output_directory / "requests.jsonl"
+    plan_path = output_directory / "plan.json"
+    if requests_path.exists() or plan_path.exists():
+        raise FileExistsError(f"chunk plan already exists in {output_directory}")
+    _write_jsonl(requests_path, requests)
+    _write_json(
+        plan_path,
+        {
+            "format_version": FORMAT_VERSION,
+            "recipe_version": _required_string(
+                source_plan.get("recipe_version"),
+                name="recipe_version",
+            ),
+            "chunk_id": chunk_id,
+            "model": _required_string(source_plan.get("model"), name="model"),
+            "provider": _required_string(source_plan.get("provider"), name="provider"),
+            "seed": _required_integer(source_plan.get("seed"), name="seed"),
+            "start_index": _required_integer(
+                source_plan.get("start_index"),
+                name="start_index",
+            ),
+            "example_count": len(requests),
+            "output_mode": "raw-text",
+            "temperature": source_plan.get("temperature"),
+            "max_completion_tokens": None,
+            "max_tokens_field": None,
+            "reasoning_effort": None,
+            "requests_filename": requests_path.name,
+            "requests_sha256": file_hash(requests_path),
+            "source_plan_sha256": file_hash(source_plan_path),
+            "source_results_sha256": file_hash(source_results_path),
+            "retry_reason_counts": dict(sorted(reason_counts.items())),
+            "examples": retry_examples,
+            "assignments": assignments,
+        },
+    )
+    return requests_path, plan_path
+
+
 def record_sft_dispatch(
     *,
     plan_path: Path,
@@ -503,7 +665,7 @@ def record_sft_dispatch(
     return dispatch_path
 
 
-def _completion_text(record: Mapping[str, object]) -> tuple[str, str]:
+def _completion_text(record: Mapping[str, object]) -> tuple[str, str, str | None]:
     custom_id = _required_string(record.get("custom_id"), name="result custom_id")
     if record.get("error") is not None:
         raise RuntimeError(f"result {custom_id} failed: {record['error']}")
@@ -520,7 +682,10 @@ def _completion_text(record: Mapping[str, object]) -> tuple[str, str]:
     if not isinstance(message, dict):
         raise TypeError(f"result {custom_id} message must be an object")
     content = _required_string(message.get("content"), name=f"result {custom_id} content")
-    return custom_id, content.replace("\r\n", "\n").replace("\r", "\n")
+    finish_reason = choices[0].get("finish_reason")
+    if finish_reason is not None and not isinstance(finish_reason, str):
+        raise TypeError(f"result {custom_id} finish_reason must be a string or null")
+    return custom_id, content.replace("\r\n", "\n").replace("\r", "\n"), finish_reason
 
 
 def _token_counts(tokenizer: Tokenizer, prompt: str, response: str) -> dict[str, int]:
@@ -691,6 +856,7 @@ def finalize_sft_chunk(
 
     generated: dict[str, tuple[str, str]] = {}
     unusable_results: dict[str, tuple[str, str]] = {}
+    truncated_results: dict[str, tuple[str, str]] = {}
     seen_requests: set[str] = set()
     result_records = _read_jsonl(results_path)
     for record in result_records:
@@ -702,16 +868,24 @@ def finalize_sft_chunk(
         seen_requests.add(custom_id)
         example_id = expected_by_request[custom_id]
         try:
-            _, response = _completion_text(record)
+            _, response, finish_reason = _completion_text(record)
         except (RuntimeError, TypeError, ValueError) as error:
             unusable_results[example_id] = (custom_id, str(error))
+            continue
+        if finish_reason == "length":
+            truncated_results[example_id] = (custom_id, sha256(response.encode()).hexdigest())
             continue
         if example_id in generated:
             raise ValueError(f"duplicate generated example {example_id}")
         generated[example_id] = (custom_id, response)
 
     missing_requests = set(expected_by_request).difference(seen_requests)
-    missing_examples = set(planned_examples).difference(generated).difference(unusable_results)
+    missing_examples = (
+        set(planned_examples)
+        .difference(generated)
+        .difference(unusable_results)
+        .difference(truncated_results)
+    )
     if missing_requests and not allow_partial:
         raise ValueError(f"results are missing requests: {sorted(missing_requests)}")
     if missing_examples and not allow_partial:
@@ -734,6 +908,17 @@ def finalize_sft_chunk(
     totals = Counter[str]()
     adjusted_prompt_count = 0
     for example_id, planned in planned_examples.items():
+        if example_id in truncated_results:
+            custom_id, response_hash = truncated_results[example_id]
+            rejections.append(
+                {
+                    "example_id": example_id,
+                    "request_id": custom_id,
+                    "reasons": ["completion_limit"],
+                    "response_sha256": response_hash,
+                }
+            )
+            continue
         if example_id in unusable_results:
             custom_id, detail = unusable_results[example_id]
             rejections.append(
@@ -842,6 +1027,7 @@ def finalize_sft_chunk(
             "completed_result_count": len(seen_requests),
             "usable_result_count": len(generated),
             "unusable_result_count": len(unusable_results),
+            "truncated_result_count": len(truncated_results),
             "missing_result_count": len(missing_requests),
             "partial": bool(missing_requests),
             "adjusted_prompt_count": adjusted_prompt_count,

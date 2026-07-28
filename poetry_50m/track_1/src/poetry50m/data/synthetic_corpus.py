@@ -1455,12 +1455,14 @@ def _write_merged_manifest(output_path: Path, *, manifests: Sequence[Path]) -> t
 
 def _request_token_estimate(body: Mapping[str, object]) -> int:
     maximum_value = body.get("max_completion_tokens", body.get("max_tokens"))
+    input_bytes = len(_canonical_json(body).encode("utf-8"))
+    conservative_input_tokens = (input_bytes + 2) // 3
+    if maximum_value is None:
+        return conservative_input_tokens
     maximum_completion = _required_integer(
         maximum_value,
         name="maximum completion tokens",
     )
-    input_bytes = len(_canonical_json(body).encode("utf-8"))
-    conservative_input_tokens = (input_bytes + 2) // 3
     return maximum_completion + conservative_input_tokens
 
 

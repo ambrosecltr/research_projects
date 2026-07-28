@@ -26,6 +26,7 @@ from poetry50m.data.synthetic_sft import (
     assemble_sft_dataset,
     finalize_sft_chunk,
     plan_sft_chunk,
+    plan_uncapped_sft_retry,
     record_sft_dispatch,
     summarize_sft_chunks,
 )
@@ -260,6 +261,51 @@ def test_plan_can_disable_provider_reasoning(tmp_path: Path) -> None:
     assert read_json(plan_path)["reasoning_effort"] == "none"
 
 
+def test_retry_plan_selects_only_incomplete_responses_and_removes_limits(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    _, plan_path = plan_sft_chunk(
+        output_directory=source,
+        model="reasoning-model",
+        provider="provider",
+        start_index=0,
+        example_count=4,
+        max_completion_tokens=1024,
+        reasoning_effort="none",
+    )
+    write_results(source / "results.jsonl", plan_path)
+    results = [
+        json.loads(line) for line in (source / "results.jsonl").read_text().splitlines()
+    ][:3]
+    results[0]["response"]["body"]["choices"][0]["finish_reason"] = "stop"
+    results[1]["response"]["body"]["choices"][0]["message"]["content"] = None
+    results[1]["response"]["body"]["choices"][0]["finish_reason"] = "length"
+    results[2]["response"]["body"]["choices"][0]["finish_reason"] = "length"
+    (source / "results.jsonl").write_text(
+        "".join(json.dumps(result) + "\n" for result in results),
+        encoding="utf-8",
+    )
+
+    requests_path, retry_plan_path = plan_uncapped_sft_retry(
+        source_plan_path=plan_path,
+        source_results_path=source / "results.jsonl",
+        output_directory=tmp_path / "retry",
+    )
+
+    requests = [json.loads(line) for line in requests_path.read_text().splitlines()]
+    retry_plan = read_json(retry_plan_path)
+    assert retry_plan["example_count"] == 3
+    assert retry_plan["retry_reason_counts"] == {
+        "completion_limit": 1,
+        "missing_message_content": 1,
+        "missing_result": 1,
+    }
+    assert all("max_completion_tokens" not in request["body"] for request in requests)
+    assert all("max_tokens" not in request["body"] for request in requests)
+    assert all("reasoning" not in request["body"] for request in requests)
+
+
 def test_finalize_writes_sft_pairs_provenance_and_exact_counts(
     tmp_path: Path, tokenizer_path: Path
 ) -> None:
@@ -407,6 +453,40 @@ def test_finalize_records_unusable_paid_responses_without_aborting(
     assert receipt["unusable_result_count"] == 1
     assert receipt["example_count"] == 1
     assert rejection["reasons"] == ["unusable_provider_response"]
+
+
+def test_finalize_rejects_length_stopped_responses_for_uncapped_retry(
+    tmp_path: Path, tokenizer_path: Path
+) -> None:
+    chunk = tmp_path / "chunk"
+    _, plan_path = plan_sft_chunk(
+        output_directory=chunk,
+        model="model",
+        provider="provider",
+        start_index=0,
+        example_count=1,
+    )
+    write_results(chunk / "results.jsonl", plan_path)
+    record_dispatch(plan_path)
+    result = json.loads((chunk / "results.jsonl").read_text())
+    result["response"]["body"]["choices"][0]["finish_reason"] = "length"
+    (chunk / "results.jsonl").write_text(json.dumps(result) + "\n", encoding="utf-8")
+
+    receipt_path = finalize_sft_chunk(
+        plan_path=plan_path,
+        results_path=chunk / "results.jsonl",
+        tokenizer_path=tokenizer_path,
+        output_directory=tmp_path / "finalized",
+        expected_tokenizer_sha256=file_hash(tokenizer_path),
+    )
+
+    receipt = read_json(receipt_path)
+    rejection = json.loads(
+        (tmp_path / "finalized" / "rejections.jsonl").read_text().splitlines()[0]
+    )
+    assert receipt["truncated_result_count"] == 1
+    assert receipt["example_count"] == 0
+    assert rejection["reasons"] == ["completion_limit"]
 
 
 def test_finalize_keeps_off_length_poems_with_an_adjusted_prompt(

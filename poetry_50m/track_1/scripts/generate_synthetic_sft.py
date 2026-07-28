@@ -13,6 +13,7 @@ from poetry50m.data.synthetic_sft import (
     assemble_sft_dataset,
     finalize_sft_chunk,
     plan_sft_chunk,
+    plan_uncapped_sft_retry,
     record_sft_dispatch,
     summarize_sft_chunks,
 )
@@ -30,7 +31,7 @@ def parser() -> argparse.ArgumentParser:
     plan.add_argument("--examples", type=int, required=True)
     plan.add_argument("--seed", type=int, default=20260728)
     plan.add_argument("--temperature", type=float, default=0.9)
-    plan.add_argument("--max-completion-tokens", type=int, default=1024)
+    plan.add_argument("--max-completion-tokens", type=int)
     plan.add_argument(
         "--max-tokens-field",
         choices=("max_completion_tokens", "max_tokens"),
@@ -40,6 +41,10 @@ def parser() -> argparse.ArgumentParser:
         "--reasoning-effort",
         choices=("none", "low", "medium", "high"),
     )
+
+    retry = commands.add_parser("plan-retry")
+    retry.add_argument("--source-chunk", type=Path, required=True)
+    retry.add_argument("--output", type=Path, required=True)
 
     run = commands.add_parser("run-openai-compatible")
     run.add_argument("--chunk", type=Path, required=True)
@@ -89,6 +94,12 @@ def main() -> int:
             max_completion_tokens=args.max_completion_tokens,
             max_tokens_field=args.max_tokens_field,
             reasoning_effort=args.reasoning_effort,
+        )
+    elif args.command == "plan-retry":
+        plan_uncapped_sft_retry(
+            source_plan_path=args.source_chunk / "plan.json",
+            source_results_path=args.source_chunk / "results.jsonl",
+            output_directory=args.output,
         )
     elif args.command == "run-openai-compatible":
         record_sft_dispatch(
