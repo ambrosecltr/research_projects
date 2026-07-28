@@ -602,7 +602,7 @@ def _local_rejection_reasons(response: str, prompt_spec: Mapping[str, object]) -
     return tuple(reasons)
 
 
-def _legacy_salvage_prompt(
+def _observed_shape_prompt(
     prompt_spec: Mapping[str, object],
     *,
     line_count: int,
@@ -752,18 +752,21 @@ def finalize_sft_chunk(
         if not isinstance(prompt_spec, dict):
             raise TypeError(f"prompt_spec {example_id} must be an object")
         rejection_reasons = list(_local_rejection_reasons(response, prompt_spec))
+        line_count_mismatch = any(
+            reason.startswith("line_count=") for reason in rejection_reasons
+        )
+        rejection_reasons = [
+            reason for reason in rejection_reasons if not reason.startswith("line_count=")
+        ]
         prompt_adjustment: dict[str, object] | None = None
-        if recipe_version == LEGACY_RECIPE_VERSION:
-            rejection_reasons = [
-                reason for reason in rejection_reasons if not reason.startswith("line_count=")
-            ]
+        if recipe_version == LEGACY_RECIPE_VERSION or line_count_mismatch:
             nonempty_line_count = sum(bool(line.strip()) for line in response.splitlines())
-            prompt, training_prompt_spec = _legacy_salvage_prompt(
+            prompt, training_prompt_spec = _observed_shape_prompt(
                 prompt_spec,
                 line_count=nonempty_line_count,
             )
             prompt_adjustment = {
-                "kind": "legacy-v1-observed-shape",
+                "kind": "observed-shape",
                 "source_prompt_sha256": sha256(
                     _required_string(
                         planned.get("prompt"),

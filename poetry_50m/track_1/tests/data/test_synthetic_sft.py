@@ -20,7 +20,7 @@ from poetry50m.data.synthetic_sft import (
     TONES,
     VOICES,
     PlannedExample,
-    _legacy_salvage_prompt,
+    _observed_shape_prompt,
     _prompt_axis_indices,
     _validate_receipt_set,
     assemble_sft_dataset,
@@ -169,8 +169,8 @@ def test_prompt_interleaver_is_collision_free_across_full_capacity() -> None:
     assert _prompt_axis_indices(0, 20260728) != _prompt_axis_indices(0, 20260729)
 
 
-def test_legacy_prompt_salvage_and_mixed_recipe_receipts_are_explicit() -> None:
-    prompt, prompt_spec = _legacy_salvage_prompt(
+def test_observed_shape_prompt_and_mixed_recipe_receipts_are_explicit() -> None:
+    prompt, prompt_spec = _observed_shape_prompt(
         {
             "subject": "rain",
             "tone": "quiet",
@@ -407,6 +407,52 @@ def test_finalize_records_unusable_paid_responses_without_aborting(
     assert receipt["unusable_result_count"] == 1
     assert receipt["example_count"] == 1
     assert rejection["reasons"] == ["unusable_provider_response"]
+
+
+def test_finalize_keeps_off_length_poems_with_an_adjusted_prompt(
+    tmp_path: Path, tokenizer_path: Path
+) -> None:
+    chunk = tmp_path / "chunk"
+    _, plan_path = plan_sft_chunk(
+        output_directory=chunk,
+        model="model",
+        provider="provider",
+        start_index=0,
+        example_count=1,
+    )
+    write_results(chunk / "results.jsonl", plan_path)
+    record_dispatch(plan_path)
+    result = json.loads((chunk / "results.jsonl").read_text())
+    plan = read_json(plan_path)
+    examples = plan.get("examples")
+    assert isinstance(examples, list)
+    prompt_spec = examples[0]["prompt_spec"]
+    assert isinstance(prompt_spec, dict)
+    maximum_lines = prompt_spec.get("maximum_lines")
+    assert isinstance(maximum_lines, int)
+    message = result["response"]["body"]["choices"][0]["message"]
+    message["content"] = "\n".join(
+        f"A useful generated line {index}" for index in range(maximum_lines + 1)
+    )
+    (chunk / "results.jsonl").write_text(json.dumps(result) + "\n", encoding="utf-8")
+
+    receipt_path = finalize_sft_chunk(
+        plan_path=plan_path,
+        results_path=chunk / "results.jsonl",
+        tokenizer_path=tokenizer_path,
+        output_directory=tmp_path / "finalized",
+        expected_tokenizer_sha256=file_hash(tokenizer_path),
+    )
+
+    receipt = read_json(receipt_path)
+    example = json.loads(
+        (tmp_path / "finalized" / "examples.jsonl").read_text().splitlines()[0]
+    )
+    assert receipt["example_count"] == 1
+    assert receipt["rejected_example_count"] == 0
+    assert receipt["adjusted_prompt_count"] == 1
+    assert example["provenance"]["prompt_adjustment"]["kind"] == "observed-shape"
+    assert "Use exactly" in example["messages"][0]["content"]
 
 
 def test_finalize_normalizes_newlines_and_records_local_rejections(
