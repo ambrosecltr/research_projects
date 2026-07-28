@@ -40,7 +40,7 @@ uv run poetry50m plan-exposure --prepared artifacts/prepared \
 
 Review `artifacts/corpus/knowledge.receipt.json`, `artifacts/prepared/metadata.json`,
 and `artifacts/full-pretrain-plan/receipt.json` before training. The plan must
-show at least 333,400,320 unpadded data tokens and a 10/40/50 conditional/
+show at least 333,400,320 unpadded data tokens and a 5/40/55 conditional/
 general-prose/book-verse mix. Its `objective_exposure` records the actual mix,
 each unique train pool's data-token count, and its planned repeat multiple.
 Only after approval, use the derived frozen
@@ -184,9 +184,9 @@ that exact ledger with `--difficulty`; the CLI rejects missing or surplus pack
 rows. Curriculum and ledger content are part of the stream identity, so a
 checkpoint cannot silently resume under a different order.
 
-The production data config assigns an intended **10/40/50 data-token mix**:
-conditional Poetry Greats `0.1`, Ultra-FineWeb auxiliary prose NTP `0.4`, and
-Gutenberg book-verse NTP `0.5`. The scheduler accounts for unpadded data tokens
+The production data config assigns an intended **5/40/55 data-token mix**:
+conditional Poetry Greats `0.05`, Ultra-FineWeb auxiliary prose NTP `0.4`, and
+Gutenberg book-verse NTP `0.55`. The scheduler accounts for unpadded data tokens
 after every batch, so varying pack lengths cannot silently turn this into a
 batch-count ratio. Preparation fails if an enabled objective produces no
 attributable training packs.
@@ -224,10 +224,10 @@ The training stream yields mappings containing:
 ```python
 {
     "input_ids": Tensor[batch, sequence],  # int32 or int64
-    "targets": Tensor[batch, sequence],    # int32 or int64, -100 ignored
+    "targets": Tensor[batch, sequence],  # int32 or int64, -100 ignored
     "loss_mask": Tensor[batch, sequence],  # optional bool or float weights
-    "example_ids": Sequence[str | int],    # optional, for the loss hook
-    "data_token_count": int,               # optional exact non-padding input count
+    "example_ids": Sequence[str | int],  # optional, for the loss hook
+    "data_token_count": int,  # optional exact non-padding input count
 }
 ```
 
@@ -246,10 +246,17 @@ from pathlib import Path
 from poetry50m.model import DecoderOnlyTransformer, ModelConfig
 from poetry50m.training import CyclingBatchStream, TrainConfig, Trainer
 
-model = DecoderOnlyTransformer(ModelConfig(
-    architecture="gpt", vocab_size=8192, max_seq_len=128, d_model=128,
-    n_layers=2, n_heads=4, ffn_dim=512,
-))
+model = DecoderOnlyTransformer(
+    ModelConfig(
+        architecture="gpt",
+        vocab_size=8192,
+        max_seq_len=128,
+        d_model=128,
+        n_layers=2,
+        n_heads=4,
+        ffn_dim=512,
+    )
+)
 trainer = Trainer(model, TrainConfig(max_steps=100, learning_rate=3e-4), Path("runs/demo"))
 trainer.fit(CyclingBatchStream(batches))
 ```

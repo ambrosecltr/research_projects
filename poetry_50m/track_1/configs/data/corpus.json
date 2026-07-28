@@ -17,9 +17,9 @@
     "sequence_length": 1024
   },
   "objectives": {
-    "conditional_poetry": 0.1,
+    "conditional_poetry": 0.05,
     "auxiliary_prose_ntp": 0.4,
-    "poetry_ntp": 0.5
+    "poetry_ntp": 0.55
   },
   "rights": {
     "allow_synthetic": true

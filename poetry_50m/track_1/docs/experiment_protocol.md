@@ -74,8 +74,8 @@ the prompt-only row.
 
 For curriculum, use three predeclared orderings only: shuffled baseline, document-level hard-to-easy scored by the reference model’s first-pass loss, and one selected ordering for the accelerated run. The hard-to-easy option is supported by [Agrawal et al.](https://aclanthology.org/2021.sustainlp-1.15/) in a different LM setting; it is an integration experiment here, not an assumed improvement. Do not substitute token masking studies for this claim.
 
-The approved objective mix is conditional poetry `0.1`, auxiliary prose NTP `0.4`,
-and Gutenberg book-verse NTP `0.5`. The scheduler uses actual unpadded data-token
+The approved objective mix is conditional poetry `0.05`, auxiliary prose NTP `0.4`,
+and Gutenberg book-verse NTP `0.55`. The scheduler uses actual unpadded data-token
 exposure rather than whole-batch counts. Before a full run, `plan-exposure` must
 freeze an immutable receipt and derived training configuration for two 20x passes
 (at least 333,400,320 tokens for the 8,335,008-parameter model).
