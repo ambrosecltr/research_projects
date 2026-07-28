@@ -34,7 +34,7 @@ def parser() -> argparse.ArgumentParser:
     plan.add_argument("--max-completion-tokens", type=int, default=4096)
     plan.add_argument(
         "--response-format",
-        choices=("json-schema", "json-object"),
+        choices=("json-schema", "json-object", "none"),
         default="json-schema",
     )
     plan.add_argument(

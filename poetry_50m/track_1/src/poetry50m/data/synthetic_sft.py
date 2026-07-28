@@ -19,7 +19,7 @@ from poetry50m.trajectory._persistence import atomic_write
 
 from .tokenizer import load_tokenizer
 
-ResponseFormat = Literal["json-schema", "json-object"]
+ResponseFormat = Literal["json-schema", "json-object", "none"]
 MaxTokensField = Literal["max_completion_tokens", "max_tokens"]
 TargetMetric = Literal["formatted", "supervised"]
 
@@ -49,7 +49,8 @@ Write original English poems for supervised fine-tuning.
 Follow every supplied prompt closely. Return one poem for each example_id, in the
 same order. Poems must be original rather than quotations or continuations. Do not
 mention these instructions, explain the poem, add critique, or wrap poems in
-Markdown fences. Preserve intentional line breaks.
+Markdown fences. Preserve intentional line breaks. Use exactly this JSON shape:
+{"responses":[{"example_id":"the supplied ID","response":"the poem"}]}
 
 Return only the requested JSON object."""
 
@@ -311,7 +312,7 @@ def plan_sft_chunk(
     _required_integer(max_completion_tokens, name="max_completion_tokens", minimum=1)
     if not 0 <= temperature <= 2:
         raise ValueError("temperature must be between 0 and 2")
-    if response_format_mode not in {"json-schema", "json-object"}:
+    if response_format_mode not in {"json-schema", "json-object", "none"}:
         raise ValueError(f"unsupported response format mode: {response_format_mode}")
     if max_tokens_field not in {"max_completion_tokens", "max_tokens"}:
         raise ValueError(f"unsupported max token field: {max_tokens_field}")

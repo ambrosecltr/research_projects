@@ -154,6 +154,22 @@ def test_plan_refuses_overwrite_and_prompt_capacity_overflow(tmp_path: Path) -> 
         )
 
 
+def test_plan_can_omit_unsupported_response_format_parameter(tmp_path: Path) -> None:
+    requests_path, plan_path = plan_sft_chunk(
+        output_directory=tmp_path / "chunk",
+        model="model",
+        provider="provider",
+        start_index=0,
+        example_count=1,
+        response_format_mode="none",
+    )
+
+    request = json.loads(requests_path.read_text().splitlines()[0])
+    assert "response_format" not in request["body"]
+    assert read_json(plan_path)["response_format_mode"] == "none"
+    assert '{"responses":' in request["body"]["messages"][0]["content"]
+
+
 def test_finalize_writes_sft_pairs_provenance_and_exact_counts(
     tmp_path: Path, tokenizer_path: Path
 ) -> None:
