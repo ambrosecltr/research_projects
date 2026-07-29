@@ -28,6 +28,7 @@ The Runtime is normal deterministic tensor code. It executes compact primitives:
 ```text
 BASE_COPY
 LOW_RANK
+HADAMARD_SCALE
 QUANTIZED_VECTOR
 SPARSE_PATCH
 COPY_FROM_TIED

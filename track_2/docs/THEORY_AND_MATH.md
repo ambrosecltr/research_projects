@@ -58,7 +58,7 @@ Each model life keeps its own W0 coordinate system. Raw deltas are never average
 A v1 tensor program is:
 
 \[
-\widehat\Delta_m=L_m+V_m+S_m,
+\widehat\Delta_m=H_m+L_m+V_m+S_m,
 \]
 
 where the permitted terms are:
@@ -80,6 +80,23 @@ B_{LR}=2r(d_o+d_i)\text{ bytes}.
 \]
 
 It is rejected when its payload is not smaller than the dense matrix.
+
+### Base-relative row/column scaling
+
+For a matrix with base value \(W_{0,m}\):
+
+\[
+H_m=W_{0,m}\odot(a_m\mathbf 1^\top+\mathbf 1b_m^\top).
+\]
+
+This stores one fp16 value per row and column. Its payload cost is:
+
+\[
+B_H=2(d_o+d_i)\text{ bytes}.
+\]
+
+It is not a one-value-per-weight representation. The Runtime expands it
+deterministically from W0.
 
 ### Quantized vector
 
@@ -204,10 +221,10 @@ GENOME therefore uses one hierarchical compiler:
 6. Enforce the byte budget while allocating ranks.
 7. Serialize the resulting deterministic MGP.
 
-For a matrix, the output count is:
+For a matrix with scale flag \(h\in\{0,1\}\), the output count is:
 
 \[
-r(d_o+d_i),
+(r+h)(d_o+d_i),
 \]
 
 rather than \(d_od_i\). No fixed block output table exists.

@@ -34,7 +34,8 @@ Edges connect tensors within one layer, adjacent layers and global embedding/out
 3. Prepend the global token.
 4. Apply a bidirectional Transformer encoder.
 5. Predict one primitive distribution and one rank distribution per tensor.
-6. Use shared coordinate heads to generate factor rows/columns or vector values.
+6. Use shared coordinate heads to generate factor rows/columns, base-relative
+   row/column scales, or vector values.
 7. Allocate factors under the hard target byte budget.
 8. Materialize one deterministic MGP.
 
@@ -42,10 +43,11 @@ The coordinate heads are shared across all tensors and model sizes. They are par
 
 ## Output complexity
 
-For a selected rank-r matrix, generated values scale as:
+For a selected rank-r matrix with an optional row/column scale, generated values
+scale as:
 
 ```text
-r * (output_width + input_width)
+(r + scale_enabled) * (output_width + input_width)
 ```
 
 rather than:

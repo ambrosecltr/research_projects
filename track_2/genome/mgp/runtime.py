@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Mapping
+from collections.abc import Mapping
 
 import torch
 
@@ -13,7 +13,9 @@ def _payload(payloads: Mapping[str, torch.Tensor], key: str, *, name: str) -> to
     return payloads[key]
 
 
-def _execution_device(base: torch.Tensor, payloads: Mapping[str, torch.Tensor], keys: list[str]) -> torch.device:
+def _execution_device(
+    base: torch.Tensor, payloads: Mapping[str, torch.Tensor], keys: list[str]
+) -> torch.device:
     for key in keys:
         value = payloads.get(key)
         if value is not None and (value.requires_grad or value.device.type != "cpu"):
@@ -38,7 +40,9 @@ def execute_program(
     if program_names != set(base_state):
         missing = set(base_state) - program_names
         extra = program_names - set(base_state)
-        raise ValueError(f"program/base tensor mismatch; missing={sorted(missing)}, extra={sorted(extra)}")
+        raise ValueError(
+            f"program/base tensor mismatch; missing={sorted(missing)}, extra={sorted(extra)}"
+        )
     result: dict[str, torch.Tensor] = {}
     tied: list[tuple[str, str]] = []
     for tensor_program in program.tensors:
@@ -48,7 +52,9 @@ def execute_program(
         if tensor_program.tied_to is not None:
             tied.append((tensor_program.name, tensor_program.tied_to))
             continue
-        payload_keys = [key for component in tensor_program.components for key in component.payload.values()]
+        payload_keys = [
+            key for component in tensor_program.components for key in component.payload.values()
+        ]
         device = _execution_device(base, payloads, payload_keys)
         base_value = base.to(device=device, dtype=torch.float32)
         delta = torch.zeros_like(base_value)
@@ -57,25 +63,67 @@ def execute_program(
             if primitive == "BASE_COPY":
                 continue
             if primitive == "LOW_RANK":
-                left = _payload(payloads, component.payload["left"], name=tensor_program.name).to(device).float()
-                right = _payload(payloads, component.payload["right"], name=tensor_program.name).to(device).float()
+                left = (
+                    _payload(payloads, component.payload["left"], name=tensor_program.name)
+                    .to(device)
+                    .float()
+                )
+                right = (
+                    _payload(payloads, component.payload["right"], name=tensor_program.name)
+                    .to(device)
+                    .float()
+                )
                 if left.ndim != 2 or right.ndim != 2 or left.shape[1] != right.shape[1]:
                     raise ValueError(f"invalid low-rank factors for {tensor_program.name}")
                 update = left @ right.transpose(0, 1)
                 if tuple(update.shape) != tensor_program.shape:
                     raise ValueError(f"low-rank shape mismatch for {tensor_program.name}")
                 delta = delta + update
+            elif primitive == "HADAMARD_SCALE":
+                if len(tensor_program.shape) != 2:
+                    raise ValueError("HADAMARD_SCALE is permitted only for matrices")
+                row = _payload(
+                    payloads,
+                    component.payload["row"],
+                    name=tensor_program.name,
+                ).to(device)
+                column = _payload(
+                    payloads,
+                    component.payload["column"],
+                    name=tensor_program.name,
+                ).to(device)
+                if (
+                    row.ndim != 1
+                    or column.ndim != 1
+                    or row.numel() != tensor_program.shape[0]
+                    or column.numel() != tensor_program.shape[1]
+                ):
+                    raise ValueError(f"invalid Hadamard scaling payload for {tensor_program.name}")
+                scale = row.float().unsqueeze(1) + column.float().unsqueeze(0)
+                delta = delta + base_value * scale
             elif primitive == "QUANTIZED_VECTOR":
                 if len(tensor_program.shape) != 1:
                     raise ValueError("QUANTIZED_VECTOR is permitted only for vectors")
-                values = _payload(payloads, component.payload["values"], name=tensor_program.name).to(device)
-                scale = _payload(payloads, component.payload["scale"], name=tensor_program.name).to(device)
-                if values.dtype != torch.int8 or values.numel() != base.numel() or scale.numel() != 1:
+                values = _payload(
+                    payloads, component.payload["values"], name=tensor_program.name
+                ).to(device)
+                scale = _payload(payloads, component.payload["scale"], name=tensor_program.name).to(
+                    device
+                )
+                if (
+                    values.dtype != torch.int8
+                    or values.numel() != base.numel()
+                    or scale.numel() != 1
+                ):
                     raise ValueError(f"invalid quantized vector payload for {tensor_program.name}")
                 delta = delta + values.float().reshape_as(base_value) * scale.float().reshape(())
             elif primitive == "SPARSE_PATCH":
-                indices = _payload(payloads, component.payload["indices"], name=tensor_program.name).to(device)
-                values = _payload(payloads, component.payload["values"], name=tensor_program.name).to(device)
+                indices = _payload(
+                    payloads, component.payload["indices"], name=tensor_program.name
+                ).to(device)
+                values = _payload(
+                    payloads, component.payload["values"], name=tensor_program.name
+                ).to(device)
                 if indices.dtype != torch.int64 or indices.numel() != values.numel():
                     raise ValueError(f"invalid sparse patch for {tensor_program.name}")
                 flat_size = delta.numel()

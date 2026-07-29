@@ -24,6 +24,8 @@ class FitConfig:
     max_rank: int = 32
     minimum_matrix_rank: int = 0
     allocation_strategy: AllocationStrategy = "energy"
+    matrix_scaling: bool = False
+    scaling_iterations: int = 8
     vector_quantization: bool = True
     account_for_serialization: bool = False
     svd_method: str = "randomized"
@@ -52,6 +54,31 @@ def _quantize_vector(delta: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     scale = torch.tensor(1.0, dtype=torch.float32) if maximum == 0 else maximum.float() / 127.0
     values = torch.round(delta.float() / scale).clamp(-127, 127).to(torch.int8)
     return values, scale.reshape(1)
+
+
+def _fit_hadamard_scale(
+    base: torch.Tensor,
+    delta: torch.Tensor,
+    *,
+    iterations: int,
+    device: str,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    execution_device = torch.device(
+        device if device != "cuda" or torch.cuda.is_available() else "cpu"
+    )
+    base_value = base.to(device=execution_device, dtype=torch.float32)
+    delta_value = delta.to(device=execution_device, dtype=torch.float32)
+    row = torch.zeros(base_value.shape[0], device=execution_device)
+    column = torch.zeros(base_value.shape[1], device=execution_device)
+    for _ in range(iterations):
+        row = (base_value * (delta_value - base_value * column.unsqueeze(0))).sum(dim=1) / (
+            base_value.square().sum(dim=1) + 1e-12
+        )
+        column = (base_value * (delta_value - base_value * row.unsqueeze(1))).sum(dim=0) / (
+            base_value.square().sum(dim=0) + 1e-12
+        )
+    scaling = base_value * (row.unsqueeze(1) + column.unsqueeze(0))
+    return row.cpu(), column.cpu(), (delta_value - scaling).cpu()
 
 
 def _truncated_svd(
@@ -99,12 +126,16 @@ def fit_low_rank_program(
         raise ValueError("minimum_matrix_rank cannot exceed max_rank")
     if config.allocation_strategy not in {"energy", "rank_balanced"}:
         raise ValueError(f"unsupported allocation_strategy {config.allocation_strategy!r}")
+    if config.scaling_iterations <= 0:
+        raise ValueError("scaling_iterations must be positive")
     direct_bytes = sum(tensor.numel() * 2 for tensor in target_state.values())
     budget = int(direct_bytes * config.budget_fraction)
     tensor_by_name = {node.name: node for node in graph.tensors}
     payloads: dict[str, torch.Tensor] = {}
     vector_components: dict[str, Component] = {}
     vector_cost = 0
+    scaling_components: dict[str, Component] = {}
+    scaling_cost = 0
     candidates: list[tuple[float, int, str, int, torch.Tensor, torch.Tensor, torch.Tensor]] = []
     # score, incremental bytes, name, component index, U, S, V
     for name in sorted(base_state):
@@ -127,6 +158,27 @@ def fit_low_rank_program(
             continue
         if delta.ndim != 2:
             continue
+        if (
+            config.matrix_scaling
+            and delta.shape[0] + delta.shape[1] < delta.shape[0] * delta.shape[1]
+        ):
+            row, column, delta = _fit_hadamard_scale(
+                base_state[name],
+                delta,
+                iterations=config.scaling_iterations,
+                device=config.device,
+            )
+            prefix = f"tensor.{node.index}.hadamard_scale"
+            payloads[f"{prefix}.row"] = row.to(torch.float16)
+            payloads[f"{prefix}.column"] = column.to(torch.float16)
+            scaling_components[name] = Component(
+                primitive="HADAMARD_SCALE",
+                payload={
+                    "row": f"{prefix}.row",
+                    "column": f"{prefix}.column",
+                },
+            )
+            scaling_cost += 2 * (delta.shape[0] + delta.shape[1])
         u, s, vh = _truncated_svd(delta, name, config)
         rank_limit = min(config.max_rank, s.numel())
         for index in range(rank_limit):
@@ -153,7 +205,7 @@ def fit_low_rank_program(
         dict[str, torch.Tensor],
         int,
     ]:
-        fixed_cost = vector_cost + minimum_cost
+        fixed_cost = vector_cost + scaling_cost + minimum_cost
         if allocation_budget < fixed_cost:
             raise ValueError("serialized budget cannot provide the requested minimum matrix ranks")
         remaining = allocation_budget - fixed_cost
@@ -194,6 +246,8 @@ def fit_low_rank_program(
                 )
                 continue
             components: list[Component] = [Component("BASE_COPY")]
+            if node.name in scaling_components:
+                components.append(scaling_components[node.name])
             rank = selected.get(node.name, 0)
             if rank:
                 u, s, vh = svd_cache[node.name]
@@ -228,7 +282,7 @@ def fit_low_rank_program(
             base_state_id=state_id(base_state),
             tensors=tuple(programs),
         )
-        used = vector_cost + selected_cost
+        used = vector_cost + scaling_cost + selected_cost
         return program, selected_payloads, used
 
     allocation_budget = budget
@@ -239,9 +293,9 @@ def fit_low_rank_program(
         serialized_bytes = serialized_program_bytes(program, selected_payloads)
         if serialized_bytes <= budget:
             return program, selected_payloads
-        if used <= vector_cost + minimum_cost:
+        if used <= vector_cost + scaling_cost + minimum_cost:
             raise ValueError(
-                "serialized program metadata, quantized vectors and minimum ranks exceed the budget"
+                "serialized program metadata, fixed components and minimum ranks exceed the budget"
             )
         overshoot = serialized_bytes - budget
         allocation_budget = min(

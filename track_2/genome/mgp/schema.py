@@ -1,18 +1,27 @@
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
-from typing import Any, Literal, Mapping, Sequence
+from typing import Any, Literal
 
 from ..hashing import sha256_json
 
 Primitive = Literal[
     "BASE_COPY",
     "LOW_RANK",
+    "HADAMARD_SCALE",
     "QUANTIZED_VECTOR",
     "SPARSE_PATCH",
     "COPY_FROM_TIED",
 ]
-_ALLOWED = {"BASE_COPY", "LOW_RANK", "QUANTIZED_VECTOR", "SPARSE_PATCH", "COPY_FROM_TIED"}
+_ALLOWED = {
+    "BASE_COPY",
+    "LOW_RANK",
+    "HADAMARD_SCALE",
+    "QUANTIZED_VECTOR",
+    "SPARSE_PATCH",
+    "COPY_FROM_TIED",
+}
 
 
 @dataclass(frozen=True)
@@ -24,11 +33,14 @@ class Component:
     def __post_init__(self) -> None:
         if self.primitive not in _ALLOWED:
             raise ValueError(f"unsupported MGP primitive: {self.primitive}")
-        if any(not isinstance(key, str) or not isinstance(value, str) for key, value in self.payload.items()):
+        if any(
+            not isinstance(key, str) or not isinstance(value, str)
+            for key, value in self.payload.items()
+        ):
             raise TypeError("payload references must be string-to-string mappings")
 
     @classmethod
-    def from_dict(cls, value: Mapping[str, Any]) -> "Component":
+    def from_dict(cls, value: Mapping[str, Any]) -> Component:
         return cls(
             primitive=str(value["primitive"]),  # type: ignore[arg-type]
             payload=dict(value.get("payload", {})),
@@ -55,7 +67,7 @@ class TensorProgram:
             raise ValueError("a tensor program must contain at least one component")
 
     @classmethod
-    def from_dict(cls, value: Mapping[str, Any]) -> "TensorProgram":
+    def from_dict(cls, value: Mapping[str, Any]) -> TensorProgram:
         return cls(
             name=str(value["name"]),
             shape=tuple(int(item) for item in value["shape"]),
@@ -105,7 +117,7 @@ class ModelGenomeProgram:
         }
 
     @classmethod
-    def from_dict(cls, value: Mapping[str, Any]) -> "ModelGenomeProgram":
+    def from_dict(cls, value: Mapping[str, Any]) -> ModelGenomeProgram:
         raw_tensors = value.get("tensors")
         if not isinstance(raw_tensors, Sequence) or isinstance(raw_tensors, (str, bytes)):
             raise TypeError("program.tensors must be an array")

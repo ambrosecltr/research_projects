@@ -146,6 +146,76 @@ def test_rank_balanced_fit_keeps_matrix_ranks_close() -> None:
     assert max(ranks) - min(ranks) <= 1
 
 
+def test_hadamard_scale_runtime_uses_one_value_per_row_and_column() -> None:
+    base = {"matrix": torch.arange(1, 10, dtype=torch.float32).reshape(3, 3)}
+    program = ModelGenomeProgram(
+        architecture_id="a",
+        base_state_id="b",
+        tensors=(
+            TensorProgram(
+                name="matrix",
+                shape=(3, 3),
+                components=(
+                    Component("BASE_COPY"),
+                    Component(
+                        "HADAMARD_SCALE",
+                        payload={"row": "matrix.row", "column": "matrix.column"},
+                    ),
+                ),
+            ),
+        ),
+    )
+    payloads = {
+        "matrix.row": torch.tensor([0.1, 0.2, 0.3]),
+        "matrix.column": torch.tensor([-0.1, 0.0, 0.1]),
+    }
+
+    candidate = execute_program(base, program, payloads)
+    expected_scale = payloads["matrix.row"].unsqueeze(1) + payloads["matrix.column"].unsqueeze(0)
+
+    assert torch.allclose(
+        candidate["matrix"],
+        base["matrix"] + base["matrix"] * expected_scale,
+    )
+    audit = audit_program(
+        program,
+        payloads,
+        direct_fp16_delta_bytes=18,
+    )
+    assert audit.accepted_structure
+
+
+def test_fit_hadamard_scale_removes_base_relative_matrix_change() -> None:
+    torch.manual_seed(14)
+    base_matrix = torch.randn(32, 24)
+    row = torch.linspace(-0.1, 0.1, 32)
+    column = torch.linspace(0.05, -0.05, 24)
+    w0 = {"matrix": base_matrix}
+    wt = {"matrix": base_matrix + base_matrix * (row.unsqueeze(1) + column.unsqueeze(0))}
+    graph = graph_from_state(w0, family="toy", config={})
+
+    program, payloads = fit_low_rank_program(
+        w0,
+        wt,
+        graph,
+        config=FitConfig(
+            budget_fraction=0.50,
+            max_rank=4,
+            matrix_scaling=True,
+            svd_method="exact",
+        ),
+    )
+    candidate = execute_program(w0, program, payloads)
+    relative_error = (candidate["matrix"] - wt["matrix"]).square().sum() / (
+        wt["matrix"] - w0["matrix"]
+    ).square().sum()
+
+    assert any(
+        component.primitive == "HADAMARD_SCALE" for component in program.tensors[0].components
+    )
+    assert relative_error < 1e-4
+
+
 def test_all_floating_program_coefficients_are_trainable() -> None:
     program = ModelGenomeProgram(
         architecture_id="a",

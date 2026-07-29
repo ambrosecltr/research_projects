@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
 
 import torch
 
@@ -65,6 +65,22 @@ def audit_program(
                     reasons.append(f"missing_low_rank_payload:{tensor.name}")
                 elif left.numel() + right.numel() >= tensor.shape[0] * tensor.shape[1]:
                     reasons.append(f"non_compact_low_rank:{tensor.name}")
+            if component.primitive == "HADAMARD_SCALE":
+                row = payloads.get(component.payload.get("row", ""))
+                column = payloads.get(component.payload.get("column", ""))
+                if len(tensor.shape) != 2:
+                    reasons.append(f"matrix_scale_on_non_matrix:{tensor.name}")
+                elif row is None or column is None:
+                    reasons.append(f"missing_matrix_scale_payload:{tensor.name}")
+                elif (
+                    row.ndim != 1
+                    or column.ndim != 1
+                    or row.numel() != tensor.shape[0]
+                    or column.numel() != tensor.shape[1]
+                ):
+                    reasons.append(f"invalid_matrix_scale_payload:{tensor.name}")
+                elif row.numel() + column.numel() >= tensor.shape[0] * tensor.shape[1]:
+                    reasons.append(f"non_compact_matrix_scale:{tensor.name}")
     unused = set(payloads) - payload_use
     if unused:
         reasons.append(f"unused_payloads:{','.join(sorted(unused))}")

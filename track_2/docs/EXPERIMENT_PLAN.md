@@ -101,6 +101,9 @@ one per eligible matrix before allocating remaining bytes by energy.
 If that still fails, evaluate a rank-balanced variant that allocates the same
 singular-component index across eligible matrices before moving to the next
 index.
+If multiplicative row/column structure explains material residual energy,
+evaluate base-relative Hadamard row/column scaling followed by low-rank fitting
+of the residual.
 
 Evaluate every candidate on the identical fixed odd-record Pythia evaluation
 sample. Functional refinement may read only the even-record probe.
