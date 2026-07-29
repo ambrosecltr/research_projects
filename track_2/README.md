@@ -1,93 +1,157 @@
 # GENOME Track 2
 
-GENOME means **Generative Endpoint Neural Operator for Model Emission**.
+**GENOME** means **Generative Endpoint Neural Operator for Model Emission**.
 
-Track 2 tests whether a learned system can generate a complete trained model from:
+Track 2 asks whether a learned compiler can replace most of a model's training trajectory with a genuinely compact executable program:
 
-- the model's true random initial weights, `W0`;
-- its architecture and tokenizer;
-- a fingerprint of its dataset and data order;
-- its complete training recipe.
+```text
+true random W0
++ variable architecture graph
++ semantic dataset and W0-response evidence
++ complete staged training recipe
+    -> GENOME Compiler
+    -> compact Model Genome Program (MGP)
+    -> deterministic MGP Runtime
+    -> runnable trained model
+```
 
-The primary result is one-shot generation. It does not use an early training prefix, WT, repair, or polishing.
+The compiler must never see the final weights of the life on which it is tested.
 
-## Three separate components
+## Recovery status
 
-1. **MGP Runtime** is deterministic code. It applies a genome to W0 and assembles a runnable model.
-2. **Neural Genome Decoder** is a shared learned model. It expands a compact genome code into the full weight change `Delta-T`.
-3. **GENOME Compiler** is a learned model. It predicts a genome code from W0 and the allowed model-life description.
+The PolyPythia Round One hidden protocol was honest, but its V4 representation was not a compact genome. It stored one fp16 residual value for every weight position and was larger than direct fp16 Delta-T before counting its learned decoder. Its hidden prediction was far worse than W0.
 
-Do not use “decoder” and “compiler” as names for the same component.
+Round One is preserved as negative evidence in `POLYPYTHIA_ROUND1_RESULTS.md`. It is not the active architecture.
 
-## What is already proven
+Read [`RECOVERY.md`](RECOVERY.md) first.
 
-The deterministic MGP path can encode a known W0-to-WT change and decode it back into a model. That proves representation mechanics. It does not prove that the compiler can predict an unseen WT.
+## Active architecture
 
-## PolyPythia Round One
+There are two active components:
 
-Round One uses ten complete standard, non-deduplicated Pythia 14M model lives:
+1. **GENOME Compiler** — one learned variable-architecture model that emits an MGP token stream and numeric coefficient chunks.
+2. **MGP Runtime** — deterministic code that executes the program against W0.
 
-- training: seed0 through seed7;
-- development: seed8;
-- hidden one-shot evaluation: seed9.
+A separate learned decoder is not part of the active path. It may return only after a rate-distortion experiment proves that shared-decoder bytes plus target-specific bytes improve matched functional quality.
 
-The public source plan pins all 154 checkpoints for each life. The primary experiment only materializes W0 and WT because intermediate checkpoints are forbidden compiler inputs and are not consumed by the decoder objective.
+## New recovery foundation
 
-The hidden sequence is strict:
+### Complete model lives
 
-1. materialize hidden seed9 W0 only;
-2. train the decoder and compiler without hidden WT;
-3. predict, hash, and seal the hidden genome;
-4. decode it and run a forward pass;
-5. verify the sealed prediction and runtime execution record;
-6. only then materialize hidden WT and evaluate.
+`genome.life_schema` defines strict multi-stage lives from true W0 through every ordered stage to WT. It supports pretraining, continued pretraining, SFT, DPO, RL, RLVR, distillation and other explicit stages. Hidden lives expose W0 but not WT or fitted endpoint programs.
 
-See [POLYPYTHIA_ROUND1.md](POLYPYTHIA_ROUND1.md) for the exact commands and artifact order.
-See [POLYPYTHIA_ROUND1_RESULTS.md](POLYPYTHIA_ROUND1_RESULTS.md) for the completed result,
-including the successful V4 decoder and failed hidden Compiler transfer.
+The split unit is the complete life, never one checkpoint.
+
+### Semantic evidence
+
+`genome.semantic_fingerprint` builds compiler inputs from actual content and model response:
+
+- token unigram and bigram CountSketches;
+- byte frequencies;
+- sequence-length and supervision statistics;
+- per-role W0 gradient sketches and moments;
+- W0 activation moments and quantiles.
+
+Repository revisions and SHA-256 values remain provenance only. Cryptographic hashes are never semantic model features.
+
+### Compact compiler-target policy
+
+`genome.mgp.policy` rejects:
+
+- dense large-tensor Delta-T;
+- full residual payloads;
+- residual block mode;
+- one generated or stored code value per weight;
+- excessive sparse exceptions;
+- target programs outside the byte budget;
+- programs not smaller than direct fp16 Delta-T.
+
+The primary target-specific budget is 10% of direct fp16 Delta-T. Up to 25% is an explicitly labelled exploratory band.
+
+### Deterministic structured MGPs
+
+The Runtime supports:
+
+```text
+BASE_COPY
+LOW_RANK
+KRONECKER
+SPECTRAL_DCT
+SHARED_BASIS
+CODEBOOK_BLOCKS
+LOW_RANK_PATCH
+SPARSE_PATCH
+COPY_FROM_TIED
+```
+
+No learned interpreter is required for these formulas.
+
+### Canonical compact labels
+
+`genome.compact_targets` fits a transparent first compiler language using globally budgeted canonical low-rank factors. It has no dense matrix residual. A fitted target becomes compiler supervision only after it passes both the byte policy and functional Genome Gate.
+
+### Variable program compiler
+
+`genome.program_compiler.VariableProgramCompiler`:
+
+- supports variable numbers of stages and logical tensors;
+- uses tensor roles, shapes and graph connectivity;
+- applies graph message passing and bidirectional condition encoding;
+- emits a variable program sequence rather than a model-sized block output head;
+- scales with program description length rather than parameter count.
+
+`genome.program_tokens` provides deterministic target tokenization and inverse reconstruction. The first vertical slice handles canonical low-rank MGPs. New primitives require a deterministic inverse and tests; there is no dense fallback token.
+
+## Preserved infrastructure
+
+The following remain useful:
+
+- deterministic MGP serialization and decoding;
+- exact known-endpoint Track 1 round trips;
+- Hugging Face revision/LFS/download provenance;
+- GPT-NeoX native/canonical conversion;
+- hidden prediction sealing and reveal controls;
+- Wikitext and LM Evaluation Harness evaluation;
+- transparent SVD, quantization and spectral diagnostics.
+
+The old V4 decoder/compiler modules remain only to reproduce the failed experiment until they are moved into an archive namespace.
 
 ## Install and test
 
 ```bash
-cd /Users/ambrosecoulter/research_projects/track_2
-uv venv --python 3.11 .venv
-uv pip install --python .venv/bin/python -e '.[dev,evaluation]'
-.venv/bin/python -m pytest -q
+cd track_2
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[dev,evaluation]'
+python -m compileall -q genome tests
+python -m pytest -q
 ```
 
-The production dependency range matches the RunPod PyTorch 2.4 image.
+## Experiment order
 
-## Main command group
+1. Validate complete multi-stage model-life manifests.
+2. Audit public sources and storage before downloading.
+3. Freeze whole-life train/development/hidden splits.
+4. Prove all source adapters round-trip.
+5. Build semantic corpus and W0-response fingerprints.
+6. Fit compact canonical MGPs for known lives.
+7. Execute them and construct the functional rate-distortion frontier.
+8. Train the compiler only after target labels pass.
+9. Run a tiny complete compiler-to-Runtime smoke test.
+10. Test a hidden same-family life and require meaningful improvement over W0.
+11. Attempt size, dataset, recipe and architecture transfer in that order.
+12. Evaluate the Track 1 poetry model last.
 
-```bash
-.venv/bin/genome polypythia --help
-```
-
-The command group covers:
-
-- immutable source planning;
-- sealed endpoint download;
-- canonical GPT-NeoX conversion;
-- shared decoder training and development-code fitting;
-- decoder reconstruction evaluation;
-- compiler training through the frozen decoder;
-- sealed hidden genome prediction and runtime execution;
-- post-reveal Wikitext and LM Evaluation Harness comparisons.
-
-## Track 1 boundary
-
-The new local 8M Track 1 model is not decoder or compiler training data for PolyPythia Round One. It remains outside the training split and can be used later for integration or hidden transfer evaluation.
-
-The old `configs/poetry50m_track1.example.yaml` file is retained only for the previous 50M G0 compatibility path. It is not the full-life record for the new 8M model. See [TRACK1_INTEGRATION.md](TRACK1_INTEGRATION.md).
+No production training or large download begins before the source matrix, split commitment, compact target frontier, leakage model, smoke test, storage estimate and hidden acceptance protocol are committed.
 
 ## Scientific claims
 
-Keep these claims separate:
+Keep these separate:
 
-- **Proven:** a known endpoint can be represented and decoded by MGP.
-- **Round One decoder question:** one shared neural decoder can compactly represent varied 14M model lives.
-- **Round One compiler question:** the compiler can predict hidden seed9 from allowed evidence without WT.
-- **Round Two question:** the result transfers across more sizes and is not a 14M-family memorization effect.
-- **Later question:** transfer across datasets, recipes, and architecture families.
+- **Proven:** the deterministic MGP machinery can reproduce known endpoints when supplied a sufficient program.
+- **Failed:** PolyPythia V4 did not learn a compact genome language or transfer to hidden seed9.
+- **Next gate:** compact target programs preserve useful endpoint function at the declared byte budget.
+- **Compiler gate:** one-shot hidden compilation meaningfully beats W0 without WT, repair or dense residuals.
+- **Later:** transfer across sizes, datasets, recipes, architecture families and finally Track 1.
 
-Parameter error is diagnostic. A successful model result also needs model execution and matched functional evaluation.
+Parameter error is diagnostic. A generated model succeeds only through actual execution and functional evaluation.
