@@ -16,6 +16,7 @@ PROGRAM_TOKEN_NAMES = (
     "TENSOR_END",
     "BASE_COPY",
     "LOW_RANK",
+    "QUANTIZED_VECTOR",
     "KRONECKER",
     "SPECTRAL_DCT",
     "SHARED_BASIS",
@@ -223,11 +224,11 @@ class SinusoidalPositions(nn.Module):
 
 
 class VariableProgramCompiler(nn.Module):
-    """One learned compiler that emits a compact MGP token stream.
+    """Predict a compact MGP rather than a model-sized block array.
 
-    The output length scales with formulas and coefficients, not with the child model's parameter
-    count. The deterministic MGP Runtime remains the only component that expands formulas into
-    complete tensors.
+    Conditioning length scales with training stages and logical tensors. Output length scales with
+    selected formula opcodes and coefficients. The deterministic Runtime remains the only component
+    that expands the program into full tensors.
     """
 
     def __init__(self, config: ProgramCompilerConfig) -> None:
