@@ -45,12 +45,17 @@ Do not download 154 checkpoints per life. Intermediate checkpoints are not part 
 Pythia was trained on the Pile, with preshuffled index files used by the seed runs. For v1:
 
 - preserve the exact published dataset/order identities in provenance;
-- pin and stream a deterministic accessible Pile sample for semantic evidence;
+- pin and range-read a deterministic aligned sample from the exact standard-Pile
+  Pythia token binary for semantic evidence;
 - use the same content sample across lives;
 - compute W0-specific gradient/activation evidence separately per life;
 - never transform an order seed or SHA digest directly into a semantic vector.
 
 If the exact historical example stream cannot be reconstructed from accessible public data, record that limitation. It does not permit fabricated evidence.
+The complete token binary and per-seed order maps are much larger than the v1
+volume. The semantic sample therefore records its exact shard and aligned byte
+range. Per-life order-map identities remain recipe provenance and are not turned
+into semantic vectors.
 
 ## Storage estimate
 

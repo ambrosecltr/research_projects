@@ -1,10 +1,12 @@
 {
   "dataset": {
     "dataset_id": "pile-standard",
-    "repository": "EleutherAI/pile",
-    "revision": "REPLACE_WITH_RESOLVED_COMMIT",
+    "repository": "EleutherAI/pile-standard-pythia-preshuffled",
+    "revision": "REPLACE_WITH_RESOLVED_SAMPLE_COMMIT",
     "split": "train",
-    "licence": "RECORD_FROM_SOURCE_AUDIT",
+    "licence": "multiple-see-pile-subset-licences",
+    "order_repository": "EleutherAI/pile-preshuffled-seeds",
+    "order_revision": "REPLACE_WITH_RESOLVED_ORDER_COMMIT",
     "order_id": "REPLACE_PER_LIFE_WITH_PINNED_ORDER_ID"
   },
   "stage": {
@@ -13,18 +15,27 @@
     "tokens": 299892736000,
     "context_length": 2048,
     "global_batch_tokens": 2097152,
-    "precision": "RECORD_EXACT_SOURCE_PRECISION",
+    "precision": "fp16",
+    "gradient_clipping": 1.0,
+    "hidden_dropout": 0.0,
+    "attention_dropout": 0.0,
+    "initialization": {
+      "weights": "small_init",
+      "output_layer": "wang_init"
+    },
     "optimizer": {
-      "name": "AdamW",
-      "learning_rate": "RECORD_EXACT_VALUE",
-      "betas": "RECORD_EXACT_VALUES",
-      "epsilon": "RECORD_EXACT_VALUE",
-      "weight_decay": "RECORD_EXACT_VALUE"
+      "name": "Adam",
+      "learning_rate": 0.001,
+      "betas": [0.9, 0.95],
+      "epsilon": 1e-8,
+      "weight_decay": 0.1
     },
     "schedule": {
-      "name": "RECORD_EXACT_SCHEDULE",
-      "warmup_steps": "RECORD_EXACT_VALUE",
-      "minimum_learning_rate": "RECORD_EXACT_VALUE"
+      "name": "cosine",
+      "decay_steps": 143000,
+      "warmup_fraction": 0.01,
+      "warmup_steps": 1430,
+      "minimum_learning_rate": 0.0001
     }
   }
 }

@@ -43,7 +43,9 @@ semantic evidence exists.
 
 ## Gate 3 — semantic evidence
 
-Build one pinned deterministic Pile sample shared across lives plus W0-specific response evidence.
+Build one pinned deterministic sample from the exact standard-Pile Pythia token
+binary, shared across lives, plus W0-specific response evidence. Record the
+immutable dataset commit, source shard, aligned byte range and content hashes.
 
 Corpus evidence:
 
@@ -52,6 +54,10 @@ Corpus evidence:
 - byte frequency;
 - sequence-length histogram;
 - tokenizer properties.
+
+Raw-byte evidence is computed from deterministic tokenizer decoding of the exact
+training tokens because the published Pythia binary contains tokens, not original
+raw text. Record this limitation in the sample receipt.
 
 W0 evidence:
 
