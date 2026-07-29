@@ -229,7 +229,7 @@ class TrainableProgram(torch.nn.Module):
         self.parameters_by_key = torch.nn.ParameterDict()
         self.constants: dict[str, torch.Tensor] = {}
         for key, value in payloads.items():
-            if value.is_floating_point() and (key.endswith(".left") or key.endswith(".right")):
+            if value.is_floating_point():
                 self.parameters_by_key[key.replace(".", "__")] = torch.nn.Parameter(value.float())
             else:
                 self.constants[key] = value.detach().clone()
@@ -244,6 +244,15 @@ class TrainableProgram(torch.nn.Module):
         return execute_program(
             base_state, self.program, self.payloads(), output_dtype=torch.float32
         )
+
+
+def _token_mean_kl(student_logits: torch.Tensor, teacher_logits: torch.Tensor) -> torch.Tensor:
+    per_token = F.kl_div(
+        F.log_softmax(student_logits, dim=-1),
+        F.softmax(teacher_logits, dim=-1),
+        reduction="none",
+    ).sum(dim=-1)
+    return per_token.mean()
 
 
 def refine_program_functionally(
@@ -281,11 +290,7 @@ def refine_program_functionally(
             with torch.no_grad():
                 teacher = teacher_model(**batch).logits
             student = outputs.logits
-            loss = loss + kl_weight * F.kl_div(
-                F.log_softmax(student, dim=-1),
-                F.softmax(teacher, dim=-1),
-                reduction="batchmean",
-            )
+            loss = loss + kl_weight * _token_mean_kl(student, teacher)
         if not torch.isfinite(loss):
             raise ValueError("functional refinement produced non-finite loss")
         loss.backward()

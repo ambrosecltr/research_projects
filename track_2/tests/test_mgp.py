@@ -17,6 +17,7 @@ from genome.mgp import (
     load_program,
     save_program,
 )
+from genome.mgp.fit import TrainableProgram, _token_mean_kl
 from genome.mgp.policy import ProgramPolicy
 from genome.mgp.serialize import serialized_program_bytes
 from genome.state import direct_fp16_delta_bytes
@@ -90,6 +91,46 @@ def test_fit_can_account_for_complete_serialized_size(tmp_path: Path) -> None:
 
     assert estimated_bytes == accounting["total_bytes"]
     assert accounting["total_bytes"] <= direct_bytes * budget_fraction
+
+
+def test_all_floating_program_coefficients_are_trainable() -> None:
+    program = ModelGenomeProgram(
+        architecture_id="a",
+        base_state_id="b",
+        tensors=(
+            TensorProgram(
+                name="vector",
+                shape=(2,),
+                components=(
+                    Component("BASE_COPY"),
+                    Component(
+                        "QUANTIZED_VECTOR",
+                        payload={"values": "vector.values", "scale": "vector.scale"},
+                    ),
+                ),
+            ),
+        ),
+    )
+    trainable = TrainableProgram(
+        program,
+        {
+            "vector.values": torch.tensor([1, -1], dtype=torch.int8),
+            "vector.scale": torch.tensor([0.5]),
+        },
+    )
+
+    assert set(trainable.parameters_by_key) == {"vector__scale"}
+    assert set(trainable.constants) == {"vector.values"}
+
+
+def test_teacher_kl_is_averaged_per_token() -> None:
+    student = torch.tensor([[[2.0, -1.0]]])
+    teacher = torch.tensor([[[1.0, 0.0]]])
+    expected = _token_mean_kl(student, teacher)
+
+    repeated = _token_mean_kl(student.repeat(1, 8, 1), teacher.repeat(1, 8, 1))
+
+    assert repeated == pytest.approx(float(expected))
 
 
 def test_policy_rejects_noncompact_low_rank() -> None:
