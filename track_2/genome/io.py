@@ -4,8 +4,10 @@ import json
 import os
 import shutil
 import tempfile
+from collections.abc import Mapping
+from contextlib import suppress
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 import torch
 import yaml
@@ -31,10 +33,8 @@ def atomic_write_bytes(path: str | Path, data: bytes) -> None:
             os.fsync(handle.fileno())
         os.replace(temporary, destination)
     except BaseException:
-        try:
+        with suppress(FileNotFoundError):
             os.unlink(temporary)
-        except FileNotFoundError:
-            pass
         raise
 
 
@@ -42,9 +42,9 @@ def write_json(path: str | Path, value: Any, *, canonical: bool = False) -> None
     if canonical:
         data = canonical_json_bytes(value)
     else:
-        data = json.dumps(value, sort_keys=True, indent=2, ensure_ascii=False, allow_nan=False).encode(
-            "utf-8"
-        )
+        data = json.dumps(
+            value, sort_keys=True, indent=2, ensure_ascii=False, allow_nan=False
+        ).encode("utf-8")
     atomic_write_bytes(path, data + (b"\n" if not data.endswith(b"\n") else b""))
 
 
@@ -61,9 +61,7 @@ def read_json(path: str | Path) -> Any:
         return json.load(handle, object_pairs_hook=unique_object)
 
 
-def resolve_artifact_member(
-    root: str | Path, value: object, *, field: str
-) -> Path:
+def resolve_artifact_member(root: str | Path, value: object, *, field: str) -> Path:
     """Resolve one declared artifact file without permitting path escape or symlinks."""
 
     artifact_root = Path(root).expanduser().resolve(strict=True)
@@ -82,6 +80,89 @@ def resolve_artifact_member(
     resolved = candidate.resolve(strict=True)
     if resolved.parent != artifact_root or not resolved.is_file():
         raise ValueError(f"{field} does not resolve to a regular artifact file: {value!r}")
+    return resolved
+
+
+def resolve_artifact_directory(
+    root: str | Path,
+    value: object,
+    *,
+    field: str,
+) -> Path:
+    """Resolve one declared direct-child directory without path escape or symlinks."""
+
+    artifact_root = Path(root).expanduser().resolve(strict=True)
+    if not artifact_root.is_dir():
+        raise ValueError(f"artifact root is not a directory: {artifact_root}")
+    if not isinstance(value, str) or not value:
+        raise TypeError(f"{field} must be a non-empty directory name")
+    if value in {".", ".."} or "/" in value or "\\" in value:
+        raise ValueError(f"{field} must name a direct artifact child, got {value!r}")
+    relative = Path(value)
+    if relative.is_absolute() or len(relative.parts) != 1 or relative.name != value:
+        raise ValueError(f"{field} must name a direct artifact child, got {value!r}")
+    candidate = artifact_root / value
+    if candidate.is_symlink():
+        raise ValueError(f"{field} must not be a symbolic link: {value!r}")
+    resolved = candidate.resolve(strict=True)
+    if resolved.parent != artifact_root or not resolved.is_dir():
+        raise ValueError(f"{field} does not resolve to an artifact directory: {value!r}")
+    return resolved
+
+
+def resolve_artifact_relative_file(
+    root: str | Path,
+    value: object,
+    *,
+    field: str,
+) -> Path:
+    """Resolve a declared nested file while rejecting traversal and symlink components."""
+
+    artifact_root = Path(root).expanduser().resolve(strict=True)
+    if not artifact_root.is_dir():
+        raise ValueError(f"artifact root is not a directory: {artifact_root}")
+    if not isinstance(value, str) or not value or "\\" in value:
+        raise TypeError(f"{field} must be a non-empty POSIX relative file path")
+    relative = Path(value)
+    if relative.is_absolute() or any(part in {"", ".", ".."} for part in relative.parts):
+        raise ValueError(f"{field} is not a safe artifact-relative path: {value!r}")
+    candidate = artifact_root / relative
+    current = candidate
+    while current != artifact_root:
+        if current.is_symlink():
+            raise ValueError(f"{field} must not pass through a symbolic link: {value!r}")
+        current = current.parent
+    resolved = candidate.resolve(strict=True)
+    if not resolved.is_relative_to(artifact_root) or not resolved.is_file():
+        raise ValueError(f"{field} does not resolve to an artifact file: {value!r}")
+    return resolved
+
+
+def resolve_artifact_relative_directory(
+    root: str | Path,
+    value: object,
+    *,
+    field: str,
+) -> Path:
+    """Resolve a declared nested directory while rejecting traversal and symlinks."""
+
+    artifact_root = Path(root).expanduser().resolve(strict=True)
+    if not artifact_root.is_dir():
+        raise ValueError(f"artifact root is not a directory: {artifact_root}")
+    if not isinstance(value, str) or not value or "\\" in value:
+        raise TypeError(f"{field} must be a non-empty POSIX relative directory path")
+    relative = Path(value)
+    if relative.is_absolute() or any(part in {"", ".", ".."} for part in relative.parts):
+        raise ValueError(f"{field} is not a safe artifact-relative path: {value!r}")
+    candidate = artifact_root / relative
+    current = candidate
+    while current != artifact_root:
+        if current.is_symlink():
+            raise ValueError(f"{field} must not pass through a symbolic link: {value!r}")
+        current = current.parent
+    resolved = candidate.resolve(strict=True)
+    if not resolved.is_relative_to(artifact_root) or not resolved.is_dir():
+        raise ValueError(f"{field} does not resolve to an artifact directory: {value!r}")
     return resolved
 
 
@@ -134,7 +215,9 @@ def save_tensor_file(path: str | Path, tensors: Mapping[str, torch.Tensor]) -> N
     os.replace(temporary, destination)
 
 
-def load_tensor_file(path: str | Path, *, device: str | torch.device = "cpu") -> dict[str, torch.Tensor]:
+def load_tensor_file(
+    path: str | Path, *, device: str | torch.device = "cpu"
+) -> dict[str, torch.Tensor]:
     return dict(load_file(str(path), device=str(device)))
 
 

@@ -1,136 +1,91 @@
-# GENOME Track 2 — executable research codebase
+# GENOME Track 2
 
-**GENOME** stands for **Generative Endpoint Neural Operator for Model Emission**.
+GENOME means **Generative Endpoint Neural Operator for Model Emission**.
 
-This project turns the Track 2 research pack into a runnable implementation. Its first target is the fully trained Track 1 poetry model, called **R0**. The implementation deliberately separates:
+Track 2 tests whether a learned system can generate a complete trained model from:
 
-1. **G0 representation:** Can `Delta-T = WT - W0` be encoded compactly while preserving R0's function?
-2. **G1 compilation:** Can a model infer that genome from allowed early-training and dataset evidence?
-3. **G2 transfer:** Can it do so for a hidden seed or data order whose endpoint it never saw?
+- the model's true random initial weights, `W0`;
+- its architecture and tokenizer;
+- a fingerprint of its dataset and data order;
+- its complete training recipe.
 
-## Implemented
+The primary result is one-shot generation. It does not use an early training prefix, WT, repair, or polishing.
 
-The codebase contains:
+## Three separate components
 
-- a concrete adapter for this repository's `poetry_50m/track_1` model, seeding, checkpoint, tokenizer, packed-data, and loss contracts;
-- R0 completion preflight and a fail-closed prohibition on freezing partial endpoints;
-- exact W0/WT config-hash, step-zero, and run-manifest lineage validation;
-- final-snapshot and train-receipt hash reconciliation before WT is accepted;
-- immutable W0/WT specimen freezing with repeated W0 hash verification;
-- canonical tensor inventory, exact Track 1 tensor roles, layer indices, and tied-weight handling;
-- Model Genome Program (MGP) v0.1 serialization and deterministic decoding;
-- dense, int8, packed-int4, fixed/budgeted SVD, and low-rank-plus-sparse codecs;
-- one-time SVD workspaces reused across the complete rank frontier, with shared-cost accounting;
-- actual file-byte and shared-interpreter accounting;
-- parameter, role, loss, perplexity, logit-KL, and top-k functional evaluation;
-- Delta-T and singular-spectrum analysis;
-- deterministic CountSketch gradient fingerprints from W0;
-- trajectory features and code-space extrapolation;
-- a role-conditioned neural block auto-decoder;
-- a fixed-size probabilistic genome compiler baseline and model-life dataset;
-- latent-code and full-weight repair baselines;
-- report generation, a tiny end-to-end demonstration, and automated tests;
-- an evaluation-only checkpoint bridge into Track 1's existing poetry generation suite;
-- strict artifact loaders that reject unsupported versions, path traversal, symlinks, undeclared files, and hash mismatches.
+1. **MGP Runtime** is deterministic code. It applies a genome to W0 and assembles a runnable model.
+2. **Neural Genome Decoder** is a shared learned model. It expands a compact genome code into the full weight change `Delta-T`.
+3. **GENOME Compiler** is a learned model. It predicts a genome code from W0 and the allowed model-life description.
 
-## Install and validate now
+Do not use “decoder” and “compiler” as names for the same component.
 
-R0 does not need to be finished before installing Track 2:
+## What is already proven
 
-```bash
-cd poetry_50m/track_2
-python -m venv .venv
-source .venv/bin/activate
-pip install -e '.[dev,analysis]'
-pytest
+The deterministic MGP path can encode a known W0-to-WT change and decode it back into a model. That proves representation mechanics. It does not prove that the compiler can predict an unseen WT.
 
-genome demo --output artifacts/demo
-```
+## PolyPythia Round One
 
-The demo trains a deterministic tiny causal LM, freezes W0/WT, serializes multiple MGPs, destroys and reloads their in-memory representations, decodes them, and evaluates the resulting phenotypes.
+Round One uses ten complete standard, non-deduplicated Pythia 14M model lives:
 
-## Connect the real Track 1 run
+- training: seed0 through seed7;
+- development: seed8;
+- hidden one-shot evaluation: seed9.
+
+The public source plan pins all 154 checkpoints for each life. The primary experiment only materializes W0 and WT because intermediate checkpoints are forbidden compiler inputs and are not consumed by the decoder objective.
+
+The hidden sequence is strict:
+
+1. materialize hidden seed9 W0 only;
+2. train the decoder and compiler without hidden WT;
+3. predict, hash, and seal the hidden genome;
+4. decode it and run a forward pass;
+5. verify the sealed prediction and runtime execution record;
+6. only then materialize hidden WT and evaluate.
+
+See [POLYPYTHIA_ROUND1.md](POLYPYTHIA_ROUND1.md) for the exact commands and artifact order.
+
+## Install and test
 
 ```bash
-cp configs/poetry50m_track1.example.yaml configs/poetry50m_track1.yaml
-
-genome track1-preflight \
-  --config configs/poetry50m_track1.yaml \
-  --output artifacts/preflight.json
+cd /Users/ambrosecoulter/research_projects/track_2
+uv venv --python 3.11 .venv
+uv pip install --python .venv/bin/python -e '.[dev,evaluation]'
+.venv/bin/python -m pytest -q
 ```
 
-While R0 is still training, the preflight report should show `ready_to_freeze: false` and the latest checkpoint's progress. Once the full endpoint reaches the configured `max_steps`:
+The production dependency range matches the RunPod PyTorch 2.4 image.
+
+## Main command group
 
 ```bash
-genome freeze --config configs/poetry50m_track1.yaml
-
-genome verify \
-  --specimen artifacts/specimens/track1_R0 \
-  --config configs/poetry50m_track1.yaml
-
-genome analyze \
-  --specimen artifacts/specimens/track1_R0 \
-  --output artifacts/analysis/R0
-
-genome rate-distortion \
-  --specimen artifacts/specimens/track1_R0 \
-  --config configs/poetry50m_track1.yaml \
-  --output artifacts/rate_distortion/R0 \
-  --ranks 0,1,2,4,8,16,32,64
+.venv/bin/genome polypythia --help
 ```
 
-See [`TRACK1_INTEGRATION.md`](TRACK1_INTEGRATION.md) for the exact artifact paths, checks, and post-R0 sequence.
+The command group covers:
 
-## Repository layout
+- immutable source planning;
+- sealed endpoint download;
+- canonical GPT-NeoX conversion;
+- shared decoder training and development-code fitting;
+- decoder reconstruction evaluation;
+- compiler training through the frozen decoder;
+- sealed hidden genome prediction and runtime execution;
+- post-reveal Wikitext and LM Evaluation Harness comparisons.
 
-```text
-genome/
-  adapters/       Track 1 boundary and exact poetry50m adapter
-  codecs/         transparent G0 codecs and reusable SVD workspaces
-  mgp/            program schema, serializer, validator, interpreter
-  neural/         block auto-decoder and endpoint compiler
-  repair/         latent and full-weight repair baselines
-  evaluator.py    Genome Gate functional evaluation
-  fingerprint.py  model-native gradient evidence
-  specimen.py     immutable R0 freezer
-configs/          demo, generic, and exact poetry50m configurations
-docs/             full theory, mathematics, experiment plan, and task cards
-scripts/          one-purpose command wrappers
-tests/            deterministic unit and vertical-slice tests
-```
+## Track 1 boundary
 
-## Scientific guardrails
+The new local 8M Track 1 model is not decoder or compiler training data for PolyPythia Round One. It remains outside the training split and can be used later for integration or hidden transfer evaluation.
 
-The authoritative rules are in `docs/track_2_genome/AGENTS.md`. In particular:
+The old `configs/poetry50m_track1.example.yaml` file is retained only for the previous 50M G0 compatibility path. It is not the full-life record for the new 8M model. See [TRACK1_INTEGRATION.md](TRACK1_INTEGRATION.md).
 
-- never let a G1/G2 compiler read WT or endpoint-derived fitted codes;
-- never fit against hidden verification data;
-- never report weight MSE alone as success;
-- count the MGP, shared decoder, candidate sampling, probing, and repair compute;
-- do not call a fitted G0 genome a general optimizer;
-- do not average raw coordinates across independent seeds without proven alignment;
-- do not freeze an in-progress R0 checkpoint as the reference endpoint.
+## Scientific claims
 
-Track 1 asks whether comparable poetry quality can be reached in fewer training steps and less elapsed GPU time, without assuming in advance whether the answer is an optimizer, transport rule, controller, or hybrid. Track 2 retains that evidence standard rather than defining success as checkpoint compression alone.
+Keep these claims separate:
 
-## Status
+- **Proven:** a known endpoint can be represented and decoded by MGP.
+- **Round One decoder question:** one shared neural decoder can compactly represent varied 14M model lives.
+- **Round One compiler question:** the compiler can predict hidden seed9 from allowed evidence without WT.
+- **Round Two question:** the result transfers across more sizes and is not a 14M-family memorization effect.
+- **Later question:** transfer across datasets, recipes, and architecture families.
 
-The software foundation and exact Track 1 integration are ready. The real R0 rate–distortion, neural genome, and compiler results cannot be claimed until the full endpoint artifact exists and the commands above have been run. See [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) and [`VALIDATION.md`](VALIDATION.md).
-
-## Reuse Track 1's poetry generation suite
-
-After encoding or fitting a candidate MGP, export it into a full, explicitly
-evaluation-only Track 1 checkpoint:
-
-```bash
-genome export-track1-checkpoint \
-  --specimen artifacts/specimens/track1_R0 \
-  --mgp artifacts/rate_distortion/R0/int4.mgp \
-  --config configs/poetry50m_track1.yaml \
-  --output artifacts/track1_eval_checkpoints/int4.pt
-```
-
-Track 1 can then run its unchanged prompt suite, generation manifest, metrics,
-and blinded comparison tooling against that file. The exported checkpoint
-contains `evaluation_only: true` and `resume_forbidden: true`; never use it as a
-training resume source.
+Parameter error is diagnostic. A successful model result also needs model execution and matched functional evaluation.

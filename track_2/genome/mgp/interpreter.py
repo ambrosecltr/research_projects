@@ -58,7 +58,9 @@ def _apply_component(
             raise ValueError("DENSE_DELTA requires one payload")
         payload = _payload(program, keys[0])
         work_dtype = payload.dtype if payload.is_floating_point() else torch.float64
-        return value.to(work_dtype) + payload.to(device=value.device, dtype=work_dtype).reshape(value.shape)
+        return value.to(work_dtype) + payload.to(device=value.device, dtype=work_dtype).reshape(
+            value.shape
+        )
     if opcode == QUANTIZED_DELTA:
         bits = int(args["bits"])
         shape = tuple(int(x) for x in args["shape"])
@@ -69,7 +71,9 @@ def _apply_component(
         if bits == 8:
             decoded = quantized.to(device=value.device, dtype=torch.float32).reshape(shape) * scale
         elif bits == 4:
-            decoded = unpack_int4(quantized, int(torch.tensor(shape).prod().item())).to(value.device)
+            decoded = unpack_int4(quantized, int(torch.tensor(shape).prod().item())).to(
+                value.device
+            )
             decoded = decoded.to(torch.float32).reshape(shape) * scale
         else:
             raise ValueError(f"unsupported quantization bits: {bits}")
@@ -86,7 +90,9 @@ def _apply_component(
         if len(keys) != 2:
             raise ValueError("SPARSE_PATCH requires indices and values")
         indices = _payload(program, keys[0]).to(device=value.device, dtype=torch.int64).flatten()
-        patch_values = _payload(program, keys[1]).to(device=value.device, dtype=torch.float32).flatten()
+        patch_values = (
+            _payload(program, keys[1]).to(device=value.device, dtype=torch.float32).flatten()
+        )
         if indices.numel() != patch_values.numel():
             raise ValueError("sparse patch index/value counts differ")
         flat = value.flatten().clone()
@@ -100,7 +106,7 @@ def _apply_component(
         decoded = interpreter.decode_tensor_from_component(
             record_name, component, program, base_tensor=value
         )
-        return value + decoded.to(torch.float32).reshape_as(value)
+        return value + decoded.to(device=value.device, dtype=torch.float32).reshape_as(value)
     if opcode == COPY_FROM_TIED:
         return value
     raise ValueError(f"unsupported opcode during decode: {opcode}")

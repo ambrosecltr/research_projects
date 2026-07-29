@@ -1,50 +1,45 @@
 # GENOME codebase agent instructions
 
-Read these before editing code:
+Read these before editing:
 
 1. `docs/track_2_genome/AGENTS.md`
 2. `docs/track_2_genome/00_README.md`
-3. `IMPLEMENTATION_STATUS.md`
-4. `TRACK1_INTEGRATION.md`
-5. `CODEMAP.md`
-
-The research pack remains authoritative. This repository is the executable implementation of its first phases.
+3. `README.md`
+4. `IMPLEMENTATION_STATUS.md`
+5. `POLYPYTHIA_ROUND1.md`
 
 ## Immediate mission
 
-Use the concrete `genome.adapters.poetry50m.Poetry50MAdapter`, preflight the active Track 1 run, freeze the fully trained endpoint as R0 only after completion, reproduce its evaluation, and run the transparent G0 rate–distortion audit. Do not replace the working MGP/codec foundation with a larger neural model before those measurements.
+Run PolyPythia 14M Round One. Keep the deterministic MGP Runtime, learned Neural Genome Decoder, and learned GENOME Compiler separate.
 
-## Rules specific to this codebase
+## Sealed split
 
-- Keep all Track 1 imports behind `genome.adapters.Track1Adapter`.
-- Never hard-code R0 values, target tensors, validation records, or checkpoint bytes into Python files or tests.
-- Never let `decode_program()` read WT. Its only model-state input is W0.
-- Preserve canonical tensor indices after R0 is frozen.
-- MGP artifacts are immutable. Create a new candidate ID/path instead of overwriting one.
-- Rate–distortion output directories are immutable and atomically published. Never resume into or overwrite a final frontier directory.
-- Keep `safetensors`/JSON as canonical artifact formats. Source Track 1 checkpoints may use their existing loader.
-- Reject WT unless its trainer checkpoint, final snapshot, run manifest, and train receipt all agree.
-- Files from `export-track1-checkpoint` are evaluation-only. Never pass one to Track 1 `train --resume`.
-- Run `pytest` after every change to specimen, MGP, codec, tied-weight, accounting, or decoder code.
-- A functional result requires execution through the Track 1 adapter. Parameter error alone is diagnostic.
-- Report MGP bytes, interpreter bytes, W0/base bytes, fitting time, decoding time, verification time, and repair time separately.
-- Build one SVD workspace per frozen specimen/frontier. Charge its factorization cost once, and preserve `rate_distortion_context.json` with every report.
-- Do not include `evaluation.json`, plots, or reports in the target-specific MGP byte count.
-- Hidden-run endpoints and hidden verifier records must never enter compiler training inputs.
+- training: seed0 through seed7;
+- development: seed8;
+- hidden: seed9.
 
-## First real-repository task
+Do not change this split after training begins.
 
-Copy `configs/poetry50m_track1.example.yaml` to a local untracked configuration and run:
+## Hidden endpoint rule
 
-```bash
-genome track1-preflight --config configs/poetry50m_track1.yaml --require-ready
-```
+Before the hidden genome is predicted and sealed:
 
-While R0 is active this command exits non-zero; stop there. Once it succeeds, run:
+- seed9 W0 is allowed;
+- seed9 WT and every later seed9 checkpoint are forbidden;
+- no early training prefix is allowed;
+- no repair or polishing is allowed in the primary result.
 
-```bash
-genome freeze --config configs/poetry50m_track1.yaml
-genome verify --specimen artifacts/specimens/track1_R0 --config configs/poetry50m_track1.yaml
-```
+## Rules
 
-Do not run codecs until both commands pass and the W0-to-WT improvement is reproduced. Never disable `require_complete_endpoint` for the real R0.
+- Never let the compiler read WT values, endpoint hashes, fitted endpoint codes, or intermediate weights.
+- Train the compiler through the frozen decoder against endpoint Delta-T and functional losses. Do not force it to reproduce an arbitrary latent code.
+- Treat seeds as independent model lives. Do not treat checkpoints from one trajectory as independent lives.
+- Keep every Hugging Face revision, LFS hash, dataset revision, and tokenizer identity immutable.
+- Do not download intermediate checkpoints unless an implemented experiment consumes them.
+- Never describe G0 fitted reconstruction as hidden endpoint prediction.
+- Evaluate model behavior. Parameter error alone is not success.
+- Count target genome bytes, shared decoder bytes, W0 bytes, fitting time, compiler time, decode time, and evaluation time separately.
+- Keep primary one-shot results separate from any later repair or polishing result.
+- Preserve immutable output directories. Do not overwrite a completed artifact.
+- Do not train on the local Track 1 endpoint during PolyPythia Round One.
+- Run the complete test suite after changes to MGP, decoder, compiler, source planning, or hidden evaluation code.

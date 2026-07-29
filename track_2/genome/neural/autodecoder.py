@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import math
 import random
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 import torch
 
 from ..codecs.common import make_manifest, make_records
-from ..mgp.opcodes import COPY_FROM_TIED, DENSE_DELTA, NEURAL_BLOCK_FIELD
+from ..mgp.opcodes import COPY_FROM_TIED, NEURAL_BLOCK_FIELD
 from ..state import compute_delta
 from ..tensor_inventory import tied_owner_map
 from ..types import GenomeComponent, GenomeProgram, TensorSpec
@@ -62,11 +63,11 @@ class AutodecoderResult:
     training_config: AutodecoderTrainingConfig
 
 
-def _role_scales(delta: Mapping[str, torch.Tensor], specs: Sequence[TensorSpec]) -> dict[str, float]:
+def _role_scales(
+    delta: Mapping[str, torch.Tensor], specs: Sequence[TensorSpec]
+) -> dict[str, float]:
     values: dict[str, list[torch.Tensor]] = {}
     for spec in specs:
-        if len(spec.shape) != 2:
-            continue
         values.setdefault(spec.role, []).append(delta[spec.name].flatten().abs())
     scales = {}
     for role, chunks in values.items():
@@ -99,9 +100,11 @@ def fit_autodecoder(
 
     delta = compute_delta(base_state, target_state, tensor_specs)
     aliases = tied_owner_map(tied_groups)
-    roles = sorted({spec.role for spec in tensor_specs if len(spec.shape) == 2 and spec.name not in aliases})
+    roles = sorted({spec.role for spec in tensor_specs if spec.name not in aliases})
     role_to_id = {role: index for index, role in enumerate(roles)}
-    layer_values = sorted({spec.layer_index for spec in tensor_specs}, key=lambda x: (-1 if x is None else x))
+    layer_values = sorted(
+        {spec.layer_index for spec in tensor_specs}, key=lambda x: -1 if x is None else x
+    )
     layer_to_slot = {layer: index for index, layer in enumerate(layer_values)}
     role_scales = _role_scales(delta, [spec for spec in tensor_specs if spec.name not in aliases])
 
@@ -141,7 +144,11 @@ def fit_autodecoder(
             [*decoder.parameters(), *codes.parameters()], training_config.grad_clip_norm
         )
         optimizer.step()
-        if update == 1 or update % training_config.log_every == 0 or update == training_config.updates:
+        if (
+            update == 1
+            or update % training_config.log_every == 0
+            or update == training_config.updates
+        ):
             metrics.append({"update": float(update), "block_mse": float(loss.item())})
 
     decoder.eval()
@@ -163,39 +170,39 @@ def fit_autodecoder(
         spec = tensor_specs[record.canonical_index]
         if record.tensor_name in record_aliases:
             record.components.append(
-                GenomeComponent(COPY_FROM_TIED, arguments={"owner": record_aliases[record.tensor_name]})
-            )
-            continue
-        if len(record.shape) == 2:
-            code_key = f"t{record.canonical_index:05d}.tensor_code"
-            payload[code_key] = codes.tensor_codes[record.canonical_index].detach().cpu()
-            normalized_layer = (
-                -1.0
-                if spec.layer_index is None
-                else float(spec.layer_index) / max(max_real_layer, 1)
-            )
-            record.components.append(
                 GenomeComponent(
-                    NEURAL_BLOCK_FIELD,
-                    payload_keys=[code_key],
-                    arguments={
-                        "role": spec.role,
-                        "shape": list(spec.shape),
-                        "layer_slot": layer_to_slot[spec.layer_index],
-                        "normalized_layer": normalized_layer,
-                        "global_code_key": "shared.global_code",
-                        "layer_codes_key": "shared.layer_codes",
-                        "block_rows": decoder_config.block_rows,
-                        "block_cols": decoder_config.block_cols,
-                    },
+                    COPY_FROM_TIED, arguments={"owner": record_aliases[record.tensor_name]}
                 )
             )
-        else:
-            key = f"t{record.canonical_index:05d}.dense_delta"
-            payload[key] = delta[record.tensor_name].to(torch.float32)
-            record.components.append(GenomeComponent(DENSE_DELTA, payload_keys=[key]))
+            continue
+        code_key = f"t{record.canonical_index:05d}.tensor_code"
+        payload[code_key] = codes.tensor_codes[record.canonical_index].detach().cpu()
+        normalized_layer = (
+            -1.0 if spec.layer_index is None else float(spec.layer_index) / max(max_real_layer, 1)
+        )
+        matrix_rows = 1 if len(spec.shape) < 2 else spec.shape[0]
+        matrix_cols = spec.numel // matrix_rows
+        record.components.append(
+            GenomeComponent(
+                NEURAL_BLOCK_FIELD,
+                payload_keys=[code_key],
+                arguments={
+                    "role": spec.role,
+                    "shape": list(spec.shape),
+                    "matrix_shape": [matrix_rows, matrix_cols],
+                    "layer_slot": layer_to_slot[spec.layer_index],
+                    "normalized_layer": normalized_layer,
+                    "global_code_key": "shared.global_code",
+                    "layer_codes_key": "shared.layer_codes",
+                    "block_rows": decoder_config.block_rows,
+                    "block_cols": decoder_config.block_cols,
+                },
+            )
+        )
 
-    manifest = make_manifest(candidate_id=candidate_id, codec="neural_block_field", metadata=manifest_metadata)
+    manifest = make_manifest(
+        candidate_id=candidate_id, codec="neural_block_field", metadata=manifest_metadata
+    )
     manifest.update(
         {
             "interpreter_id": Path(interpreter_path).name,
@@ -207,7 +214,9 @@ def fit_autodecoder(
                 "decoder": decoder_config.to_dict(),
                 "training": asdict(training_config),
                 "role_to_id": role_to_id,
-                "layer_to_slot": {"none" if k is None else str(k): v for k, v in layer_to_slot.items()},
+                "layer_to_slot": {
+                    "none" if k is None else str(k): v for k, v in layer_to_slot.items()
+                },
                 "role_scales": role_scales,
             },
         }
