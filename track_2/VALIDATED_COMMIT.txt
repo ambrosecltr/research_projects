@@ -1,0 +1,7 @@
+validation branch: agent/genome-recovery-validation
+validated source commit: 77bdfa9cd9163f4f657bcbcba3980d148a4300aa
+validation branch commit: 3df5ebe6aa8f5f7de371fec92f87cb65e12e2f9d
+
+The validation branch commit contains the tested code, tests, cleanup documents, environment record,
+and raw local validation logs. The later certification commit adds only VALIDATION_REPORT.md and
+this file.
