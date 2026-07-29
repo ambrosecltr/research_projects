@@ -19,6 +19,7 @@ from .serialize import serialized_program_bytes
 class FitConfig:
     budget_fraction: float = 0.10
     max_rank: int = 32
+    minimum_matrix_rank: int = 0
     vector_quantization: bool = True
     account_for_serialization: bool = False
     svd_method: str = "randomized"
@@ -88,6 +89,10 @@ def fit_low_rank_program(
         raise ValueError("base and target state dictionaries differ")
     if not 0 < config.budget_fraction < 1:
         raise ValueError("budget_fraction must be between zero and one")
+    if config.minimum_matrix_rank < 0:
+        raise ValueError("minimum_matrix_rank must be non-negative")
+    if config.minimum_matrix_rank > config.max_rank:
+        raise ValueError("minimum_matrix_rank cannot exceed max_rank")
     direct_bytes = sum(tensor.numel() * 2 for tensor in target_state.values())
     budget = int(direct_bytes * config.budget_fraction)
     tensor_by_name = {node.name: node for node in graph.tensors}
@@ -127,6 +132,13 @@ def fit_low_rank_program(
     for item in candidates:
         name = item[2]
         svd_cache.setdefault(name, (item[4], item[5], item[6]))
+    minimum_ranks = {
+        name: min(config.minimum_matrix_rank, values[1].numel())
+        for name, values in svd_cache.items()
+    }
+    minimum_cost = sum(
+        cost for _, cost, name, index, *_ in candidates if index < minimum_ranks[name]
+    )
 
     def assemble(
         allocation_budget: int,
@@ -135,10 +147,15 @@ def fit_low_rank_program(
         dict[str, torch.Tensor],
         int,
     ]:
-        remaining = max(0, allocation_budget - vector_cost)
-        selected: dict[str, int] = {}
-        selected_cost = 0
+        fixed_cost = vector_cost + minimum_cost
+        if allocation_budget < fixed_cost:
+            raise ValueError("serialized budget cannot provide the requested minimum matrix ranks")
+        remaining = allocation_budget - fixed_cost
+        selected = dict(minimum_ranks)
+        selected_cost = minimum_cost
         for _, cost, name, index, *_ in sorted(candidates, key=lambda item: item[0], reverse=True):
+            if index < minimum_ranks[name]:
+                continue
             if cost > remaining:
                 continue
             if index != selected.get(name, 0):
@@ -211,8 +228,10 @@ def fit_low_rank_program(
         serialized_bytes = serialized_program_bytes(program, selected_payloads)
         if serialized_bytes <= budget:
             return program, selected_payloads
-        if used <= vector_cost:
-            raise ValueError("serialized program metadata and quantized vectors exceed the budget")
+        if used <= vector_cost + minimum_cost:
+            raise ValueError(
+                "serialized program metadata, quantized vectors and minimum ranks exceed the budget"
+            )
         overshoot = serialized_bytes - budget
         allocation_budget = min(
             allocation_budget - overshoot,

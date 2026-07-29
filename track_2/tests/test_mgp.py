@@ -93,6 +93,31 @@ def test_fit_can_account_for_complete_serialized_size(tmp_path: Path) -> None:
     assert accounting["total_bytes"] <= direct_bytes * budget_fraction
 
 
+def test_fit_can_reserve_a_minimum_rank_for_every_matrix() -> None:
+    torch.manual_seed(12)
+    w0 = {
+        "a": torch.randn(32, 24),
+        "b": torch.randn(24, 32),
+    }
+    wt = {name: value + torch.randn_like(value) for name, value in w0.items()}
+    graph = graph_from_state(w0, family="toy", config={})
+
+    program, _ = fit_low_rank_program(
+        w0,
+        wt,
+        graph,
+        config=FitConfig(
+            budget_fraction=0.20,
+            max_rank=4,
+            minimum_matrix_rank=1,
+        ),
+    )
+
+    for tensor in program.tensors:
+        component = next(item for item in tensor.components if item.primitive == "LOW_RANK")
+        assert component.arguments["rank"] >= 1
+
+
 def test_all_floating_program_coefficients_are_trainable() -> None:
     program = ModelGenomeProgram(
         architecture_id="a",

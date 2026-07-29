@@ -252,6 +252,7 @@ def fit_compact_target(
     output: Path = typer.Option(...),
     budget_fraction: float = typer.Option(0.10),
     max_rank: int = typer.Option(32),
+    minimum_matrix_rank: int = typer.Option(0),
     svd_method: str = typer.Option("randomized"),
     device: str = typer.Option("cpu"),
 ) -> None:
@@ -265,6 +266,7 @@ def fit_compact_target(
         config=FitConfig(
             budget_fraction=budget_fraction,
             max_rank=max_rank,
+            minimum_matrix_rank=minimum_matrix_rank,
             account_for_serialization=True,
             svd_method=svd_method,
             device=device,
