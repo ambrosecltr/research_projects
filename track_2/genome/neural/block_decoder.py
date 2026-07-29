@@ -29,6 +29,7 @@ class BlockDecoderConfig:
     global_code_dim: int = 64
     layer_code_dim: int = 32
     tensor_code_dim: int = 32
+    block_code_dim: int = 0
     role_embedding_dim: int = 16
     feature_dim: int = 7
     hidden_dim: int = 256
@@ -50,6 +51,12 @@ class BlockDecoderConfig:
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                 raise ValueError(f"{name} must be a positive integer")
+        if (
+            isinstance(self.block_code_dim, bool)
+            or not isinstance(self.block_code_dim, int)
+            or self.block_code_dim < 0
+        ):
+            raise ValueError("block_code_dim must be a non-negative integer")
         if isinstance(self.depth, bool) or not isinstance(self.depth, int) or self.depth < 0:
             raise ValueError("depth must be a non-negative integer")
         if not math.isfinite(self.output_scale_clip) or self.output_scale_clip <= 0:
@@ -60,6 +67,8 @@ class BlockDecoderConfig:
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> BlockDecoderConfig:
+        value = dict(value)
+        value.setdefault("block_code_dim", 0)
         expected = set(cls.__dataclass_fields__)
         if set(value) != expected:
             missing = sorted(expected - set(value))
@@ -90,6 +99,7 @@ class RoleConditionedBlockDecoder(nn.Module):
             config.global_code_dim
             + config.layer_code_dim
             + config.tensor_code_dim
+            + config.block_code_dim
             + config.role_embedding_dim
             + config.feature_dim
         )
@@ -108,6 +118,7 @@ class RoleConditionedBlockDecoder(nn.Module):
         tensor_codes: torch.Tensor,
         role_ids: torch.Tensor,
         features: torch.Tensor,
+        block_codes: torch.Tensor | None = None,
     ) -> torch.Tensor:
         if global_codes.ndim == 1:
             global_codes = global_codes.unsqueeze(0)
@@ -115,8 +126,18 @@ class RoleConditionedBlockDecoder(nn.Module):
             layer_codes = layer_codes.unsqueeze(0)
         if tensor_codes.ndim == 1:
             tensor_codes = tensor_codes.unsqueeze(0)
+        values = [global_codes, layer_codes, tensor_codes]
+        if self.config.block_code_dim:
+            if block_codes is None:
+                raise ValueError("block codes are required by this decoder")
+            if block_codes.shape[-1] != self.config.block_code_dim:
+                raise ValueError("block code width does not match the decoder")
+            if block_codes.ndim == 1:
+                block_codes = block_codes.unsqueeze(0)
+            values.append(block_codes)
         role = self.role_embedding(role_ids)
-        value = torch.cat([global_codes, layer_codes, tensor_codes, role, features], dim=-1)
+        values.extend([role, features])
+        value = torch.cat(values, dim=-1)
         output = self.network(value)
         output = torch.tanh(output / self.config.output_scale_clip) * self.config.output_scale_clip
         return output.view(-1, self.config.block_rows, self.config.block_cols)
@@ -302,6 +323,14 @@ class NeuralBlockInterpreter:
         role = str(args["role"])
         role_id = self.role_to_id[role]
         tensor_code = program.payload_tensors[component.payload_keys[0]].to(self.device)
+        block_codes = None
+        if self.config.block_code_dim:
+            block_code_key = args.get("block_codes_key")
+            if not isinstance(block_code_key, str):
+                raise ValueError(f"missing block codes for {record_name}")
+            block_codes = program.payload_tensors[block_code_key].to(self.device)
+            if block_codes.ndim != 2 or block_codes.shape[1] != self.config.block_code_dim:
+                raise ValueError(f"invalid block codes for {record_name}")
         global_code = program.payload_tensors[str(args["global_code_key"])].to(self.device)
         layer_codes = program.payload_tensors[str(args["layer_codes_key"])].to(self.device)
         layer_slot = int(args["layer_slot"])
@@ -313,7 +342,8 @@ class NeuralBlockInterpreter:
             raise ValueError(f"invalid neural matrix shape for {record_name}")
         base_matrix = base_tensor.reshape(rows, cols)
         result = torch.zeros(rows, cols, dtype=torch.float32, device=self.device)
-        items: list[tuple[int, int, int, int, torch.Tensor]] = []
+        items: list[tuple[int, int, int, int, int, torch.Tensor]] = []
+        block_index = 0
         for row_start in range(0, rows, self.config.block_rows):
             for col_start in range(0, cols, self.config.block_cols):
                 row_end = min(row_start + self.config.block_rows, rows)
@@ -336,7 +366,10 @@ class NeuralBlockInterpreter:
                     dtype=torch.float32,
                 )
                 feature = make_block_features(metadata, base_block, self.config)
-                items.append((row_start, row_end, col_start, col_end, feature))
+                items.append((block_index, row_start, row_end, col_start, col_end, feature))
+                block_index += 1
+        if block_codes is not None and block_codes.shape[0] != len(items):
+            raise ValueError(f"block code count does not match {record_name}")
 
         batch_size = int(args.get("decode_batch_size", 256))
         scale = float(args.get("scale", self.role_scales[role]))
@@ -344,8 +377,19 @@ class NeuralBlockInterpreter:
             raise ValueError(f"invalid neural block scale for {record_name}")
         for start in range(0, len(items), batch_size):
             chunk = items[start : start + batch_size]
-            features = torch.stack([item[4] for item in chunk]).to(self.device)
+            features = torch.stack([item[5] for item in chunk]).to(self.device)
             count = len(chunk)
+            chunk_block_codes = (
+                None
+                if block_codes is None
+                else block_codes[
+                    torch.tensor(
+                        [item[0] for item in chunk],
+                        dtype=torch.long,
+                        device=self.device,
+                    )
+                ]
+            )
             predictions = (
                 self.decoder(
                     global_code.unsqueeze(0).expand(count, -1),
@@ -353,10 +397,11 @@ class NeuralBlockInterpreter:
                     tensor_code.unsqueeze(0).expand(count, -1),
                     torch.full((count,), role_id, dtype=torch.long, device=self.device),
                     features,
+                    block_codes=chunk_block_codes,
                 )
                 * scale
             )
-            for prediction, (row_start, row_end, col_start, col_end, _) in zip(
+            for prediction, (_, row_start, row_end, col_start, col_end, _) in zip(
                 predictions, chunk, strict=True
             ):
                 result[row_start:row_end, col_start:col_end] = prediction[

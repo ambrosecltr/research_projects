@@ -31,7 +31,7 @@ These results prove known-endpoint representation. They do not prove endpoint pr
 ### Neural Genome Decoder
 
 - One role-conditioned block decoder shared across independent model lives.
-- Per-life global, layer, and tensor genome codes.
+- Per-life global, layer, tensor, and block genome codes.
 - W0 block values are decoder inputs; WT values are reconstruction targets only.
 - Vector and scalar tensors use the neural block opcode instead of dense endpoint payloads.
 - Frozen-decoder development code fitting for seed8.
@@ -43,6 +43,7 @@ These results prove known-endpoint representation. They do not prove endpoint pr
 - No endpoint hashes, fitted target codes, early weights, or intermediate weights in compiler inputs.
 - Training through the frozen decoder against Delta-T block loss.
 - No arbitrary latent-code label matching.
+- Blockwise code generation avoids a model-sized flat output head.
 - One-shot hidden prediction and immutable prediction seal.
 
 ### Hidden evaluation
@@ -56,7 +57,7 @@ These results prove known-endpoint representation. They do not prove endpoint pr
 
 ## Local validation
 
-- 41 automated tests pass.
+- 45 automated tests pass locally; the one additional CUDA Runtime test is skipped on the Mac.
 - Python bytecode compilation passes.
 - Focused Ruff checks pass for all new and modified Round One modules.
 - A complete synthetic learned path passes:
@@ -72,6 +73,25 @@ The current local source plan reports:
 - post-seal endpoint materialization: 1,016,252,936 bytes.
 
 The large catalogue total is provenance, not the primary download size.
+
+## Paid Round One results so far
+
+Two decoder designs were rejected before compiler training:
+
+- V1 used role-wide scales and had no block codes. Mean parameter relative L2 was
+  `0.662834`; mean Wikitext loss gap was `81.079589`.
+- V2 corrected QKV roles, padded-vector loss, per-tensor scales, and block coordinates.
+  Mean parameter relative L2 was `0.643889`; mean Wikitext loss gap was `87.325305`.
+
+Both designs made decoded models much worse than W0, including on fitted training lives.
+They proved that one global/layer/tensor code hierarchy did not have enough target-specific
+capacity. The hidden seed9 endpoint remained sealed, and no compiler was trained through either
+failed decoder.
+
+V3 adds one 16-value latent code per 16-by-16 block. Pythia 14M has 55,552 untied blocks, so the
+raw block-code payload is 3,555,328 bytes per life before later quantization. The blockwise
+Compiler predicts these codes from allowed evidence and W0 features through the frozen decoder.
+Real V3 quality is not yet claimed.
 
 ## Not yet claimed
 

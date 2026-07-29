@@ -6,7 +6,7 @@ from pathlib import Path
 import httpx
 import pytest
 import torch
-from safetensors.torch import save_file
+from safetensors.torch import load_file, save_file
 from tokenizers import Tokenizer, models, pre_tokenizers
 from transformers import GPTNeoXConfig, GPTNeoXForCausalLM, PreTrainedTokenizerFast
 
@@ -510,6 +510,12 @@ def test_fourier_block_features_are_deterministic():
     assert torch.equal(first[-16:], block.flatten())
 
 
+def test_block_decoder_config_loads_pre_block_code_manifests():
+    legacy = BlockDecoderConfig().to_dict()
+    legacy.pop("block_code_dim")
+    assert BlockDecoderConfig.from_dict(legacy).block_code_dim == 0
+
+
 def _write_synthetic_life(
     root: Path,
     *,
@@ -608,13 +614,14 @@ def test_complete_learned_round_one_path_runs_without_hidden_endpoint(tmp_path):
         global_code_dim=8,
         layer_code_dim=4,
         tensor_code_dim=4,
+        block_code_dim=4,
         role_embedding_dim=4,
         feature_dim=31,
         hidden_dim=32,
         depth=1,
     )
     decoder_path = tmp_path / "shared-decoder"
-    train_shared_decoder(
+    shared_manifest = train_shared_decoder(
         lives[:2],
         tensor_specs=inventory,
         tied_groups=ties,
@@ -629,6 +636,8 @@ def test_complete_learned_round_one_path_runs_without_hidden_endpoint(tmp_path):
             log_every=4,
         ),
     )
+    assert shared_manifest["block_layout"]["block_code_dim"] == 4
+    assert shared_manifest["block_layout"]["block_count"] > 0
     fit_genome_code_with_frozen_decoder(
         lives[2],
         tensor_specs=inventory,
@@ -692,7 +701,7 @@ def test_complete_learned_round_one_path_runs_without_hidden_endpoint(tmp_path):
     assert decoder_evaluation["summary"]["life_count"] == 3
     assert decoder_evaluation["hidden_endpoints_seen"] is False
     compiler_path = tmp_path / "compiler"
-    train_predictive_compiler(
+    compiler_manifest = train_predictive_compiler(
         lives[:2],
         lives[2],
         tensor_specs=inventory,
@@ -711,6 +720,7 @@ def test_complete_learned_round_one_path_runs_without_hidden_endpoint(tmp_path):
             development_batches=1,
         ),
     )
+    assert compiler_manifest["compiler_kind"] == "blockwise"
     prediction_path = tmp_path / "prediction"
     prediction = predict_hidden_genome(
         lives[3],
@@ -722,6 +732,11 @@ def test_complete_learned_round_one_path_runs_without_hidden_endpoint(tmp_path):
         device="cpu",
     )
     assert prediction["seal"]["target_endpoint_seen"] is False
+    predicted_codes = load_file(str(prediction_path / prediction["prediction"]["code_file"]))
+    assert predicted_codes["block_codes"].shape == (
+        shared_manifest["block_layout"]["block_count"],
+        4,
+    )
     runtime_path = tmp_path / "runtime"
     runtime = execute_hidden_prediction(
         lives[3],

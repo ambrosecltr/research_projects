@@ -120,6 +120,7 @@ class MultiLifeGenomeCodes(nn.Module):
         life_count: int,
         layer_count: int,
         tensor_count: int,
+        block_count: int,
         config: BlockDecoderConfig,
     ) -> None:
         super().__init__()
@@ -127,6 +128,7 @@ class MultiLifeGenomeCodes(nn.Module):
             ("life_count", life_count),
             ("layer_count", layer_count),
             ("tensor_count", tensor_count),
+            ("block_count", block_count),
         ):
             if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                 raise ValueError(f"{name} must be a positive integer")
@@ -135,21 +137,50 @@ class MultiLifeGenomeCodes(nn.Module):
         self.tensor_codes = nn.Parameter(
             torch.empty(life_count, tensor_count, config.tensor_code_dim)
         )
+        self.life_count = life_count
+        self.block_count = block_count
+        self.block_code_dim = config.block_code_dim
+        self.block_codes = (
+            nn.Embedding(
+                life_count * block_count,
+                config.block_code_dim,
+                sparse=True,
+            )
+            if config.block_code_dim
+            else None
+        )
         nn.init.normal_(self.global_codes, std=0.02)
         nn.init.normal_(self.layer_codes, std=0.02)
         nn.init.normal_(self.tensor_codes, std=0.02)
+        if self.block_codes is not None:
+            nn.init.normal_(self.block_codes.weight, std=0.02)
+
+    def block_for_batch(
+        self,
+        life_indices: torch.Tensor,
+        reference_indices: torch.Tensor,
+    ) -> torch.Tensor | None:
+        if self.block_codes is None:
+            return None
+        flat_indices = life_indices * self.block_count + reference_indices
+        return self.block_codes(flat_indices)
 
     def for_life(self, index: int) -> dict[str, torch.Tensor]:
-        return {
+        result = {
             "global_code": self.global_codes[index],
             "layer_codes": self.layer_codes[index],
             "tensor_codes": self.tensor_codes[index],
         }
+        if self.block_codes is not None:
+            start = index * self.block_count
+            result["block_codes"] = self.block_codes.weight[start : start + self.block_count]
+        return result
 
 
 @dataclass(frozen=True)
 class BlockBatch:
     life_indices: torch.Tensor
+    reference_indices: torch.Tensor
     layer_slots: torch.Tensor
     tensor_indices: torch.Tensor
     role_ids: torch.Tensor
@@ -335,23 +366,60 @@ class MultiLifeBlockSampler:
             (batch_size,),
             generator=generator,
         )
+        reference_indices = torch.randint(
+            0,
+            len(self.references),
+            (batch_size,),
+            generator=generator,
+        )
+        balanced_count = batch_size // 2
         role_slots = torch.randint(
             0,
             len(self.roles),
-            (batch_size,),
+            (balanced_count,),
             generator=generator,
         )
         offsets = torch.randint(
             0,
             2**31 - 1,
-            (batch_size,),
+            (balanced_count,),
             generator=generator,
         )
-        references = []
-        for role_slot, offset in zip(role_slots.tolist(), offsets.tolist(), strict=True):
+        for index, (role_slot, offset) in enumerate(
+            zip(role_slots.tolist(), offsets.tolist(), strict=True)
+        ):
             role = self.roles[role_slot]
             candidates = self.references_by_role[role]
-            references.append(self.references[candidates[offset % len(candidates)]])
+            reference_indices[index] = candidates[offset % len(candidates)]
+        return self.make_indexed_batch(
+            life_indices=life_indices,
+            reference_indices=reference_indices,
+            device=device,
+        )
+
+    def make_indexed_batch(
+        self,
+        *,
+        life_indices: torch.Tensor,
+        reference_indices: torch.Tensor,
+        device: torch.device,
+    ) -> BlockBatch:
+        life_indices = life_indices.detach().to(dtype=torch.long, device="cpu")
+        reference_indices = reference_indices.detach().to(dtype=torch.long, device="cpu")
+        if (
+            life_indices.ndim != 1
+            or reference_indices.ndim != 1
+            or life_indices.shape != reference_indices.shape
+            or life_indices.numel() < 1
+        ):
+            raise ValueError("life and reference indices must be matching non-empty vectors")
+        if life_indices.min().item() < 0 or life_indices.max().item() >= self.life_count:
+            raise IndexError("life index is outside the block sampler")
+        if reference_indices.min().item() < 0 or reference_indices.max().item() >= len(
+            self.references
+        ):
+            raise IndexError("reference index is outside the block sampler")
+        references = [self.references[index] for index in reference_indices.tolist()]
         features = torch.stack(
             [
                 self._features(life_index, reference)
@@ -359,7 +427,7 @@ class MultiLifeBlockSampler:
             ]
         ).to(device)
         targets = torch.zeros(
-            batch_size,
+            life_indices.numel(),
             self.decoder_config.block_rows,
             self.decoder_config.block_cols,
             dtype=torch.float32,
@@ -387,6 +455,7 @@ class MultiLifeBlockSampler:
             ] = 1.0
         return BlockBatch(
             life_indices=life_indices.to(device),
+            reference_indices=reference_indices.to(device),
             layer_slots=torch.tensor(
                 [reference.layer_slot for reference in references],
                 dtype=torch.long,
@@ -412,7 +481,7 @@ def _decoder_inputs(
     codes: MultiLifeGenomeCodes,
     batch: BlockBatch,
 ) -> dict[str, torch.Tensor]:
-    return {
+    result = {
         "global_codes": codes.global_codes[batch.life_indices],
         "layer_codes": codes.layer_codes[
             batch.life_indices,
@@ -425,6 +494,10 @@ def _decoder_inputs(
         "role_ids": batch.role_ids,
         "features": batch.features,
     }
+    block_codes = codes.block_for_batch(batch.life_indices, batch.reference_indices)
+    if block_codes is not None:
+        result["block_codes"] = block_codes
+    return result
 
 
 def genome_program_from_codes(
@@ -442,6 +515,8 @@ def genome_program_from_codes(
     manifest_metadata: Mapping[str, Any],
 ) -> GenomeProgram:
     expected = {"global_code", "layer_codes", "tensor_codes"}
+    if decoder_config.block_code_dim:
+        expected.add("block_codes")
     if set(codes) != expected:
         raise ValueError(
             f"genome code keys differ; missing={sorted(expected - set(codes))}, "
@@ -456,6 +531,7 @@ def genome_program_from_codes(
         (spec.layer_index for spec in tensor_specs if spec.layer_index is not None),
         default=0,
     )
+    block_cursor = 0
     for record in records:
         spec = tensor_specs[record.canonical_index]
         if record.tensor_name in aliases:
@@ -471,26 +547,44 @@ def genome_program_from_codes(
             codes["tensor_codes"][record.canonical_index].detach().to(torch.float32).cpu()
         )
         rows, cols = tensor_matrix_shape(spec.shape)
+        payload_keys = [key]
+        arguments: dict[str, Any] = {
+            "role": spec.role,
+            "shape": list(spec.shape),
+            "matrix_shape": [rows, cols],
+            "layer_slot": layer_to_slot[spec.layer_index],
+            "normalized_layer": (
+                -1.0 if spec.layer_index is None else spec.layer_index / max(max_layer, 1)
+            ),
+            "global_code_key": "shared.global_code",
+            "layer_codes_key": "shared.layer_codes",
+            "block_rows": decoder_config.block_rows,
+            "block_cols": decoder_config.block_cols,
+            "scale": float(tensor_scales[record.tensor_name]),
+        }
+        if decoder_config.block_code_dim:
+            block_count = math.ceil(rows / decoder_config.block_rows) * math.ceil(
+                cols / decoder_config.block_cols
+            )
+            block_key = f"t{record.canonical_index:05d}.block_codes"
+            payload[block_key] = (
+                codes["block_codes"][block_cursor : block_cursor + block_count]
+                .detach()
+                .to(torch.float32)
+                .cpu()
+            )
+            payload_keys.append(block_key)
+            arguments["block_codes_key"] = block_key
+            block_cursor += block_count
         record.components.append(
             GenomeComponent(
                 NEURAL_BLOCK_FIELD,
-                payload_keys=[key],
-                arguments={
-                    "role": spec.role,
-                    "shape": list(spec.shape),
-                    "matrix_shape": [rows, cols],
-                    "layer_slot": layer_to_slot[spec.layer_index],
-                    "normalized_layer": (
-                        -1.0 if spec.layer_index is None else spec.layer_index / max(max_layer, 1)
-                    ),
-                    "global_code_key": "shared.global_code",
-                    "layer_codes_key": "shared.layer_codes",
-                    "block_rows": decoder_config.block_rows,
-                    "block_cols": decoder_config.block_cols,
-                    "scale": float(tensor_scales[record.tensor_name]),
-                },
+                payload_keys=payload_keys,
+                arguments=arguments,
             )
         )
+    if decoder_config.block_code_dim and block_cursor != codes["block_codes"].shape[0]:
+        raise ValueError("block code count does not match the untied tensor blocks")
     manifest = make_manifest(
         candidate_id=candidate_id,
         codec="shared_neural_genome_decoder",
@@ -513,6 +607,7 @@ def genome_program_from_codes(
                 },
                 "role_scales": {str(key): float(value) for key, value in role_scales.items()},
                 "tensor_scales": {str(key): float(value) for key, value in tensor_scales.items()},
+                "block_count": block_cursor,
             },
         }
     )
@@ -573,8 +668,14 @@ def train_shared_decoder(
         life_count=len(lives),
         layer_count=len(sampler.layer_to_slot),
         tensor_count=len(tensor_specs),
+        block_count=len(sampler.references),
         config=decoder_config,
     ).to(device)
+    dense_code_parameters = [
+        codes.global_codes,
+        codes.layer_codes,
+        codes.tensor_codes,
+    ]
     optimizer = torch.optim.AdamW(
         [
             {
@@ -582,11 +683,19 @@ def train_shared_decoder(
                 "weight_decay": training_config.weight_decay,
             },
             {
-                "params": codes.parameters(),
+                "params": dense_code_parameters,
                 "weight_decay": training_config.code_weight_decay,
             },
         ],
         lr=training_config.learning_rate,
+    )
+    block_optimizer = (
+        torch.optim.SparseAdam(
+            [codes.block_codes.weight],
+            lr=training_config.learning_rate,
+        )
+        if codes.block_codes is not None
+        else None
     )
     generator = torch.Generator(device="cpu").manual_seed(training_config.seed + 1)
     metrics = []
@@ -597,27 +706,33 @@ def train_shared_decoder(
             generator=generator,
             device=device,
         )
-        predictions = decoder(**_decoder_inputs(codes, batch))
+        decoder_inputs = _decoder_inputs(codes, batch)
+        predictions = decoder(**decoder_inputs)
         reconstruction = masked_block_mse(
             predictions,
             batch.targets,
             batch.valid_masks,
         )
-        code_rms = torch.stack(
-            [
-                codes.global_codes.square().mean(),
-                codes.layer_codes.square().mean(),
-                codes.tensor_codes.square().mean(),
-            ]
-        ).mean()
+        code_terms = [
+            codes.global_codes.square().mean(),
+            codes.layer_codes.square().mean(),
+            codes.tensor_codes.square().mean(),
+        ]
+        if "block_codes" in decoder_inputs:
+            code_terms.append(decoder_inputs["block_codes"].square().mean())
+        code_rms = torch.stack(code_terms).mean()
         loss = reconstruction + training_config.code_weight_decay * code_rms
         optimizer.zero_grad(set_to_none=True)
+        if block_optimizer is not None:
+            block_optimizer.zero_grad(set_to_none=True)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(
-            [*decoder.parameters(), *codes.parameters()],
+            [*decoder.parameters(), *dense_code_parameters],
             training_config.grad_clip_norm,
         )
         optimizer.step()
+        if block_optimizer is not None:
+            block_optimizer.step()
         if (
             update == 1
             or update % training_config.log_every == 0
@@ -708,6 +823,10 @@ def train_shared_decoder(
             "decoder_config": decoder_config.to_dict(),
             "training_config": asdict(training_config),
             "layout": layout.to_dict(),
+            "block_layout": {
+                "block_count": len(sampler.references),
+                "block_code_dim": decoder_config.block_code_dim,
+            },
             "role_to_id": sampler.role_to_id,
             "layer_to_slot": {
                 "none" if key is None else str(key): value
@@ -850,12 +969,26 @@ def fit_genome_code_with_frozen_decoder(
         life_count=1,
         layer_count=len(layer_to_slot),
         tensor_count=len(tensor_specs),
+        block_count=len(sampler.references),
         config=interpreter.config,
     ).to(device)
+    dense_code_parameters = [
+        codes.global_codes,
+        codes.layer_codes,
+        codes.tensor_codes,
+    ]
     optimizer = torch.optim.AdamW(
-        codes.parameters(),
+        dense_code_parameters,
         lr=config.learning_rate,
         weight_decay=config.weight_decay,
+    )
+    block_optimizer = (
+        torch.optim.SparseAdam(
+            [codes.block_codes.weight],
+            lr=config.learning_rate,
+        )
+        if codes.block_codes is not None
+        else None
     )
     generator = torch.Generator(device="cpu").manual_seed(config.seed + 1)
     metrics = []
@@ -872,9 +1005,13 @@ def fit_genome_code_with_frozen_decoder(
             batch.valid_masks,
         )
         optimizer.zero_grad(set_to_none=True)
+        if block_optimizer is not None:
+            block_optimizer.zero_grad(set_to_none=True)
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(codes.parameters(), config.grad_clip_norm)
+        torch.nn.utils.clip_grad_norm_(dense_code_parameters, config.grad_clip_norm)
         optimizer.step()
+        if block_optimizer is not None:
+            block_optimizer.step()
         if update == 1 or update % config.log_every == 0 or update == config.updates:
             metrics.append(
                 {

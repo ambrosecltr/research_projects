@@ -24,6 +24,8 @@ from ..io import (
 from ..mgp.serializer import save_program
 from ..polypythia.lives import CanonicalModelLife
 from ..types import TensorSpec
+from .block_decoder import BlockDecoderConfig
+from .blockwise_compiler import BlockwiseGenomeCompiler
 from .compiler import GenomeCodeLayout, GenomeCompiler
 from .multilife_decoder import (
     BlockBatch,
@@ -163,10 +165,25 @@ def _predicted_decoder_inputs(
     }
 
 
+def _blockwise_decoder_inputs(
+    model: BlockwiseGenomeCompiler,
+    context: torch.Tensor,
+    batch: BlockBatch,
+) -> dict[str, torch.Tensor]:
+    return model.decoder_inputs(
+        context,
+        life_indices=batch.life_indices,
+        layer_slots=batch.layer_slots,
+        tensor_indices=batch.tensor_indices,
+        role_ids=batch.role_ids,
+        features=batch.features,
+    )
+
+
 @torch.no_grad()
 def _development_loss(
     *,
-    model: GenomeCompiler,
+    model: GenomeCompiler | BlockwiseGenomeCompiler,
     evidence: EvidenceBatch,
     decoder: torch.nn.Module,
     sampler: MultiLifeBlockSampler,
@@ -175,12 +192,20 @@ def _development_loss(
     device: torch.device,
 ) -> float:
     model.eval()
-    distribution = model(
-        evidence.architecture,
-        evidence.dataset,
-        evidence.conditioning,
-    )
-    codes = distribution.mode()
+    if isinstance(model, BlockwiseGenomeCompiler):
+        context = model.encode_evidence(
+            evidence.architecture,
+            evidence.dataset,
+            evidence.conditioning,
+        )
+        codes = None
+    else:
+        distribution = model(
+            evidence.architecture,
+            evidence.dataset,
+            evidence.conditioning,
+        )
+        codes = distribution.mode()
     losses = []
     for _ in range(config.development_batches):
         batch = sampler.make_batch(
@@ -188,7 +213,12 @@ def _development_loss(
             generator=generator,
             device=device,
         )
-        prediction = decoder(**_predicted_decoder_inputs(codes, batch))
+        decoder_inputs = (
+            _blockwise_decoder_inputs(model, context, batch)
+            if isinstance(model, BlockwiseGenomeCompiler)
+            else _predicted_decoder_inputs(codes, batch)
+        )
+        prediction = decoder(**decoder_inputs)
         losses.append(float(masked_block_mse(prediction, batch.targets, batch.valid_masks).item()))
     model.train()
     return sum(losses) / len(losses)
@@ -260,14 +290,27 @@ def train_predictive_compiler(
         role_scales=interpreter.role_scales,
         tensor_scales=tensor_scales,
     )
-    model = GenomeCompiler(
-        architecture_dim=train_evidence.dimensions["architecture"],
-        dataset_fingerprint_dim=train_evidence.dimensions["dataset"],
-        trajectory_fingerprint_dim=train_evidence.dimensions["conditioning"],
-        layout=layout,
-        hidden_dim=config.hidden_dim,
-        depth=config.depth,
-    ).to(device)
+    if interpreter.config.block_code_dim:
+        model: GenomeCompiler | BlockwiseGenomeCompiler = BlockwiseGenomeCompiler(
+            architecture_dim=train_evidence.dimensions["architecture"],
+            dataset_fingerprint_dim=train_evidence.dimensions["dataset"],
+            conditioning_dim=train_evidence.dimensions["conditioning"],
+            layer_count=len(layer_to_slot),
+            tensor_count=len(tensor_specs),
+            role_count=len(interpreter.role_to_id),
+            decoder_config=interpreter.config,
+            hidden_dim=config.hidden_dim,
+            depth=config.depth,
+        ).to(device)
+    else:
+        model = GenomeCompiler(
+            architecture_dim=train_evidence.dimensions["architecture"],
+            dataset_fingerprint_dim=train_evidence.dimensions["dataset"],
+            trajectory_fingerprint_dim=train_evidence.dimensions["conditioning"],
+            layout=layout,
+            hidden_dim=config.hidden_dim,
+            depth=config.depth,
+        ).to(device)
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=config.learning_rate,
@@ -278,24 +321,34 @@ def train_predictive_compiler(
     metrics = []
     model.train()
     for update in range(1, config.updates + 1):
-        distribution = model(
-            train_evidence.architecture,
-            train_evidence.dataset,
-            train_evidence.conditioning,
-        )
-        codes = distribution.mode()
         batch = train_sampler.make_batch(
             batch_size=config.batch_size,
             generator=train_generator,
             device=device,
         )
-        prediction = decoder(**_predicted_decoder_inputs(codes, batch))
+        if isinstance(model, BlockwiseGenomeCompiler):
+            context = model.encode_evidence(
+                train_evidence.architecture,
+                train_evidence.dataset,
+                train_evidence.conditioning,
+            )
+            decoder_inputs = _blockwise_decoder_inputs(model, context, batch)
+            rate = model.rate_proxy(decoder_inputs)
+        else:
+            distribution = model(
+                train_evidence.architecture,
+                train_evidence.dataset,
+                train_evidence.conditioning,
+            )
+            codes = distribution.mode()
+            decoder_inputs = _predicted_decoder_inputs(codes, batch)
+            rate = distribution.rate_proxy() / (len(training_lives) * layout.total_dim)
+        prediction = decoder(**decoder_inputs)
         endpoint_loss = masked_block_mse(
             prediction,
             batch.targets,
             batch.valid_masks,
         )
-        rate = distribution.rate_proxy() / (len(training_lives) * layout.total_dim)
         loss = endpoint_loss + config.rate_weight * rate
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
@@ -337,6 +390,9 @@ def train_predictive_compiler(
             "format": "GENOME_PREDICTIVE_COMPILER",
             "version": "0.1.0",
             "training_method": "frozen_decoder_endpoint_loss",
+            "compiler_kind": (
+                "blockwise" if isinstance(model, BlockwiseGenomeCompiler) else "flat"
+            ),
             "arbitrary_latent_code_labels_used": False,
             "early_training_prefix_used": False,
             "repair_or_polishing_used": False,
@@ -344,6 +400,12 @@ def train_predictive_compiler(
             "development_run_id": development_life.run_id,
             "training_config": asdict(config),
             "layout": layout.to_dict(),
+            "model_config": {
+                "layer_count": len(layer_to_slot),
+                "tensor_count": len(tensor_specs),
+                "role_count": len(interpreter.role_to_id),
+                "decoder_config": interpreter.config.to_dict(),
+            },
             "evidence_dimensions": train_evidence.dimensions,
             "weights_file": "compiler.safetensors",
             "weights_sha256": sha256_file(weights_path),
@@ -365,7 +427,7 @@ def load_predictive_compiler(
     path: str | Path,
     *,
     device: str | torch.device = "cpu",
-) -> tuple[GenomeCompiler, dict[str, Any]]:
+) -> tuple[GenomeCompiler | BlockwiseGenomeCompiler, dict[str, Any]]:
     root = Path(path).expanduser().resolve(strict=True)
     manifest = read_json(root / "manifest.json")
     if not isinstance(manifest, dict):
@@ -383,17 +445,34 @@ def load_predictive_compiler(
     )
     if sha256_file(weights_path) != manifest["weights_sha256"]:
         raise ValueError("predictive compiler weight hash mismatch")
-    layout = GenomeCodeLayout(**manifest["layout"])
     dimensions = manifest["evidence_dimensions"]
     config = PredictiveCompilerTrainingConfig(**manifest["training_config"])
-    model = GenomeCompiler(
-        architecture_dim=int(dimensions["architecture"]),
-        dataset_fingerprint_dim=int(dimensions["dataset"]),
-        trajectory_fingerprint_dim=int(dimensions["conditioning"]),
-        layout=layout,
-        hidden_dim=config.hidden_dim,
-        depth=config.depth,
-    )
+    compiler_kind = manifest.get("compiler_kind", "flat")
+    if compiler_kind == "blockwise":
+        model_config = manifest["model_config"]
+        model: GenomeCompiler | BlockwiseGenomeCompiler = BlockwiseGenomeCompiler(
+            architecture_dim=int(dimensions["architecture"]),
+            dataset_fingerprint_dim=int(dimensions["dataset"]),
+            conditioning_dim=int(dimensions["conditioning"]),
+            layer_count=int(model_config["layer_count"]),
+            tensor_count=int(model_config["tensor_count"]),
+            role_count=int(model_config["role_count"]),
+            decoder_config=BlockDecoderConfig.from_dict(model_config["decoder_config"]),
+            hidden_dim=config.hidden_dim,
+            depth=config.depth,
+        )
+    elif compiler_kind == "flat":
+        layout = GenomeCodeLayout(**manifest["layout"])
+        model = GenomeCompiler(
+            architecture_dim=int(dimensions["architecture"]),
+            dataset_fingerprint_dim=int(dimensions["dataset"]),
+            trajectory_fingerprint_dim=int(dimensions["conditioning"]),
+            layout=layout,
+            hidden_dim=config.hidden_dim,
+            depth=config.depth,
+        )
+    else:
+        raise ValueError(f"unsupported predictive compiler kind: {compiler_kind!r}")
     model.load_state_dict(load_file(str(weights_path), device=str(device)), strict=True)
     return model.to(device).eval(), manifest
 
@@ -434,16 +513,62 @@ def predict_hidden_genome(
     evidence = _stack_evidence([hidden_life], device=device_object)
     if evidence.dimensions != compiler_manifest["evidence_dimensions"]:
         raise ValueError("hidden evidence dimensions differ from compiler training")
+    tensor_scales = decoder_tensor_scales(
+        decoder_manifest,
+        tensor_specs,
+        tied_groups,
+        interpreter.role_scales,
+    )
     with torch.no_grad():
-        distribution = compiler(
-            evidence.architecture,
-            evidence.dataset,
-            evidence.conditioning,
-        )
-        predicted = {
-            name: value[0].detach().to(torch.float32).cpu()
-            for name, value in distribution.mode().items()
-        }
+        if isinstance(compiler, BlockwiseGenomeCompiler):
+            context = compiler.encode_evidence(
+                evidence.architecture,
+                evidence.dataset,
+                evidence.conditioning,
+            )
+            shared = compiler.shared_codes(context)
+            base_state = hidden_life.load_base()
+            hidden_sampler = MultiLifeBlockSampler(
+                base_states=[base_state],
+                target_states=[base_state],
+                tensor_specs=tensor_specs,
+                tied_groups=tied_groups,
+                decoder_config=interpreter.config,
+                role_to_id=interpreter.role_to_id,
+                layer_to_slot=layer_to_slot,
+                role_scales=interpreter.role_scales,
+                tensor_scales=tensor_scales,
+            )
+            expected_blocks = int(decoder_manifest["block_layout"]["block_count"])
+            if len(hidden_sampler.references) != expected_blocks:
+                raise ValueError("hidden block layout differs from shared decoder training")
+            block_batches = []
+            compile_batch_size = int(compiler_manifest["training_config"]["batch_size"])
+            for start in range(0, expected_blocks, compile_batch_size):
+                stop = min(start + compile_batch_size, expected_blocks)
+                batch = hidden_sampler.make_indexed_batch(
+                    life_indices=torch.zeros(stop - start, dtype=torch.long),
+                    reference_indices=torch.arange(start, stop, dtype=torch.long),
+                    device=device_object,
+                )
+                inputs = _blockwise_decoder_inputs(compiler, context, batch)
+                block_batches.append(inputs["block_codes"].to(torch.float32).cpu())
+            predicted = {
+                "global_code": shared["global_code"][0].to(torch.float32).cpu(),
+                "layer_codes": shared["layer_codes"][0].to(torch.float32).cpu(),
+                "tensor_codes": shared["tensor_codes"][0].to(torch.float32).cpu(),
+                "block_codes": torch.cat(block_batches),
+            }
+        else:
+            distribution = compiler(
+                evidence.architecture,
+                evidence.dataset,
+                evidence.conditioning,
+            )
+            predicted = {
+                name: value[0].detach().to(torch.float32).cpu()
+                for name, value in distribution.mode().items()
+            }
     interpreter_path = resolve_artifact_directory(
         decoder_root,
         decoder_manifest["interpreter"]["path"],
@@ -451,12 +576,6 @@ def predict_hidden_genome(
     )
     info = interpreter_artifact_info(interpreter_path)
     compiler_root = Path(compiler_path).expanduser().resolve(strict=True)
-    tensor_scales = decoder_tensor_scales(
-        decoder_manifest,
-        tensor_specs,
-        tied_groups,
-        interpreter.role_scales,
-    )
     program = genome_program_from_codes(
         codes=predicted,
         tensor_specs=tensor_specs,
