@@ -1,93 +1,169 @@
 # GENOME Track 2
 
-GENOME means **Generative Endpoint Neural Operator for Model Emission**.
+GENOME trains a model to generate trained models.
 
-Track 2 tests whether a learned system can generate a complete trained model from:
+The active experiment is deliberately narrow and testable:
 
-- the model's true random initial weights, `W0`;
-- its architecture and tokenizer;
-- a fingerprint of its dataset and data order;
-- its complete training recipe.
-
-The primary result is one-shot generation. It does not use an early training prefix, WT, repair, or polishing.
-
-## Three separate components
-
-1. **MGP Runtime** is deterministic code. It applies a genome to W0 and assembles a runnable model.
-2. **Neural Genome Decoder** is a shared learned model. It expands a compact genome code into the full weight change `Delta-T`.
-3. **GENOME Compiler** is a learned model. It predicts a genome code from W0 and the allowed model-life description.
-
-Do not use “decoder” and “compiler” as names for the same component.
-
-## What is already proven
-
-The deterministic MGP path can encode a known W0-to-WT change and decode it back into a model. That proves representation mechanics. It does not prove that the compiler can predict an unseen WT.
-
-## PolyPythia Round One
-
-Round One uses ten complete standard, non-deduplicated Pythia 14M model lives:
-
-- training: seed0 through seed7;
-- development: seed8;
-- hidden one-shot evaluation: seed9.
-
-The public source plan pins all 154 checkpoints for each life. The primary experiment only materializes W0 and WT because intermediate checkpoints are forbidden compiler inputs and are not consumed by the decoder objective.
-
-The hidden sequence is strict:
-
-1. materialize hidden seed9 W0 only;
-2. train the decoder and compiler without hidden WT;
-3. predict, hash, and seal the hidden genome;
-4. decode it and run a forward pass;
-5. verify the sealed prediction and runtime execution record;
-6. only then materialize hidden WT and evaluate.
-
-See [POLYPYTHIA_ROUND1.md](POLYPYTHIA_ROUND1.md) for the exact commands and artifact order.
-See [POLYPYTHIA_ROUND1_RESULTS.md](POLYPYTHIA_ROUND1_RESULTS.md) for the completed result,
-including the successful V4 decoder and failed hidden Compiler transfer.
-
-## Install and test
-
-```bash
-cd /Users/ambrosecoulter/research_projects/track_2
-uv venv --python 3.11 .venv
-uv pip install --python .venv/bin/python -e '.[dev,evaluation]'
-.venv/bin/python -m pytest -q
+```text
+true random W0
++ architecture graph
++ semantic evidence from the training corpus and W0
++ complete intended training recipe
+    -> one learned GENOME Compiler
+    -> compact executable Model Genome Program (MGP)
+    -> deterministic Runtime
+    -> runnable candidate endpoint
 ```
 
-The production dependency range matches the RunPod PyTorch 2.4 image.
+The compiler never receives the final weights of the life on which it is being tested.
 
-## Main command group
+## Clean project boundary
 
-```bash
-.venv/bin/genome polypythia --help
+This directory is the authoritative Track 2 implementation. Only forward-use code, tests and documentation are included.
+
+There is exactly one learned model in the active path: `GenomeCompiler`.
+
+The Runtime is normal deterministic tensor code. It executes compact primitives:
+
+```text
+BASE_COPY
+LOW_RANK
+QUANTIZED_VECTOR
+SPARSE_PATCH
+COPY_FROM_TIED
 ```
 
-The command group covers:
+There is no dense-delta opcode, exact-residual opcode, neural-field opcode, or one-value-per-weight escape hatch.
 
-- immutable source planning;
-- sealed endpoint download;
-- canonical GPT-NeoX conversion;
-- shared decoder training and development-code fitting;
-- decoder reconstruction evaluation;
-- compiler training through the frozen decoder;
-- sealed hidden genome prediction and runtime execution;
-- post-reveal Wikitext and LM Evaluation Harness comparisons.
+## First corpus
 
-## Track 1 boundary
+Only the standard non-deduplicated Pythia/PolyPythia family is used initially.
 
-The new local 8M Track 1 model is not decoder or compiler training data for PolyPythia Round One. It remains outside the training split and can be used later for integration or hidden transfer evaluation.
+| Lives | Assignment |
+|---|---|
+| Pythia 14M seeds 0–7 | training |
+| Pythia 14M seed 8 | development |
+| Pythia 31M seeds 0–7 | training |
+| Pythia 31M seed 8 | development |
+| Pythia 31M seed 9 | fresh hidden evaluation |
 
-The old `configs/poetry50m_track1.example.yaml` file is retained only for the previous 50M G0 compatibility path. It is not the full-life record for the new 8M model. See [TRACK1_INTEGRATION.md](TRACK1_INTEGRATION.md).
+The split unit is one complete model life. A checkpoint is not an independent example.
 
-## Scientific claims
+## Program and functional gates
 
-Keep these claims separate:
+A fitted target MGP is only a candidate until it passes all of these gates:
 
-- **Proven:** a known endpoint can be represented and decoded by MGP.
-- **Round One decoder question:** one shared neural decoder can compactly represent varied 14M model lives.
-- **Round One compiler question:** the compiler can predict hidden seed9 from allowed evidence without WT.
-- **Round Two question:** the result transfers across more sizes and is not a 14M-family memorization effect.
-- **Later question:** transfer across datasets, recipes, and architecture families.
+1. It uses only approved compact primitives.
+2. Its actual serialized target-specific bytes are at most 10% of direct fp16 Delta-T.
+3. It loads and executes through the Runtime.
+4. The resulting model has finite logits.
+5. It beats W0.
+6. On development lives, it closes at least 80% of the W0-to-WT validation-loss gap.
 
-Parameter error is diagnostic. A successful model result also needs model execution and matched functional evaluation.
+The development threshold is declared before the fresh hidden endpoint is revealed.
+
+Endpoint progress is:
+
+\[
+P=\frac{L(W_0)-L(\widehat W)}{L(W_0)-L(W_T)}.
+\]
+
+No repair is included in the one-shot result.
+
+## Compiler architecture
+
+The compiler is hierarchical rather than a flat coefficient language model:
+
+```text
+model/task evidence
+    -> graph message passing over logical tensors
+    -> bidirectional tensor encoder
+    -> primitive and rank decisions
+    -> shared coordinate-conditioned coefficient heads
+    -> bounded per-tensor coefficient packets
+    -> deterministic MGP serialization
+```
+
+Coefficients are emitted through bounded structured heads, not one sequence token per handful of floats.
+
+## Repository map
+
+| Path | Purpose |
+|---|---|
+| `genome/life.py` | Complete model-life and whole-life split contracts. |
+| `genome/sources.py` | Pythia source plan, ref resolution, materialization and hidden reveal. |
+| `genome/adapters/gpt_neox.py` | Reversible Pythia/GPT-NeoX state adapter. |
+| `genome/fingerprint.py` | Corpus and endpoint-free W0 response evidence. |
+| `genome/mgp/` | Compact program schema, fitting, policy, serialization and Runtime. |
+| `genome/compiler/model.py` | The single learned GENOME Compiler. |
+| `genome/compiler/data.py` | Architecture/W0/evidence features and compiler corpus records. |
+| `genome/compiler/train.py` | Resumable compiler training and development selection. |
+| `genome/evaluation.py` | Functional Genome Gate and endpoint-progress metrics. |
+| `genome/hidden.py` | Prediction sealing before hidden WT reveal. |
+| `genome/workspace.py` | Fresh RunPod volume layout. |
+| `docs/THEORY_AND_MATH.md` | Formal problem and objective. |
+| `docs/EXPERIMENT_PLAN.md` | Ordered gates from source audit through hidden evaluation. |
+| `docs/RUNPOD_HANDOFF.md` | Exact handoff for the next agent. |
+| `docs/SOURCE_MATRIX.md` | Pythia source and storage plan. |
+
+## Local commands
+
+```bash
+cd track_2
+python -m pip install -e '.[dev,evaluation]'
+python -m compileall -q genome tests
+python -m pytest -q
+python -m genome --help
+```
+
+Initialize a new RunPod network volume:
+
+```bash
+genome init-workspace --root /workspace/genome_v1
+```
+
+Write and resolve the source plan:
+
+```bash
+genome write-source-plan --output configs/sources/pythia_v1.generated.json
+genome resolve-source-plan \
+  --plan configs/sources/pythia_v1.generated.json \
+  --output /workspace/genome_v1/control/pythia_v1.pinned.json
+```
+
+The hidden 31M seed9 WT is not resolved or downloaded by this command.
+
+## Current status
+
+Implemented and locally exercised:
+
+- complete model-life schema;
+- whole-life split enforcement;
+- hidden endpoint exclusion;
+- source planning and pinning;
+- reversible GPT-NeoX adapter;
+- corpus and W0-response fingerprints;
+- compact MGP schema and deterministic Runtime;
+- low-rank target fitting with scalable truncated SVD;
+- actual serialized byte audits;
+- functional target refinement hook;
+- functional Genome Gate;
+- hierarchical variable-tensor compiler;
+- prediction-dependent byte proxy;
+- structural and functional compiler losses;
+- compiler checkpointing and resume artifacts;
+- hidden prediction seal;
+- local unit and end-to-end compiler smoke tests.
+
+Still intentionally left for the RunPod agent:
+
+- pin exact Hugging Face commits in the network environment;
+- materialize the approved Pythia W0/WT pairs;
+- build real Pile sample and W0-response evidence;
+- fit and functionally refine real compact target programs;
+- admit only programs that pass the gates;
+- construct the compiler corpus manifest;
+- run the real GPU smoke and production compiler training;
+- seal and evaluate fresh hidden Pythia 31M seed9.
+
+Read `AGENTS.md` and `docs/RUNPOD_HANDOFF.md` before modifying the project.

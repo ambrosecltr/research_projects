@@ -1,23 +1,3 @@
-"""GENOME — Generative Endpoint Neural Operator for Model Emission."""
+"""GENOME Track 2: one learned compiler and one deterministic runtime."""
 
-from .types import (
-    BitBreakdown,
-    EvaluationReport,
-    GenomeBudget,
-    GenomeComponent,
-    GenomeProgram,
-    TensorGenomeRecord,
-    TensorSpec,
-)
-
-__all__ = [
-    "BitBreakdown",
-    "EvaluationReport",
-    "GenomeBudget",
-    "GenomeComponent",
-    "GenomeProgram",
-    "TensorGenomeRecord",
-    "TensorSpec",
-]
-
-__version__ = "0.2.0"
+__version__ = "1.0.0"

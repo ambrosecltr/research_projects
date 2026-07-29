@@ -1,16 +1,14 @@
-.PHONY: install test demo demo-neural clean
+.PHONY: install test check help
 
 install:
-	python -m pip install -e '.[dev,analysis]'
+	python -m pip install -e '.[dev,evaluation]'
 
 test:
-	pytest -q
+	python -m pytest -q
 
-demo:
-	genome demo --output artifacts/demo --force
+check:
+	python -m compileall -q genome tests
+	python -m pytest -q
 
-demo-neural:
-	genome demo --output artifacts/demo_neural --neural --force
-
-clean:
-	rm -rf .pytest_cache build dist *.egg-info
+help:
+	python -m genome --help
