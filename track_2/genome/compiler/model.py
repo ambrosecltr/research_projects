@@ -618,8 +618,17 @@ def compiler_loss(
 ) -> tuple[torch.Tensor, dict[str, float]]:
     prediction = compiler(example)
     device = prediction.contexts.device
-    primitive_loss = F.cross_entropy(prediction.primitive_logits, target_primitives.to(device))
-    rank_loss = F.cross_entropy(prediction.rank_logits, target_ranks.to(device))
+    primitive_targets = target_primitives.to(device)
+    rank_targets = target_ranks.to(device)
+    primitive_loss = F.cross_entropy(prediction.primitive_logits, primitive_targets)
+    rank_loss = F.cross_entropy(prediction.rank_logits, rank_targets)
+    rank_mask = primitive_targets == 1
+    rank_correct = prediction.rank_logits.argmax(dim=-1) == rank_targets
+    rank_accuracy = (
+        rank_correct[rank_mask].float().mean()
+        if bool(rank_mask.any())
+        else rank_correct.float().mean()
+    )
     predicted = decode_teacher_forced(
         compiler,
         example,
@@ -664,6 +673,10 @@ def compiler_loss(
         "loss": float(loss.detach()),
         "primitive_loss": float(primitive_loss.detach()),
         "rank_loss": float(rank_loss.detach()),
+        "primitive_accuracy": float(
+            (prediction.primitive_logits.argmax(dim=-1) == primitive_targets).float().mean()
+        ),
+        "rank_accuracy": float(rank_accuracy),
         "reconstruction_loss": float(reconstruction.detach()),
         "functional_loss": float(functional.detach()),
         "expected_bytes": float(expected_bytes.detach()),

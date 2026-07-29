@@ -63,6 +63,8 @@ def test_hierarchical_compiler_forward_backward_and_program() -> None:
     loss.backward()
     assert torch.isfinite(loss)
     assert metrics["expected_bytes"] >= 0
+    assert 0.0 <= metrics["primitive_accuracy"] <= 1.0
+    assert 0.0 <= metrics["rank_accuracy"] <= 1.0
     program, payloads = compiler.generate_program(
         example,
         direct_fp16_delta_bytes=direct_fp16_delta_bytes(w0),
