@@ -168,7 +168,9 @@ decoder:
   global_code_dim: 64
   layer_code_dim: 32
   tensor_code_dim: 32
-  block_code_dim: 16
+  block_code_dim: 256
+  block_code_mode: residual
+  block_code_storage_dtype: float16
   role_embedding_dim: 16
   coordinate_frequencies: 12
   hidden_dim: 512

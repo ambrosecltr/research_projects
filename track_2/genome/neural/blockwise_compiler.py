@@ -150,6 +150,8 @@ class BlockwiseGenomeCompiler(nn.Module):
                 dim=-1,
             )
         )
+        if self.decoder_config.block_code_storage_dtype == "float16":
+            block_codes = block_codes.to(torch.float16).to(context.dtype)
         return {
             "global_codes": shared["global_code"][life_indices],
             "layer_codes": shared["layer_codes"][life_indices, layer_slots],

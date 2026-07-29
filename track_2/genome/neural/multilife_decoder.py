@@ -146,7 +146,7 @@ class MultiLifeGenomeCodes(nn.Module):
                 config.block_code_dim,
                 sparse=True,
             )
-            if config.block_code_dim
+            if config.block_code_dim and config.block_code_mode == "network"
             else None
         )
         nn.init.normal_(self.global_codes, std=0.02)
@@ -497,6 +497,55 @@ def _decoder_inputs(
     block_codes = codes.block_for_batch(batch.life_indices, batch.reference_indices)
     if block_codes is not None:
         result["block_codes"] = block_codes
+    elif codes.block_code_dim:
+        result["block_codes"] = torch.zeros(
+            batch.life_indices.shape[0],
+            codes.block_code_dim,
+            dtype=batch.features.dtype,
+            device=batch.features.device,
+        )
+    return result
+
+
+def _block_code_storage_dtype(config: BlockDecoderConfig) -> torch.dtype:
+    return torch.float16 if config.block_code_storage_dtype == "float16" else torch.float32
+
+
+@torch.no_grad()
+def materialize_residual_block_codes(
+    *,
+    decoder: RoleConditionedBlockDecoder,
+    codes: MultiLifeGenomeCodes,
+    sampler: MultiLifeBlockSampler,
+    life_index: int,
+    device: torch.device,
+    batch_size: int,
+) -> torch.Tensor:
+    config = decoder.config
+    if config.block_code_mode != "residual":
+        raise ValueError("residual block-code materialization requires a residual decoder")
+    if life_index < 0 or life_index >= sampler.life_count:
+        raise IndexError("life index is outside the block sampler")
+    result = torch.empty(
+        len(sampler.references),
+        config.block_code_dim,
+        dtype=_block_code_storage_dtype(config),
+        device="cpu",
+    )
+    for start in range(0, len(sampler.references), batch_size):
+        stop = min(start + batch_size, len(sampler.references))
+        batch = sampler.make_indexed_batch(
+            life_indices=torch.full((stop - start,), life_index, dtype=torch.long),
+            reference_indices=torch.arange(start, stop, dtype=torch.long),
+            device=device,
+        )
+        structured = decoder(**_decoder_inputs(codes, batch))
+        residual = (batch.targets - structured) * batch.valid_masks
+        result[start:stop] = (
+            residual.flatten(1)
+            .to(dtype=_block_code_storage_dtype(config), device="cpu")
+            .contiguous()
+        )
     return result
 
 
@@ -570,7 +619,7 @@ def genome_program_from_codes(
             payload[block_key] = (
                 codes["block_codes"][block_cursor : block_cursor + block_count]
                 .detach()
-                .to(torch.float32)
+                .to(_block_code_storage_dtype(decoder_config))
                 .cpu()
             )
             payload_keys.append(block_key)
@@ -757,7 +806,11 @@ def train_shared_decoder(
             role_scales=sampler.role_scales,
             path=interpreter_path,
             training_metadata={
-                "method": "joint_multi_life_autodecoder",
+                "method": (
+                    "structured_decoder_with_canonical_residual_codes"
+                    if decoder_config.block_code_mode == "residual"
+                    else "joint_multi_life_autodecoder"
+                ),
                 "training_run_ids": [life.run_id for life in lives],
                 "training_config": asdict(training_config),
                 "target_endpoints_seen": True,
@@ -774,6 +827,15 @@ def train_shared_decoder(
                 name: value.detach().to(torch.float32).cpu()
                 for name, value in codes.for_life(index).items()
             }
+            if decoder_config.block_code_mode == "residual":
+                life_codes["block_codes"] = materialize_residual_block_codes(
+                    decoder=decoder,
+                    codes=codes,
+                    sampler=sampler,
+                    life_index=index,
+                    device=device,
+                    batch_size=training_config.batch_size,
+                )
             code_path = code_root / f"{life.run_id}.safetensors"
             save_file(life_codes, str(code_path))
             program = genome_program_from_codes(
@@ -826,6 +888,8 @@ def train_shared_decoder(
             "block_layout": {
                 "block_count": len(sampler.references),
                 "block_code_dim": decoder_config.block_code_dim,
+                "block_code_mode": decoder_config.block_code_mode,
+                "block_code_storage_dtype": decoder_config.block_code_storage_dtype,
             },
             "role_to_id": sampler.role_to_id,
             "layer_to_slot": {
@@ -1022,6 +1086,15 @@ def fit_genome_code_with_frozen_decoder(
     life_codes = {
         name: value.detach().to(torch.float32).cpu() for name, value in codes.for_life(0).items()
     }
+    if interpreter.config.block_code_mode == "residual":
+        life_codes["block_codes"] = materialize_residual_block_codes(
+            decoder=decoder,
+            codes=codes,
+            sampler=sampler,
+            life_index=0,
+            device=device,
+            batch_size=config.batch_size,
+        )
     decoder_root = Path(shared_decoder_path).expanduser().resolve(strict=True)
     interpreter_path = resolve_artifact_directory(
         decoder_root,

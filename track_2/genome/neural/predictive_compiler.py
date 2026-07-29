@@ -557,7 +557,11 @@ def predict_hidden_genome(
                 "global_code": shared["global_code"][0].to(torch.float32).cpu(),
                 "layer_codes": shared["layer_codes"][0].to(torch.float32).cpu(),
                 "tensor_codes": shared["tensor_codes"][0].to(torch.float32).cpu(),
-                "block_codes": torch.cat(block_batches),
+                "block_codes": torch.cat(block_batches).to(
+                    torch.float16
+                    if interpreter.config.block_code_storage_dtype == "float16"
+                    else torch.float32
+                ),
             }
         else:
             distribution = compiler(

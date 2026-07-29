@@ -57,7 +57,7 @@ These results prove known-endpoint representation. They do not prove endpoint pr
 
 ## Local validation
 
-- 45 automated tests pass locally; the one additional CUDA Runtime test is skipped on the Mac.
+- 49 automated tests pass locally; the one additional CUDA Runtime test is skipped on the Mac.
 - Python bytecode compilation passes.
 - Focused Ruff checks pass for all new and modified Round One modules.
 - A complete synthetic learned path passes:
@@ -88,10 +88,31 @@ They proved that one global/layer/tensor code hierarchy did not have enough targ
 capacity. The hidden seed9 endpoint remained sealed, and no compiler was trained through either
 failed decoder.
 
-V3 adds one 16-value latent code per 16-by-16 block. Pythia 14M has 55,552 untied blocks, so the
-raw block-code payload is 3,555,328 bytes per life before later quantization. The blockwise
-Compiler predicts these codes from allowed evidence and W0 features through the frozen decoder.
-Real V3 quality is not yet claimed.
+V3 added one free 16-value latent code per 16-by-16 block. It reduced mean parameter relative L2
+to `0.389099`, but mean Wikitext loss gap increased to `89.719535`. Seed8 decoded loss was
+`193.530336`, compared with W0 at `11.055402` and WT at `5.461259`. Free block latents therefore
+improved parameter reconstruction without preserving model function.
+
+The exact rate analysis then established why:
+
+- 16-value role-conditioned linear block codes preserve only `47.9460%` of centered delta energy;
+- the input embedding preserves only `6.97%` at width 16 and `51.77%` at width 128;
+- fp16 SVD rank 112 is still worse than W0 on seed8, with Wikitext loss `14.018015`;
+- full rank 128 reaches loss `5.519440` but uses `28,994,048` payload bytes;
+- direct fp16 Delta-T uses `28,135,424` payload bytes and reaches loss `5.460485`;
+- direct int8 Delta-T uses `14,068,016` bytes but degrades loss to `7.263859`;
+- direct int4 Delta-T uses `7,034,160` bytes and degrades loss to `57.704032`.
+
+V4 therefore uses canonical fp16 block residuals. The shared decoder learns a structured
+global/layer/tensor prediction from W0 and metadata. Each genome stores the deterministic
+remaining residual:
+
+`normalized Delta-T block - frozen structured decoder prediction`.
+
+This removes arbitrary latent-code labels, preserves the known endpoint at the measured precision,
+and makes Compiler training a direct endpoint-prediction test. The V4 residual payload is expected
+to be about 28.4 MB before MGP metadata, plus one shared decoder amortized across model lives.
+Real V4 and Compiler quality are not yet claimed.
 
 ## Not yet claimed
 

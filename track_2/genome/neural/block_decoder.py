@@ -30,6 +30,8 @@ class BlockDecoderConfig:
     layer_code_dim: int = 32
     tensor_code_dim: int = 32
     block_code_dim: int = 0
+    block_code_mode: str = "network"
+    block_code_storage_dtype: str = "float32"
     role_embedding_dim: int = 16
     feature_dim: int = 7
     hidden_dim: int = 256
@@ -57,6 +59,14 @@ class BlockDecoderConfig:
             or self.block_code_dim < 0
         ):
             raise ValueError("block_code_dim must be a non-negative integer")
+        if self.block_code_mode not in {"network", "residual"}:
+            raise ValueError("block_code_mode must be network or residual")
+        if self.block_code_storage_dtype not in {"float16", "float32"}:
+            raise ValueError("block_code_storage_dtype must be float16 or float32")
+        if self.block_code_mode == "residual" and self.block_code_dim != (
+            self.block_rows * self.block_cols
+        ):
+            raise ValueError("residual block codes must contain one value per block position")
         if isinstance(self.depth, bool) or not isinstance(self.depth, int) or self.depth < 0:
             raise ValueError("depth must be a non-negative integer")
         if not math.isfinite(self.output_scale_clip) or self.output_scale_clip <= 0:
@@ -69,6 +79,8 @@ class BlockDecoderConfig:
     def from_dict(cls, value: Mapping[str, Any]) -> BlockDecoderConfig:
         value = dict(value)
         value.setdefault("block_code_dim", 0)
+        value.setdefault("block_code_mode", "network")
+        value.setdefault("block_code_storage_dtype", "float32")
         expected = set(cls.__dataclass_fields__)
         if set(value) != expected:
             missing = sorted(expected - set(value))
@@ -99,7 +111,7 @@ class RoleConditionedBlockDecoder(nn.Module):
             config.global_code_dim
             + config.layer_code_dim
             + config.tensor_code_dim
-            + config.block_code_dim
+            + (config.block_code_dim if config.block_code_mode == "network" else 0)
             + config.role_embedding_dim
             + config.feature_dim
         )
@@ -127,6 +139,7 @@ class RoleConditionedBlockDecoder(nn.Module):
         if tensor_codes.ndim == 1:
             tensor_codes = tensor_codes.unsqueeze(0)
         values = [global_codes, layer_codes, tensor_codes]
+        residual_codes = None
         if self.config.block_code_dim:
             if block_codes is None:
                 raise ValueError("block codes are required by this decoder")
@@ -134,13 +147,21 @@ class RoleConditionedBlockDecoder(nn.Module):
                 raise ValueError("block code width does not match the decoder")
             if block_codes.ndim == 1:
                 block_codes = block_codes.unsqueeze(0)
-            values.append(block_codes)
+            if self.config.block_code_mode == "network":
+                values.append(block_codes)
+            else:
+                residual_codes = block_codes.view(
+                    -1,
+                    self.config.block_rows,
+                    self.config.block_cols,
+                )
         role = self.role_embedding(role_ids)
         values.extend([role, features])
         value = torch.cat(values, dim=-1)
         output = self.network(value)
         output = torch.tanh(output / self.config.output_scale_clip) * self.config.output_scale_clip
-        return output.view(-1, self.config.block_rows, self.config.block_cols)
+        output = output.view(-1, self.config.block_rows, self.config.block_cols)
+        return output if residual_codes is None else output + residual_codes
 
 
 @dataclass(frozen=True)

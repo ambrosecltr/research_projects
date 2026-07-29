@@ -33,7 +33,7 @@ from genome.neural import (
     train_predictive_compiler,
     train_shared_decoder,
 )
-from genome.neural.block_decoder import make_block_features
+from genome.neural.block_decoder import RoleConditionedBlockDecoder, make_block_features
 from genome.neural.multilife_decoder import MultiLifeBlockSampler, masked_block_mse
 from genome.polypythia.catalog import load_round_one_catalog
 from genome.polypythia.evaluate import (
@@ -513,7 +513,44 @@ def test_fourier_block_features_are_deterministic():
 def test_block_decoder_config_loads_pre_block_code_manifests():
     legacy = BlockDecoderConfig().to_dict()
     legacy.pop("block_code_dim")
-    assert BlockDecoderConfig.from_dict(legacy).block_code_dim == 0
+    legacy.pop("block_code_mode")
+    legacy.pop("block_code_storage_dtype")
+    loaded = BlockDecoderConfig.from_dict(legacy)
+    assert loaded.block_code_dim == 0
+    assert loaded.block_code_mode == "network"
+    assert loaded.block_code_storage_dtype == "float32"
+
+
+def test_residual_block_codes_are_a_canonical_decoder_residual():
+    config = BlockDecoderConfig(
+        block_rows=2,
+        block_cols=2,
+        global_code_dim=2,
+        layer_code_dim=2,
+        tensor_code_dim=2,
+        block_code_dim=4,
+        block_code_mode="residual",
+        block_code_storage_dtype="float16",
+        role_embedding_dim=2,
+        feature_dim=7,
+        hidden_dim=4,
+        depth=0,
+    )
+    decoder = RoleConditionedBlockDecoder(1, config)
+    for parameter in decoder.parameters():
+        torch.nn.init.zeros_(parameter)
+    block_codes = torch.tensor([[1.0, 2.0, 3.0, 4.0]], dtype=torch.float16)
+
+    output = decoder(
+        torch.zeros(1, 2),
+        torch.zeros(1, 2),
+        torch.zeros(1, 2),
+        torch.zeros(1, dtype=torch.long),
+        torch.zeros(1, 7),
+        block_codes,
+    )
+
+    assert torch.equal(output, block_codes.to(torch.float32).reshape(1, 2, 2))
 
 
 def _write_synthetic_life(
@@ -614,7 +651,9 @@ def test_complete_learned_round_one_path_runs_without_hidden_endpoint(tmp_path):
         global_code_dim=8,
         layer_code_dim=4,
         tensor_code_dim=4,
-        block_code_dim=4,
+        block_code_dim=16,
+        block_code_mode="residual",
+        block_code_storage_dtype="float16",
         role_embedding_dim=4,
         feature_dim=31,
         hidden_dim=32,
@@ -636,7 +675,7 @@ def test_complete_learned_round_one_path_runs_without_hidden_endpoint(tmp_path):
             log_every=4,
         ),
     )
-    assert shared_manifest["block_layout"]["block_code_dim"] == 4
+    assert shared_manifest["block_layout"]["block_code_dim"] == 16
     assert shared_manifest["block_layout"]["block_count"] > 0
     fit_genome_code_with_frozen_decoder(
         lives[2],
@@ -735,8 +774,9 @@ def test_complete_learned_round_one_path_runs_without_hidden_endpoint(tmp_path):
     predicted_codes = load_file(str(prediction_path / prediction["prediction"]["code_file"]))
     assert predicted_codes["block_codes"].shape == (
         shared_manifest["block_layout"]["block_count"],
-        4,
+        16,
     )
+    assert predicted_codes["block_codes"].dtype == torch.float16
     runtime_path = tmp_path / "runtime"
     runtime = execute_hidden_prediction(
         lives[3],

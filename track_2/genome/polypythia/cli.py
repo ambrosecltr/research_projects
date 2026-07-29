@@ -150,6 +150,8 @@ def _decoder_configs(
         layer_code_dim=int(section["layer_code_dim"]),
         tensor_code_dim=int(section["tensor_code_dim"]),
         block_code_dim=int(section["block_code_dim"]),
+        block_code_mode=str(section.get("block_code_mode", "network")),
+        block_code_storage_dtype=str(section.get("block_code_storage_dtype", "float32")),
         role_embedding_dim=int(section["role_embedding_dim"]),
         feature_dim=7 + 4 * coordinate_frequencies + block_rows * block_cols,
         hidden_dim=int(section["hidden_dim"]),
