@@ -158,7 +158,7 @@ def partition_probe_sample(
     source_jsonl: str | Path,
     output: str | Path,
 ) -> dict[str, Any]:
-    """Split a token sample into deterministic, disjoint refinement and evaluation views."""
+    """Split a token sample into deterministic refinement and formula-tuning views."""
     source = Path(source_jsonl)
     if not source.is_file():
         raise FileNotFoundError(source)
@@ -199,8 +199,8 @@ def partition_probe_sample(
             raise ValueError("probe partition requires at least two records")
         receipt = {
             "format": "GENOME_PROBE_PARTITION",
-            "version": "1.0.0",
-            "rule": "zero-based-even-refinement-odd-evaluation",
+            "version": "2.0.0",
+            "rule": "zero-based-even-refinement-odd-formula-tuning",
             "source": {
                 "path": str(source),
                 "bytes": source.stat().st_size,
@@ -223,3 +223,62 @@ def partition_probe_sample(
         atomic_write_json(staging / "receipt.json", receipt)
         staging.rename(root)
     return receipt
+
+
+def verify_independent_evaluation_sample(
+    *,
+    formula_sample_receipt: str | Path,
+    verifier_receipt: str | Path,
+    minimum_batches: int = 128,
+) -> dict[str, Any]:
+    """Verify that development data comes from a separate immutable byte range or shard."""
+    if minimum_batches < 128:
+        raise ValueError("the independent verifier requires at least 128 batches")
+    formula = _load_sample_receipt(formula_sample_receipt)
+    verifier = _load_sample_receipt(verifier_receipt)
+    if formula["repository"] != verifier["repository"]:
+        raise ValueError("formula and verifier samples must use the same corpus repository")
+    if formula["resolved_commit"] != verifier["resolved_commit"]:
+        raise ValueError("formula and verifier samples must use the same corpus commit")
+    independent = formula["filename"] != verifier["filename"]
+    if not independent:
+        formula_range = formula["byte_range"]
+        verifier_range = verifier["byte_range"]
+        independent = bool(
+            int(verifier_range["end"]) < int(formula_range["start"])
+            or int(formula_range["end"]) < int(verifier_range["start"])
+        )
+    if not independent:
+        raise ValueError("development verifier overlaps the formula-development byte range")
+    if int(verifier["examples"]) < minimum_batches:
+        raise ValueError(
+            f"development verifier has {verifier['examples']} batches; {minimum_batches} required"
+        )
+    token_path = Path(verifier["tokens_file"]["path"])
+    if not token_path.is_file():
+        raise FileNotFoundError(token_path)
+    if sha256_file(token_path) != verifier["tokens_file"]["sha256"]:
+        raise ValueError("development verifier token JSONL SHA does not match its receipt")
+    return {
+        "format": "GENOME_INDEPENDENT_EVALUATION_VERIFIER",
+        "version": "1.0.0",
+        "formula_sample_receipt_sha256": sha256_file(formula_sample_receipt),
+        "verifier_receipt_sha256": sha256_file(verifier_receipt),
+        "repository": verifier["repository"],
+        "resolved_commit": verifier["resolved_commit"],
+        "different_shard": formula["filename"] != verifier["filename"],
+        "verifier_filename": verifier["filename"],
+        "verifier_byte_range": verifier["byte_range"],
+        "evaluation_jsonl": str(token_path),
+        "evaluation_jsonl_sha256": verifier["tokens_file"]["sha256"],
+        "batches": int(verifier["examples"]),
+    }
+
+
+def _load_sample_receipt(path: str | Path) -> dict[str, Any]:
+    receipt_path = Path(path)
+    with receipt_path.open("r", encoding="utf-8") as handle:
+        value = json.load(handle)
+    if value.get("format") != "GENOME_DATASET_SAMPLE":
+        raise ValueError(f"not a GENOME_DATASET_SAMPLE receipt: {receipt_path}")
+    return value

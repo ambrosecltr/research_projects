@@ -1,0 +1,10 @@
+{
+  "accepted_structure": true,
+  "byte_fraction": 0.09999369478135464,
+  "direct_fp16_delta_bytes": 28135424,
+  "exploratory_budget_pass": true,
+  "primary_budget_pass": true,
+  "reasons": [],
+  "serialized": true,
+  "target_specific_bytes": 2813365
+}

@@ -1,54 +1,48 @@
 # Implementation status
 
-## Code ready
+## Complete
 
-- clean Pythia-only source plan;
-- 17 training lives, including Pythia 14M seed9;
-- two development lives;
-- one hidden life, Pythia 31M seed9;
-- hidden WT exclusion and guarded reveal;
-- immutable source resolution and file receipts;
-- canonical model-life artifacts;
-- corpus and W0 semantic evidence;
-- deterministic compact-program Runtime;
-- serialized byte audit and functional acceptance gate;
-- scalable randomized target fitting;
-- base-relative matrix scaling;
-- shared vocabulary factors;
-- bounded direct fp16 vectors;
-- functional compact-coefficient refinement;
-- compiler output for matrix scaling, low-rank factors, and direct vectors;
-- compiler byte accounting for those instructions;
-- one shared compiler vocabulary factor;
-- primitive and matrix-rank accuracy metrics;
-- matrix-only rank supervision;
-- automatic 19-record compiler-corpus construction;
-- compiler training, checkpointing, and resume;
-- prediction sealing.
+- GPU pod stopped.
+- CPU pod stopped after audit export and verifier creation.
+- 100 GB network volume retained.
+- Correct whole-life split implemented and tested.
+- Pythia 14M seed9 included as training.
+- Pythia 31M seed9 remains the only hidden life.
+- Seed8 reclassified as training and formula-development evidence.
+- `DIRECT_VECTOR` policy formalized and aggregate bytes reported.
+- One immutable target formula ID implemented.
+- One `produce-target` production command implemented.
+- Evaluation and acceptance artifact bindings implemented.
+- Compiler-corpus binding revalidation implemented.
+- Independent 128-batch development verifier created from another shard.
+- Free-running generated-model checkpoint selection implemented.
+- Hidden result tiers implemented.
+- Historical non-weight audit bundle exported.
+- 50 local tests pass.
 
-## RunPod complete
+## Historical evidence only
 
-- Gates 0 to 3;
-- all approved sources and canonical lives;
-- fixed evidence and disjoint probes;
-- target formula selection;
-- Pythia 14M seed8 development acceptance at 83.2048% endpoint progress;
-- Pythia 31M seed8 development acceptance at 80.1290% endpoint progress.
+The old formula-v2 results for 14M seeds0–5,8 and 31M seed8 are preserved in
+`artifacts/audit/pythia_v1_formula_v2_historical`.
 
-## RunPod active
+Seed8 is not independent development evidence. Old reports predate the new
+artifact bindings and cannot enter the compiler corpus.
 
-Gate 4 is applying the fixed formula to all training lives. Pythia 14M seeds0,
-seed1, and seed2 are accepted. Pythia 14M seed3 is the current job. Safe queues
-will continue through Pythia 14M seed9 and Pythia 31M training seeds0–7.
+The old Pythia 14M seed5 result was rejected at 73.38% endpoint progress. It must
+be rerun once after the same formula is formally frozen.
 
-## RunPod remaining
+## Not started
 
-1. Complete and accept all training targets.
-2. Build the 19-record compiler corpus.
-3. Run the GPU compiler smoke and resume test.
-4. Train the production compiler.
-5. Freeze the checkpoint selected by development lives.
-6. Compile and seal one hidden Pythia 31M seed9 candidate.
-7. Reveal and evaluate hidden WT.
+- No frozen-formula seed5 rerun.
+- No full training-target regeneration under new bindings.
+- No seed7 development target.
+- No compiler corpus.
+- No compiler training.
+- No hidden compilation.
+- No hidden WT reveal.
 
-No hidden GENOME result is claimed yet.
+## Next safe action
+
+Commit and push this protocol repair. Then update the network-volume checkout to
+that commit. Change only the formula status to `frozen`, keep its identity fields
+unchanged, and rerun Pythia 14M seed5 once with `genome produce-target`.

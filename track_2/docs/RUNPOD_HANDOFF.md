@@ -1,23 +1,24 @@
 # RunPod handoff
 
-## Active resources
-
-Use the existing clean experiment resources:
+## Resources
 
 ```text
-Network volume: genome-pythia-v1
-Volume ID:      4kwmhcepgj
-Region:         EU-RO-1
-Size:           100 GB
-Mount:          /workspace
+Network volume ID: 4kwmhcepgj
+Name:              genome-pythia-v1
+Region:            EU-RO-1
+Size:              100 GB
+Mount:             /workspace
 
-CPU pod ID:     ufz8yhwxxmzufs
-CPU pod state:  stopped
+CPU pod ID:        ufz8yhwxxmzufs
+CPU state:         stopped
 
-GPU pod:        genome-pythia-v1-gpu
-GPU pod ID:     g3ou14zh0wb7q7
-GPU:            RTX 4090
+GPU pod ID:        g3ou14zh0wb7q7
+GPU type:          RTX 4090
+GPU state:         stopped
 ```
+
+Both pods are stopped. The network volume is intact. Do not start the GPU until
+the repaired protocol commit is present on the volume and its tests pass there.
 
 Repository and experiment roots:
 
@@ -26,142 +27,97 @@ Repository and experiment roots:
 /workspace/genome_v1
 ```
 
-The local branch is:
+Branch:
 
 ```text
 track_2/pythia-seed9-training
 ```
 
-The latest synced local implementation commit at this handoff is:
+## Correct split
 
 ```text
-02facf6408146329ad82880bd5ea7197943cda19
+Training:
+  Pythia 14M seeds0–6,8,9
+  Pythia 31M seeds0–6,8
+
+Development:
+  Pythia 14M seed7
+  Pythia 31M seed7
+
+Hidden:
+  Pythia 31M seed9
 ```
 
-The matching RunPod implementation commit is:
+Seed8 is training and formula-development evidence. Do not call its results
+development confirmation. Pythia 14M seed9 is a training life. Pythia 31M seed9
+is the only hidden life and still has no WT directory.
+
+## Data on the volume
+
+Existing even records are refinement data. Existing odd records are formula-tuning
+data.
+
+The fresh development verifier is:
 
 ```text
-92e6fa1e4a0d5461c3cb54b5db6d5b6de73ea6a0
+/workspace/genome_v1/evidence/corpus/verifier/tokens.jsonl
+/workspace/genome_v1/evidence/corpus/verifier/receipt.json
 ```
 
-The hashes differ because the commits were copied with `git am`. The file content
-is the same.
-
-## Environment
-
-RunPod uses:
+It has 128 batches, uses `document-00001-of-00020.bin`, and has SHA:
 
 ```text
-Python 3.11.10
-PyTorch 2.6.0+cu124
-Transformers 4.57.6
+6a9cfd8231943cc0603a7c40c9f6f0bfa02c7032e415ff452258c359a4e8cd99
 ```
 
-The current RunPod test result is:
+## Historical results
 
-```text
-39 passed
-6 informational PyTorch nested-tensor warnings
-0 failures
-```
+These results are audit evidence only. They predate the new bindings.
 
-## Completed gates
+| Life | Progress | Meaning now |
+|---|---:|---|
+| 14M seed0 | 83.85% | formula development |
+| 14M seed1 | 81.88% | formula development |
+| 14M seed2 | 81.46% | formula development |
+| 14M seed3 | 80.74% | formula development |
+| 14M seed4 | 84.80% | formula development |
+| 14M seed5 | 73.38% | rejected formula evidence |
+| 14M seed8 | 83.20% | formula development, not development |
+| 31M seed8 | 80.13% | formula development, not development |
 
-Gates 0 to 3 are complete.
+No queue is active. No compiler corpus exists. No compiler training has started.
 
-- The source plan has 17 training lives, two development lives, and one hidden life.
-- Pythia 14M seed9 is a training life. Its W0 and WT are materialized.
-- Pythia 31M seed9 is the only hidden life. Only W0 is materialized.
-- Do not resolve, download, or read Pythia 31M seed9 WT before the prediction seal.
-- All available lives have canonical states, architecture graphs, recipes, evidence,
-  and finalized life manifests.
-- The even-record refinement probe and odd-record evaluation probe are separate.
+## Protocol now implemented locally
 
-The fixed target formula is in:
+- Formula ID:
+  `4f4e6d9d5d9ef7677dd955bb89be81dfedf161ecb010fdfd405475fdce46d155`.
+- Formula status is still `formula-development`.
+- Production uses one `genome produce-target` command.
+- Evaluation and acceptance reports contain complete immutable bindings.
+- Corpus construction checks those bindings again.
+- Development requires at least 128 batches from the independent verifier.
+- Compiler checkpoints are selected by free-running generated endpoint progress.
+- Hidden progress below 25% is weak signal only; 80% or above is strong.
 
-```text
-configs/targets/pythia_v1.yaml
-```
+## Exact next order
 
-The formula passed both development lives:
+1. Fetch the final repaired commit into `/workspace/genome_v1/repo`.
+2. Start the CPU pod first.
+3. Run the full tests on the volume checkout.
+4. Confirm hidden WT is still absent.
+5. Change only `status: formula-development` to `status: frozen`.
+6. Commit and push that status change.
+7. Update the volume checkout to the frozen commit.
+8. Start the GPU.
+9. Rerun Pythia 14M seed5 once with `genome produce-target`.
+10. Keep its full rejection diagnostics.
+11. Regenerate all other training targets with the same command and formula.
+12. Run 14M seed7 once, then 31M seed7 once.
+13. Build the 18-record corpus: 16 accepted training and two development.
+14. Run compiler smoke.
+15. Start compiler training only if all earlier gates pass.
 
-| Life | Serialized fraction | Endpoint progress | Result |
-|---|---:|---:|---|
-| Pythia 14M seed8 | 9.9994% | 83.2048% | accepted |
-| Pythia 31M seed8 | 8.4981% | 80.1290% | accepted |
+Do not change the 10% byte budget, lower the 80% gate, add a residual, add direct
+matrices, or treat teacher-forced loss as checkpoint quality.
 
-The selected formula uses:
-
-- base-relative row and column matrix scaling;
-- rank-balanced low-rank factors;
-- one shared vocabulary left factor;
-- direct fp16 vectors no larger than 4,096 values;
-- 16,384 refinement steps at 0.001;
-- 2,048 final refinement steps at 0.0003;
-- teacher KL weight 1.0;
-- no payload anchor.
-
-The compiler now emits the same active instruction family. It also reuses one
-generated vocabulary factor, counts all serialized payload terms, reports
-primitive and matrix-rank accuracy, and masks rank loss for tensors that do not
-have a rank.
-
-## Work in progress
-
-Gate 4 is applying the fixed formula to every training life.
-
-Accepted training results so far:
-
-| Life | Endpoint progress |
-|---|---:|
-| Pythia 14M seed0 | 83.8524% |
-| Pythia 14M seed1 | 81.8775% |
-| Pythia 14M seed2 | 81.4617% |
-
-Pythia 14M seed3 is the active target.
-
-```text
-14M queue PID:        21116
-14M queue log:        /workspace/genome_v1/logs/target-pythia-14m-remaining-formula-v2.log
-31M queue PID:        21144
-31M queue log:        /workspace/genome_v1/logs/target-pythia-31m-training-formula-v2.log
-Corpus watcher PID:   21242
-Corpus watcher log:   /workspace/genome_v1/logs/build-compiler-corpus.log
-```
-
-Check the queues with:
-
-```bash
-ps -p 21116,21144,21242 -o pid=,etime=,stat=
-tail -50 /workspace/genome_v1/logs/target-pythia-14m-remaining-formula-v2.log
-```
-
-The 14M queue runs seeds3–7 and seed9 one at a time. The 31M queue cannot start
-until every required 14M life is accepted. It then runs training seeds0–7. The
-corpus watcher cannot write the corpus until all 19 training and development
-programs are accepted. Each queue stops on the first failed command.
-
-If a target does not pass the declared 80% gate, stop the target queue. Do not
-train the compiler with a rejected target.
-
-## Next gates
-
-After all 17 training targets and both development targets have accepted programs,
-the active corpus watcher will build:
-
-```text
-/workspace/genome_v1/compiler/corpus/pythia_v1.json
-```
-
-Then:
-
-1. Check that the corpus reports 17 training, two development, and 19 total.
-2. Run the tiny compiler smoke and checkpoint-resume test.
-3. Start production compiler training only after the smoke gates pass.
-4. Select the compiler checkpoint with the two development lives only.
-5. Compile one Pythia 31M seed9 candidate.
-6. Seal all required hashes.
-7. Reveal hidden WT only after the seal.
-8. Report the one-shot hidden result before any repair.
-
-Do not push. Commit local changes only.
+Do not resolve or download Pythia 31M seed9 WT before the hidden prediction seal.

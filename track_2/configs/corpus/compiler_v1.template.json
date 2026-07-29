@@ -1,10 +1,12 @@
 {
   "format": "GENOME_COMPILER_CORPUS",
-  "version": "1.0.0",
+  "version": "2.0.0",
+  "formula_id": "REPLACE_WITH_FROZEN_FORMULA_ID",
+  "source_plan_id": "REPLACE_WITH_PINNED_SOURCE_PLAN_ID",
   "expected_records": {
-    "training": 17,
+    "training": 16,
     "development": 2,
-    "total": 19
+    "total": 18
   },
   "records": [
     {
@@ -12,9 +14,12 @@
       "split": "training",
       "graph_path": "/workspace/genome_v1/canonical/lives/pythia-14m-seed0/architecture.json",
       "w0_path": "/workspace/genome_v1/canonical/lives/pythia-14m-seed0/w0.safetensors",
+      "wt_path": "/workspace/genome_v1/canonical/lives/pythia-14m-seed0/wt.safetensors",
       "fingerprint_path": "/workspace/genome_v1/evidence/pythia-14m-seed0",
       "recipe_path": "/workspace/genome_v1/canonical/lives/pythia-14m-seed0/recipe.json",
       "program_path": "/workspace/genome_v1/programs/accepted/pythia-14m-seed0",
+      "evaluation_report_path": "/workspace/genome_v1/programs/accepted/pythia-14m-seed0/evaluation.json",
+      "evaluation_jsonl": "/workspace/genome_v1/evidence/corpus/probes/evaluation.jsonl",
       "model_config_path": "/workspace/genome_v1/canonical/lives/pythia-14m-seed0/model_config.json",
       "probe_jsonl": "/workspace/genome_v1/evidence/corpus/probes/refinement.jsonl"
     }

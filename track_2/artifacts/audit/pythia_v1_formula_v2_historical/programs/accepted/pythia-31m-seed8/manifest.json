@@ -1,0 +1,2076 @@
+{
+  "payload_keys": [
+    "shared.vocabulary.low_rank.left",
+    "tensor.0.hadamard_scale.column",
+    "tensor.0.hadamard_scale.row",
+    "tensor.0.low_rank.right",
+    "tensor.1.hadamard_scale.column",
+    "tensor.1.hadamard_scale.row",
+    "tensor.1.low_rank.right",
+    "tensor.10.vector.values",
+    "tensor.11.hadamard_scale.column",
+    "tensor.11.hadamard_scale.row",
+    "tensor.11.low_rank.left",
+    "tensor.11.low_rank.right",
+    "tensor.12.vector.values",
+    "tensor.13.hadamard_scale.column",
+    "tensor.13.hadamard_scale.row",
+    "tensor.13.low_rank.left",
+    "tensor.13.low_rank.right",
+    "tensor.14.vector.values",
+    "tensor.15.vector.values",
+    "tensor.16.vector.values",
+    "tensor.17.hadamard_scale.column",
+    "tensor.17.hadamard_scale.row",
+    "tensor.17.low_rank.left",
+    "tensor.17.low_rank.right",
+    "tensor.18.vector.values",
+    "tensor.19.hadamard_scale.column",
+    "tensor.19.hadamard_scale.row",
+    "tensor.19.low_rank.left",
+    "tensor.19.low_rank.right",
+    "tensor.2.vector.values",
+    "tensor.20.vector.values",
+    "tensor.21.vector.values",
+    "tensor.22.vector.values",
+    "tensor.23.hadamard_scale.column",
+    "tensor.23.hadamard_scale.row",
+    "tensor.23.low_rank.left",
+    "tensor.23.low_rank.right",
+    "tensor.24.vector.values",
+    "tensor.25.hadamard_scale.column",
+    "tensor.25.hadamard_scale.row",
+    "tensor.25.low_rank.left",
+    "tensor.25.low_rank.right",
+    "tensor.26.vector.values",
+    "tensor.27.vector.values",
+    "tensor.28.vector.values",
+    "tensor.29.hadamard_scale.column",
+    "tensor.29.hadamard_scale.row",
+    "tensor.29.low_rank.left",
+    "tensor.29.low_rank.right",
+    "tensor.3.vector.values",
+    "tensor.30.vector.values",
+    "tensor.31.hadamard_scale.column",
+    "tensor.31.hadamard_scale.row",
+    "tensor.31.low_rank.left",
+    "tensor.31.low_rank.right",
+    "tensor.32.vector.values",
+    "tensor.33.vector.values",
+    "tensor.34.vector.values",
+    "tensor.35.hadamard_scale.column",
+    "tensor.35.hadamard_scale.row",
+    "tensor.35.low_rank.left",
+    "tensor.35.low_rank.right",
+    "tensor.36.vector.values",
+    "tensor.37.hadamard_scale.column",
+    "tensor.37.hadamard_scale.row",
+    "tensor.37.low_rank.left",
+    "tensor.37.low_rank.right",
+    "tensor.38.vector.values",
+    "tensor.39.vector.values",
+    "tensor.4.vector.values",
+    "tensor.40.vector.values",
+    "tensor.41.hadamard_scale.column",
+    "tensor.41.hadamard_scale.row",
+    "tensor.41.low_rank.left",
+    "tensor.41.low_rank.right",
+    "tensor.42.vector.values",
+    "tensor.43.hadamard_scale.column",
+    "tensor.43.hadamard_scale.row",
+    "tensor.43.low_rank.left",
+    "tensor.43.low_rank.right",
+    "tensor.44.vector.values",
+    "tensor.45.vector.values",
+    "tensor.46.vector.values",
+    "tensor.47.hadamard_scale.column",
+    "tensor.47.hadamard_scale.row",
+    "tensor.47.low_rank.left",
+    "tensor.47.low_rank.right",
+    "tensor.48.vector.values",
+    "tensor.49.hadamard_scale.column",
+    "tensor.49.hadamard_scale.row",
+    "tensor.49.low_rank.left",
+    "tensor.49.low_rank.right",
+    "tensor.5.hadamard_scale.column",
+    "tensor.5.hadamard_scale.row",
+    "tensor.5.low_rank.left",
+    "tensor.5.low_rank.right",
+    "tensor.50.vector.values",
+    "tensor.51.vector.values",
+    "tensor.52.vector.values",
+    "tensor.53.hadamard_scale.column",
+    "tensor.53.hadamard_scale.row",
+    "tensor.53.low_rank.left",
+    "tensor.53.low_rank.right",
+    "tensor.54.vector.values",
+    "tensor.55.hadamard_scale.column",
+    "tensor.55.hadamard_scale.row",
+    "tensor.55.low_rank.left",
+    "tensor.55.low_rank.right",
+    "tensor.56.vector.values",
+    "tensor.57.vector.values",
+    "tensor.58.vector.values",
+    "tensor.59.hadamard_scale.column",
+    "tensor.59.hadamard_scale.row",
+    "tensor.59.low_rank.left",
+    "tensor.59.low_rank.right",
+    "tensor.6.vector.values",
+    "tensor.60.vector.values",
+    "tensor.61.hadamard_scale.column",
+    "tensor.61.hadamard_scale.row",
+    "tensor.61.low_rank.left",
+    "tensor.61.low_rank.right",
+    "tensor.62.vector.values",
+    "tensor.63.vector.values",
+    "tensor.64.vector.values",
+    "tensor.65.hadamard_scale.column",
+    "tensor.65.hadamard_scale.row",
+    "tensor.65.low_rank.left",
+    "tensor.65.low_rank.right",
+    "tensor.66.vector.values",
+    "tensor.67.hadamard_scale.column",
+    "tensor.67.hadamard_scale.row",
+    "tensor.67.low_rank.left",
+    "tensor.67.low_rank.right",
+    "tensor.68.vector.values",
+    "tensor.69.vector.values",
+    "tensor.7.hadamard_scale.column",
+    "tensor.7.hadamard_scale.row",
+    "tensor.7.low_rank.left",
+    "tensor.7.low_rank.right",
+    "tensor.70.vector.values",
+    "tensor.71.hadamard_scale.column",
+    "tensor.71.hadamard_scale.row",
+    "tensor.71.low_rank.left",
+    "tensor.71.low_rank.right",
+    "tensor.72.vector.values",
+    "tensor.73.hadamard_scale.column",
+    "tensor.73.hadamard_scale.row",
+    "tensor.73.low_rank.left",
+    "tensor.73.low_rank.right",
+    "tensor.74.vector.values",
+    "tensor.75.vector.values",
+    "tensor.8.vector.values",
+    "tensor.9.vector.values"
+  ],
+  "payload_sha256": "e77ec51c4a4e3c6a9c9d1b1e3cd268a5e127265c8b3aa7ccb6d61963bc346397",
+  "program": {
+    "architecture_id": "2203f7d55d7fa1db7ff8dc52a7beea9bc7ff6e786d638b6847deec7e4ff36f8b",
+    "base_state_id": "78b43d1036f8a66ad811090917351f13502b8c50f23c6485d8f0af4516029fe2",
+    "format": "MODEL_GENOME_PROGRAM",
+    "shared_assets": [],
+    "tensors": [
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "column": "tensor.0.hadamard_scale.column",
+              "row": "tensor.0.hadamard_scale.row"
+            },
+            "primitive": "HADAMARD_SCALE"
+          },
+          {
+            "arguments": {
+              "rank": 32
+            },
+            "payload": {
+              "left": "shared.vocabulary.low_rank.left",
+              "right": "tensor.0.low_rank.right"
+            },
+            "primitive": "LOW_RANK"
+          }
+        ],
+        "name": "embed_out.weight",
+        "shape": [
+          50304,
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "column": "tensor.1.hadamard_scale.column",
+              "row": "tensor.1.hadamard_scale.row"
+            },
+            "primitive": "HADAMARD_SCALE"
+          },
+          {
+            "arguments": {
+              "rank": 32
+            },
+            "payload": {
+              "left": "shared.vocabulary.low_rank.left",
+              "right": "tensor.1.low_rank.right"
+            },
+            "primitive": "LOW_RANK"
+          }
+        ],
+        "name": "gpt_neox.embed_in.weight",
+        "shape": [
+          50304,
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.2.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.final_layer_norm.bias",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.3.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.final_layer_norm.weight",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.4.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.0.attention.dense.bias",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "column": "tensor.5.hadamard_scale.column",
+              "row": "tensor.5.hadamard_scale.row"
+            },
+            "primitive": "HADAMARD_SCALE"
+          },
+          {
+            "arguments": {
+              "rank": 32
+            },
+            "payload": {
+              "left": "tensor.5.low_rank.left",
+              "right": "tensor.5.low_rank.right"
+            },
+            "primitive": "LOW_RANK"
+          }
+        ],
+        "name": "gpt_neox.layers.0.attention.dense.weight",
+        "shape": [
+          256,
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.6.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.0.attention.query_key_value.bias",
+        "shape": [
+          768
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "column": "tensor.7.hadamard_scale.column",
+              "row": "tensor.7.hadamard_scale.row"
+            },
+            "primitive": "HADAMARD_SCALE"
+          },
+          {
+            "arguments": {
+              "rank": 32
+            },
+            "payload": {
+              "left": "tensor.7.low_rank.left",
+              "right": "tensor.7.low_rank.right"
+            },
+            "primitive": "LOW_RANK"
+          }
+        ],
+        "name": "gpt_neox.layers.0.attention.query_key_value.weight",
+        "shape": [
+          768,
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.8.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.0.input_layernorm.bias",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.9.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.0.input_layernorm.weight",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.10.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.0.mlp.dense_4h_to_h.bias",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "column": "tensor.11.hadamard_scale.column",
+              "row": "tensor.11.hadamard_scale.row"
+            },
+            "primitive": "HADAMARD_SCALE"
+          },
+          {
+            "arguments": {
+              "rank": 32
+            },
+            "payload": {
+              "left": "tensor.11.low_rank.left",
+              "right": "tensor.11.low_rank.right"
+            },
+            "primitive": "LOW_RANK"
+          }
+        ],
+        "name": "gpt_neox.layers.0.mlp.dense_4h_to_h.weight",
+        "shape": [
+          256,
+          1024
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.12.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.0.mlp.dense_h_to_4h.bias",
+        "shape": [
+          1024
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "column": "tensor.13.hadamard_scale.column",
+              "row": "tensor.13.hadamard_scale.row"
+            },
+            "primitive": "HADAMARD_SCALE"
+          },
+          {
+            "arguments": {
+              "rank": 32
+            },
+            "payload": {
+              "left": "tensor.13.low_rank.left",
+              "right": "tensor.13.low_rank.right"
+            },
+            "primitive": "LOW_RANK"
+          }
+        ],
+        "name": "gpt_neox.layers.0.mlp.dense_h_to_4h.weight",
+        "shape": [
+          1024,
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.14.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.0.post_attention_layernorm.bias",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.15.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.0.post_attention_layernorm.weight",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.16.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.1.attention.dense.bias",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "column": "tensor.17.hadamard_scale.column",
+              "row": "tensor.17.hadamard_scale.row"
+            },
+            "primitive": "HADAMARD_SCALE"
+          },
+          {
+            "arguments": {
+              "rank": 32
+            },
+            "payload": {
+              "left": "tensor.17.low_rank.left",
+              "right": "tensor.17.low_rank.right"
+            },
+            "primitive": "LOW_RANK"
+          }
+        ],
+        "name": "gpt_neox.layers.1.attention.dense.weight",
+        "shape": [
+          256,
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.18.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.1.attention.query_key_value.bias",
+        "shape": [
+          768
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "column": "tensor.19.hadamard_scale.column",
+              "row": "tensor.19.hadamard_scale.row"
+            },
+            "primitive": "HADAMARD_SCALE"
+          },
+          {
+            "arguments": {
+              "rank": 32
+            },
+            "payload": {
+              "left": "tensor.19.low_rank.left",
+              "right": "tensor.19.low_rank.right"
+            },
+            "primitive": "LOW_RANK"
+          }
+        ],
+        "name": "gpt_neox.layers.1.attention.query_key_value.weight",
+        "shape": [
+          768,
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.20.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.1.input_layernorm.bias",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.21.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.1.input_layernorm.weight",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.22.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.1.mlp.dense_4h_to_h.bias",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "column": "tensor.23.hadamard_scale.column",
+              "row": "tensor.23.hadamard_scale.row"
+            },
+            "primitive": "HADAMARD_SCALE"
+          },
+          {
+            "arguments": {
+              "rank": 32
+            },
+            "payload": {
+              "left": "tensor.23.low_rank.left",
+              "right": "tensor.23.low_rank.right"
+            },
+            "primitive": "LOW_RANK"
+          }
+        ],
+        "name": "gpt_neox.layers.1.mlp.dense_4h_to_h.weight",
+        "shape": [
+          256,
+          1024
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.24.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.1.mlp.dense_h_to_4h.bias",
+        "shape": [
+          1024
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "column": "tensor.25.hadamard_scale.column",
+              "row": "tensor.25.hadamard_scale.row"
+            },
+            "primitive": "HADAMARD_SCALE"
+          },
+          {
+            "arguments": {
+              "rank": 32
+            },
+            "payload": {
+              "left": "tensor.25.low_rank.left",
+              "right": "tensor.25.low_rank.right"
+            },
+            "primitive": "LOW_RANK"
+          }
+        ],
+        "name": "gpt_neox.layers.1.mlp.dense_h_to_4h.weight",
+        "shape": [
+          1024,
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.26.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.1.post_attention_layernorm.bias",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.27.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.1.post_attention_layernorm.weight",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.28.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.2.attention.dense.bias",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "column": "tensor.29.hadamard_scale.column",
+              "row": "tensor.29.hadamard_scale.row"
+            },
+            "primitive": "HADAMARD_SCALE"
+          },
+          {
+            "arguments": {
+              "rank": 32
+            },
+            "payload": {
+              "left": "tensor.29.low_rank.left",
+              "right": "tensor.29.low_rank.right"
+            },
+            "primitive": "LOW_RANK"
+          }
+        ],
+        "name": "gpt_neox.layers.2.attention.dense.weight",
+        "shape": [
+          256,
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.30.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.2.attention.query_key_value.bias",
+        "shape": [
+          768
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "column": "tensor.31.hadamard_scale.column",
+              "row": "tensor.31.hadamard_scale.row"
+            },
+            "primitive": "HADAMARD_SCALE"
+          },
+          {
+            "arguments": {
+              "rank": 32
+            },
+            "payload": {
+              "left": "tensor.31.low_rank.left",
+              "right": "tensor.31.low_rank.right"
+            },
+            "primitive": "LOW_RANK"
+          }
+        ],
+        "name": "gpt_neox.layers.2.attention.query_key_value.weight",
+        "shape": [
+          768,
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.32.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.2.input_layernorm.bias",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.33.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.2.input_layernorm.weight",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.34.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.2.mlp.dense_4h_to_h.bias",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "column": "tensor.35.hadamard_scale.column",
+              "row": "tensor.35.hadamard_scale.row"
+            },
+            "primitive": "HADAMARD_SCALE"
+          },
+          {
+            "arguments": {
+              "rank": 32
+            },
+            "payload": {
+              "left": "tensor.35.low_rank.left",
+              "right": "tensor.35.low_rank.right"
+            },
+            "primitive": "LOW_RANK"
+          }
+        ],
+        "name": "gpt_neox.layers.2.mlp.dense_4h_to_h.weight",
+        "shape": [
+          256,
+          1024
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.36.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.2.mlp.dense_h_to_4h.bias",
+        "shape": [
+          1024
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "column": "tensor.37.hadamard_scale.column",
+              "row": "tensor.37.hadamard_scale.row"
+            },
+            "primitive": "HADAMARD_SCALE"
+          },
+          {
+            "arguments": {
+              "rank": 32
+            },
+            "payload": {
+              "left": "tensor.37.low_rank.left",
+              "right": "tensor.37.low_rank.right"
+            },
+            "primitive": "LOW_RANK"
+          }
+        ],
+        "name": "gpt_neox.layers.2.mlp.dense_h_to_4h.weight",
+        "shape": [
+          1024,
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.38.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.2.post_attention_layernorm.bias",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.39.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.2.post_attention_layernorm.weight",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.40.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.3.attention.dense.bias",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "column": "tensor.41.hadamard_scale.column",
+              "row": "tensor.41.hadamard_scale.row"
+            },
+            "primitive": "HADAMARD_SCALE"
+          },
+          {
+            "arguments": {
+              "rank": 32
+            },
+            "payload": {
+              "left": "tensor.41.low_rank.left",
+              "right": "tensor.41.low_rank.right"
+            },
+            "primitive": "LOW_RANK"
+          }
+        ],
+        "name": "gpt_neox.layers.3.attention.dense.weight",
+        "shape": [
+          256,
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.42.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.3.attention.query_key_value.bias",
+        "shape": [
+          768
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "column": "tensor.43.hadamard_scale.column",
+              "row": "tensor.43.hadamard_scale.row"
+            },
+            "primitive": "HADAMARD_SCALE"
+          },
+          {
+            "arguments": {
+              "rank": 32
+            },
+            "payload": {
+              "left": "tensor.43.low_rank.left",
+              "right": "tensor.43.low_rank.right"
+            },
+            "primitive": "LOW_RANK"
+          }
+        ],
+        "name": "gpt_neox.layers.3.attention.query_key_value.weight",
+        "shape": [
+          768,
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.44.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.3.input_layernorm.bias",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.45.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.3.input_layernorm.weight",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.46.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.3.mlp.dense_4h_to_h.bias",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "column": "tensor.47.hadamard_scale.column",
+              "row": "tensor.47.hadamard_scale.row"
+            },
+            "primitive": "HADAMARD_SCALE"
+          },
+          {
+            "arguments": {
+              "rank": 32
+            },
+            "payload": {
+              "left": "tensor.47.low_rank.left",
+              "right": "tensor.47.low_rank.right"
+            },
+            "primitive": "LOW_RANK"
+          }
+        ],
+        "name": "gpt_neox.layers.3.mlp.dense_4h_to_h.weight",
+        "shape": [
+          256,
+          1024
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.48.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.3.mlp.dense_h_to_4h.bias",
+        "shape": [
+          1024
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "column": "tensor.49.hadamard_scale.column",
+              "row": "tensor.49.hadamard_scale.row"
+            },
+            "primitive": "HADAMARD_SCALE"
+          },
+          {
+            "arguments": {
+              "rank": 32
+            },
+            "payload": {
+              "left": "tensor.49.low_rank.left",
+              "right": "tensor.49.low_rank.right"
+            },
+            "primitive": "LOW_RANK"
+          }
+        ],
+        "name": "gpt_neox.layers.3.mlp.dense_h_to_4h.weight",
+        "shape": [
+          1024,
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.50.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.3.post_attention_layernorm.bias",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.51.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.3.post_attention_layernorm.weight",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.52.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.4.attention.dense.bias",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "column": "tensor.53.hadamard_scale.column",
+              "row": "tensor.53.hadamard_scale.row"
+            },
+            "primitive": "HADAMARD_SCALE"
+          },
+          {
+            "arguments": {
+              "rank": 32
+            },
+            "payload": {
+              "left": "tensor.53.low_rank.left",
+              "right": "tensor.53.low_rank.right"
+            },
+            "primitive": "LOW_RANK"
+          }
+        ],
+        "name": "gpt_neox.layers.4.attention.dense.weight",
+        "shape": [
+          256,
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.54.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.4.attention.query_key_value.bias",
+        "shape": [
+          768
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "column": "tensor.55.hadamard_scale.column",
+              "row": "tensor.55.hadamard_scale.row"
+            },
+            "primitive": "HADAMARD_SCALE"
+          },
+          {
+            "arguments": {
+              "rank": 32
+            },
+            "payload": {
+              "left": "tensor.55.low_rank.left",
+              "right": "tensor.55.low_rank.right"
+            },
+            "primitive": "LOW_RANK"
+          }
+        ],
+        "name": "gpt_neox.layers.4.attention.query_key_value.weight",
+        "shape": [
+          768,
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.56.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.4.input_layernorm.bias",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.57.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.4.input_layernorm.weight",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.58.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.4.mlp.dense_4h_to_h.bias",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "column": "tensor.59.hadamard_scale.column",
+              "row": "tensor.59.hadamard_scale.row"
+            },
+            "primitive": "HADAMARD_SCALE"
+          },
+          {
+            "arguments": {
+              "rank": 32
+            },
+            "payload": {
+              "left": "tensor.59.low_rank.left",
+              "right": "tensor.59.low_rank.right"
+            },
+            "primitive": "LOW_RANK"
+          }
+        ],
+        "name": "gpt_neox.layers.4.mlp.dense_4h_to_h.weight",
+        "shape": [
+          256,
+          1024
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.60.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.4.mlp.dense_h_to_4h.bias",
+        "shape": [
+          1024
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "column": "tensor.61.hadamard_scale.column",
+              "row": "tensor.61.hadamard_scale.row"
+            },
+            "primitive": "HADAMARD_SCALE"
+          },
+          {
+            "arguments": {
+              "rank": 32
+            },
+            "payload": {
+              "left": "tensor.61.low_rank.left",
+              "right": "tensor.61.low_rank.right"
+            },
+            "primitive": "LOW_RANK"
+          }
+        ],
+        "name": "gpt_neox.layers.4.mlp.dense_h_to_4h.weight",
+        "shape": [
+          1024,
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.62.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.4.post_attention_layernorm.bias",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.63.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.4.post_attention_layernorm.weight",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.64.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.5.attention.dense.bias",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "column": "tensor.65.hadamard_scale.column",
+              "row": "tensor.65.hadamard_scale.row"
+            },
+            "primitive": "HADAMARD_SCALE"
+          },
+          {
+            "arguments": {
+              "rank": 32
+            },
+            "payload": {
+              "left": "tensor.65.low_rank.left",
+              "right": "tensor.65.low_rank.right"
+            },
+            "primitive": "LOW_RANK"
+          }
+        ],
+        "name": "gpt_neox.layers.5.attention.dense.weight",
+        "shape": [
+          256,
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.66.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.5.attention.query_key_value.bias",
+        "shape": [
+          768
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "column": "tensor.67.hadamard_scale.column",
+              "row": "tensor.67.hadamard_scale.row"
+            },
+            "primitive": "HADAMARD_SCALE"
+          },
+          {
+            "arguments": {
+              "rank": 32
+            },
+            "payload": {
+              "left": "tensor.67.low_rank.left",
+              "right": "tensor.67.low_rank.right"
+            },
+            "primitive": "LOW_RANK"
+          }
+        ],
+        "name": "gpt_neox.layers.5.attention.query_key_value.weight",
+        "shape": [
+          768,
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.68.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.5.input_layernorm.bias",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.69.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.5.input_layernorm.weight",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.70.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.5.mlp.dense_4h_to_h.bias",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "column": "tensor.71.hadamard_scale.column",
+              "row": "tensor.71.hadamard_scale.row"
+            },
+            "primitive": "HADAMARD_SCALE"
+          },
+          {
+            "arguments": {
+              "rank": 32
+            },
+            "payload": {
+              "left": "tensor.71.low_rank.left",
+              "right": "tensor.71.low_rank.right"
+            },
+            "primitive": "LOW_RANK"
+          }
+        ],
+        "name": "gpt_neox.layers.5.mlp.dense_4h_to_h.weight",
+        "shape": [
+          256,
+          1024
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.72.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.5.mlp.dense_h_to_4h.bias",
+        "shape": [
+          1024
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "column": "tensor.73.hadamard_scale.column",
+              "row": "tensor.73.hadamard_scale.row"
+            },
+            "primitive": "HADAMARD_SCALE"
+          },
+          {
+            "arguments": {
+              "rank": 32
+            },
+            "payload": {
+              "left": "tensor.73.low_rank.left",
+              "right": "tensor.73.low_rank.right"
+            },
+            "primitive": "LOW_RANK"
+          }
+        ],
+        "name": "gpt_neox.layers.5.mlp.dense_h_to_4h.weight",
+        "shape": [
+          1024,
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.74.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.5.post_attention_layernorm.bias",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      },
+      {
+        "components": [
+          {
+            "arguments": {},
+            "payload": {},
+            "primitive": "BASE_COPY"
+          },
+          {
+            "arguments": {},
+            "payload": {
+              "values": "tensor.75.vector.values"
+            },
+            "primitive": "DIRECT_VECTOR"
+          }
+        ],
+        "name": "gpt_neox.layers.5.post_attention_layernorm.weight",
+        "shape": [
+          256
+        ],
+        "tied_to": null
+      }
+    ],
+    "version": "1.0.0"
+  },
+  "program_id": "996a887114d50602bd71b3f7d9f47ed4861b5a23d677a1ab39ca382e267024cd"
+}

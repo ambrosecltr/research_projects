@@ -1,230 +1,167 @@
 # GENOME Pythia v1 experiment plan
 
-## Gate 0 — clean workspace
+## Gate 0 — workspace and hidden boundary
 
-Create a new RunPod network volume and initialize `/workspace/genome_v1`. Do not copy any pre-existing GENOME workspace.
+Use the existing network volume at `/workspace/genome_v1`.
 
 Pass conditions:
 
-- source, derived, compiler and run directories are separate;
-- no hidden WT exists;
-- exact branch commit and environment are recorded.
+- source, evidence, programs, compiler files, and logs are separate;
+- Pythia 31M seed9 WT is absent and unresolved;
+- source commits and file hashes are recorded;
+- paid compute is stopped when no job is active.
 
-## Gate 1 — source audit and pinning
+## Gate 1 — whole-life split
 
 Use `configs/sources/pythia_v1.json`.
 
-Resolve all W0 refs and all training/development WT refs to immutable Hugging Face commits. Do not resolve hidden 31M seed9 WT.
+- Training: 14M seeds0–6,8,9 and 31M seeds0–6,8.
+- Development: 14M seed7 and 31M seed7.
+- Hidden: 31M seed9.
 
-Pass conditions:
+Seed8 is training and formula-development evidence. Do not call its historical
+results development confirmation. Pythia 14M seed9 is a training life.
 
-- 17 training lives, including Pythia 14M seed9;
-- two development lives;
-- one hidden life;
-- Pythia 14M seed9 W0 and WT resolved for training-data preparation;
-- every materialized file has SHA-256 and byte receipt;
-- source directory is made read-only after materialization.
+## Gate 2 — canonical lives and semantic evidence
 
-## Gate 2 — canonical lives
+For each available life:
 
-For every available life:
+1. verify native-to-canonical state round trips;
+2. export the architecture graph and tensor inventory;
+3. record W0 response evidence and corpus evidence;
+4. bind the recipe and source-plan IDs.
 
-1. Load native GPT-NeoX state.
-2. Convert to canonical state.
-3. Convert back to native.
-4. Require exact tensor equality.
-5. Compare logits on fixed token sequences.
-6. Export architecture graph and tensor inventory.
-7. Write a canonicalization audit for each life.
+GENOME targets a functionally good endpoint from the same pinned corpus and recipe.
+It does not promise the exact raw WT coordinates or exact training trajectory.
 
-No intermediate checkpoints are downloaded in v1.
-The complete `GENOME_MODEL_LIFE` manifest is finalized in Gate 3 after its real
-semantic evidence exists.
+## Gate 3 — three separate data uses
 
-## Gate 3 — semantic evidence
+The first immutable sample is already pinned.
 
-Build one pinned deterministic sample from the exact standard-Pile Pythia token
-binary, shared across lives, plus W0-specific response evidence. Record the
-immutable dataset commit, source shard, aligned byte range and content hashes.
+- Existing even records: functional refinement.
+- Existing odd records: formula tuning.
+- Second immutable sample: fresh development verification.
 
-Corpus evidence:
+The second sample must use a different shard or non-overlapping byte range, have a
+matching receipt and SHA-256, and provide at least 128 evaluation batches.
 
-- token unigram CountSketch;
-- token bigram CountSketch;
-- byte frequency;
-- sequence-length histogram;
-- tokenizer properties.
+The created verifier uses shard
+`document-00001-of-00020.bin`, has 128 batches, and has token JSONL SHA
+`6a9cfd8231943cc0603a7c40c9f6f0bfa02c7032e415ff452258c359a4e8cd99`.
 
-Raw-byte evidence is computed from deterministic tokenizer decoding of the exact
-training tokens because the published Pythia binary contains tokens, not original
-raw text. Record this limitation in the sample receipt.
+## Gate 4 — freeze one target formula
 
-Partition the pinned token sample by zero-based record parity. Even records are
-the functional-refinement probe. Odd records are the fixed evaluation sample.
-Record both hashes and counts. The two views must remain disjoint.
-
-W0 evidence:
-
-- fixed probe loss distribution;
-- per-role gradient CountSketch;
-- hidden-state moments and quantiles.
-
-Recipe evidence:
-
-- Pythia architecture and optimizer schedule;
-- planned steps and tokens;
-- context and global batch;
-- known order metadata.
-
-Pass conditions:
-
-- repeated construction is identical;
-- no WT is read;
-- no hash bytes enter semantic tensors;
-- hidden evidence construction cannot open hidden WT paths.
-
-After these checks pass, finalize one complete `GENOME_MODEL_LIFE` manifest for
-each life from its canonical artifacts, semantic evidence and pinned recipe.
-
-## Gate 4 — compact target frontier
-
-For every training and development life fit candidates at:
+The formula is `configs/targets/pythia_v1.yaml`. Its immutable ID is:
 
 ```text
-1%, 2.5%, 5%, 7.5%, 10%, 15%, 20%
+4f4e6d9d5d9ef7677dd955bb89be81dfedf161ecb010fdfd405475fdce46d155
 ```
 
-Start with globally budgeted randomized low rank plus bounded quantized vectors. Use CUDA SVD where useful. Functionally refine only compact coefficients through the Runtime.
-If global energy allocation leaves eligible matrices at BASE_COPY and fails the
-functional gate, evaluate a deterministic balanced variant that reserves rank
-one per eligible matrix before allocating remaining bytes by energy.
-If that still fails, evaluate a rank-balanced variant that allocates the same
-singular-component index across eligible matrices before moving to the next
-index.
-If multiplicative row/column structure explains material residual energy,
-evaluate base-relative Hadamard row/column scaling followed by low-rank fitting
-of the residual.
-If the embedding and language-model head use the same vocabulary row coordinate
-and share a useful residual subspace, evaluate one shared vocabulary factor with
-separate per-tensor right factors.
-If equal group ranks spend most target bytes on the vocabulary factor, evaluate
-an internal-first allocation that reserves the minimum rank, fills transformer
-matrices, then allocates remaining bytes to the shared vocabulary factor.
-If frozen int8 vector codes force matrix factors to compensate during
-refinement, evaluate bounded direct fp16 vectors under the same serialized byte
-gate.
-If functional refinement produces large payload drift and development
-overfitting, evaluate a global relative anchor to the fitted compact payload.
+Fixed production rules:
 
-Evaluate every candidate on the identical fixed odd-record Pythia evaluation
-sample. Functional refinement may read only the even-record probe.
+- serialized target fraction is at most 10%;
+- endpoint progress gate is at least 80%;
+- the candidate beats W0 and is finite;
+- no residual is added;
+- no direct matrix is allowed;
+- `DIRECT_VECTOR` is one-dimensional fp16, at most 4,096 values;
+- aggregate direct-vector bytes are reported.
 
-Save for each candidate:
+Use only `genome produce-target` for production targets. It performs fit, both
+refinement stages, serialization, byte audit, Runtime evaluation, binding, and
+acceptance from one formula.
 
-- exact MGP bytes;
-- primitive/rank table;
-- decode time;
-- parameter distortion;
-- W0, candidate and WT loss;
-- endpoint progress;
-- logit KL and top-1 agreement;
-- accept/reject reason.
+Each evaluation and acceptance report must bind:
 
-Production target gate:
+- `run_id`;
+- `formula_id`;
+- `program_id`;
+- program manifest SHA;
+- payload SHA;
+- W0 state ID;
+- WT state ID;
+- evaluation JSONL SHA;
+- source-plan ID;
+- full code commit.
+
+## Gate 5 — frozen-formula rerun and training regeneration
+
+Do these steps in order:
+
+1. commit and test the protocol;
+2. change the formula status from `formula-development` to `frozen` without
+   changing its identity fields;
+3. rerun Pythia 14M seed5 once with the exact frozen formula;
+4. preserve its rejection and full diagnostics;
+5. regenerate all other training targets with the same formula.
+
+Seed5 is training and formula-development evidence. Its known 73.38% historical
+result is not an accepted compiler target.
+
+## Gate 6 — fresh seed7 development
+
+Only after Gate 5 is complete:
+
+1. run Pythia 14M seed7 once;
+2. run Pythia 31M seed7 once;
+3. use only the independent 128-batch verifier;
+4. do not adjust the formula after seeing either result.
+
+The code refuses seed7 while the formula is not frozen. It also checks that every
+training report uses the same formula and source plan before seed7 can run.
+
+## Gate 7 — compiler corpus
+
+Build the corpus only after both seed7 reports exist.
+
+The expected corpus is:
 
 ```text
-serialized fraction <= 10%
-endpoint progress >= 0.80
-candidate beats W0
-finite model
+16 accepted training targets
+2 accepted development targets
+18 total records
 ```
 
-Both 14M seed8 and 31M seed8 must pass. Otherwise stop and improve the deterministic formula language. Do not train the compiler.
-Freeze the successful training-life formula and refinement schedule before
-running either development life. Apply that schedule unchanged to both
-development lives.
+Pythia 14M seed5 is kept as rejection evidence and excluded from supervision.
+Pythia 31M seed9 is absent. The builder recomputes and verifies every artifact
+binding before it writes the corpus.
 
-## Gate 5 — compiler corpus
+## Gate 8 — compiler smoke and production training
 
-Create `GENOME_COMPILER_CORPUS` from accepted training and development programs only.
-The expected complete corpus has 19 records: 17 training and two development.
-Pythia 14M seed9 contributes an endpoint-free compiler input and an accepted fitted target.
+Do not start this gate before Gates 0–7 pass.
 
-Each record contains:
+Teacher-forced loss is diagnostic. Checkpoint selection must use free-running
+development evaluation:
 
-- architecture graph;
-- W0 state;
-- semantic fingerprint;
-- numeric recipe;
-- accepted compact MGP;
-- fixed functional probe JSONL;
-- model config.
+```text
+compiler generation
+-> actual MGP serialization
+-> byte audit
+-> Runtime
+-> real Pythia loss for at least 128 batches
+-> endpoint progress
+```
 
-No hidden record is present.
+Select the checkpoint with the best mean generated endpoint progress across the
+two seed7 lives. Store each generated program and its full evaluation report.
 
-## Gate 6 — tiny compiler smoke
-
-Use a small subset of accepted lives.
-
-Require:
-
-- training loss decreases;
-- primitive/rank accuracy improves;
-- decoded-delta loss decreases;
-- functional loss is finite;
-- generated programs are structurally valid;
-- actual program bytes remain bounded;
-- compiler checkpoint and optimizer state are written;
-- a stopped run resumes correctly;
-- development examples never receive gradients.
-
-## Gate 7 — production compiler training
-
-Train the configuration in `configs/compiler/pythia_v1.yaml`.
-
-Monitor:
-
-- total, primitive, rank, decoded-delta and functional losses;
-- predicted byte proxy and actual sampled MGP bytes;
-- invalid-program count, which must remain zero;
-- development loss and development endpoint progress;
-- gradient norm, GPU memory and throughput.
-
-Select the frozen compiler checkpoint using development lives only.
-
-## Gate 8 — hidden one-shot compilation
+## Gate 9 — sealed hidden evaluation
 
 For Pythia 31M seed9:
 
-1. Load W0 and endpoint-free evidence.
-2. Generate exactly one candidate in the primary experiment.
-3. Serialize and audit it.
-4. Execute it and save the candidate state.
-5. Seal compiler, evidence, source-plan, MGP and state hashes.
-6. Resolve and download hidden WT only after the seal.
-7. Evaluate W0, candidate and WT identically.
+1. load W0 and endpoint-free evidence;
+2. generate one primary candidate;
+3. serialize and audit it;
+4. execute it through the Runtime;
+5. seal compiler, evidence, source-plan, MGP, and state hashes;
+6. resolve hidden WT only after the seal;
+7. evaluate W0, candidate, and WT identically.
 
-Report:
+Predeclared interpretation:
 
-```text
-actual MGP bytes
-byte fraction
-decode and compile time
-W0 loss
-candidate loss
-WT loss
-endpoint progress
-logit KL
-top-1 agreement
-```
+- `P <= 0`: no signal;
+- `0 < P < 0.25`: weak signal only;
+- `0.25 <= P < 0.80`: partial result;
+- `P >= 0.80`: strong result.
 
-The primary success condition is endpoint progress greater than zero.
-
-## Gate 9 — only after hidden success
-
-Then, and only then, consider:
-
-1. Pythia 70M hidden-size transfer;
-2. deduplicated-Pile dataset transfer;
-3. staged/post-training recipe transfer;
-4. another decoder-only architecture;
+No hidden result is currently claimed.

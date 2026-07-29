@@ -18,12 +18,16 @@ W0 + architecture + semantic data/W0 evidence + recipe -> compact MGP -> determi
 6. A target MGP is not supervision until the decoded real model passes both the byte and functional gates.
 7. Weight MSE is diagnostic only. The model must execute and beat W0.
 8. Split by complete model life. Checkpoints from one life inherit its split.
-9. Pythia 14M seed9 is a training life. Its W0 and WT may be used to fit a compact target and train the compiler.
-10. Pythia 31M seed9 WT remains unresolved and unavailable until a prediction and Runtime output are sealed.
-11. Cryptographic hashes are provenance, not semantic model inputs.
-12. Do not add more model families or sizes before the fresh 31M hidden gate.
-13. Report one-shot generation before any repair. Repair must be a separate result.
-14. Failed gates are results. Never bypass them by increasing payload size or relaxing thresholds after seeing hidden data.
+9. Pythia seed8 is training and formula-development data at both sizes. It is not independent development confirmation.
+10. Pythia seed7 is the fresh development life at both sizes. Do not use seed7 before one global formula is frozen and all training targets are regenerated with it.
+11. Pythia 14M seed9 is a training life. Its W0 and WT may be used to fit a compact target and train the compiler.
+12. Pythia 31M seed9 WT remains unresolved and unavailable until a prediction and Runtime output are sealed.
+13. Cryptographic hashes are provenance, not semantic model inputs.
+14. Do not add more model families or sizes before the fresh 31M hidden gate.
+15. Report one-shot generation before any repair. Repair must be a separate result.
+16. Failed gates are results. Never bypass them by increasing payload size or relaxing thresholds after seeing hidden data.
+17. Production target generation uses one formula-driven command. Every target evaluation and acceptance report must carry the same immutable formula ID and complete artifact bindings.
+18. Teacher-forced compiler loss is diagnostic only. Select compiler checkpoints by free-running generated MGP quality on development lives.
 
 ## Program policy
 
@@ -35,7 +39,12 @@ MGP bytes <= 10% of direct fp16 Delta-T bytes
 
 Programs between 10% and 20% are exploratory and cannot train the production compiler without an explicit new decision record. Programs above 20% are rejected.
 
-Matrices may use compact formula primitives only. Vectors may use bounded int8 storage. Sparse patches are capped at 0.1% of model values. Shared assets must be frozen from training lives, separately counted, and contain no per-life endpoint lookup.
+Matrices may use compact formula primitives only. `DIRECT_VECTOR` is permitted
+only for one-dimensional tensors with at most 4,096 values. Its payload must be
+fp16, its aggregate payload bytes must be reported, and it is forbidden for
+matrices. Vectors may also use bounded int8 storage. Sparse patches are capped
+at 0.1% of model values. Shared assets must be frozen from training lives,
+separately counted, and contain no per-life endpoint lookup.
 
 ## Functional target policy
 
@@ -71,7 +80,10 @@ It may not use a fixed output table tied to one checkpoint, architecture, seed, 
 
 ## RunPod policy
 
-Use a new network volume and do not copy any pre-existing GENOME workspace. The source directory becomes immutable after receipts are written. Do not download all intermediate checkpoints. Initial source materialization is W0 and WT for training/development lives, and W0 only for the hidden life.
+Continue with network volume `4kwmhcepgj`. Do not copy data from another GENOME
+workspace. The source directory remains immutable. Do not download all
+intermediate checkpoints. Source materialization is W0 and WT for
+training/development lives, and W0 only for the hidden life.
 
 ## Required stopping conditions
 

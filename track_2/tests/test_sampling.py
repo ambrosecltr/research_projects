@@ -5,7 +5,7 @@ from pathlib import Path
 
 from genome.hashing import sha256_file
 from genome.io import load_json
-from genome.sampling import partition_probe_sample
+from genome.sampling import partition_probe_sample, verify_independent_evaluation_sample
 
 
 def _write_records(path: Path, values: list[list[int]]) -> None:
@@ -32,3 +32,54 @@ def test_partition_probe_sample_is_disjoint_and_receipted(tmp_path: Path) -> Non
     assert receipt["evaluation"]["records"] == 3
     assert receipt["refinement"]["sha256"] == sha256_file(tmp_path / "probes" / "refinement.jsonl")
     assert load_json(tmp_path / "probes" / "receipt.json") == receipt
+
+
+def test_independent_verifier_requires_another_range_and_128_batches(tmp_path: Path) -> None:
+    formula_tokens = tmp_path / "formula.jsonl"
+    verifier_tokens = tmp_path / "verifier.jsonl"
+    _write_records(formula_tokens, [[1, 2]])
+    _write_records(verifier_tokens, [[index, index + 1] for index in range(128)])
+    common = {
+        "format": "GENOME_DATASET_SAMPLE",
+        "repository": "EleutherAI/pile",
+        "resolved_commit": "a" * 40,
+    }
+    formula_receipt = tmp_path / "formula-receipt.json"
+    verifier_receipt = tmp_path / "verifier-receipt.json"
+    formula_receipt.write_text(
+        json.dumps(
+            {
+                **common,
+                "filename": "shard-0.bin",
+                "byte_range": {"start": 0, "end": 99},
+                "examples": 1,
+                "tokens_file": {
+                    "path": str(formula_tokens),
+                    "sha256": sha256_file(formula_tokens),
+                },
+            }
+        )
+    )
+    verifier_receipt.write_text(
+        json.dumps(
+            {
+                **common,
+                "filename": "shard-1.bin",
+                "byte_range": {"start": 0, "end": 999},
+                "examples": 128,
+                "tokens_file": {
+                    "path": str(verifier_tokens),
+                    "sha256": sha256_file(verifier_tokens),
+                },
+            }
+        )
+    )
+
+    report = verify_independent_evaluation_sample(
+        formula_sample_receipt=formula_receipt,
+        verifier_receipt=verifier_receipt,
+    )
+
+    assert report["different_shard"] is True
+    assert report["batches"] == 128
+    assert report["evaluation_jsonl_sha256"] == sha256_file(verifier_tokens)

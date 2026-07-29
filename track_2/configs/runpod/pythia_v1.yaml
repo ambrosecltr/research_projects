@@ -4,7 +4,7 @@ recommended_volume_name: genome-pythia-v1
 source_plan: configs/sources/pythia_v1.json
 compiler_config: configs/compiler/pythia_v1.yaml
 setup:
-  use_new_volume: true
+  use_new_volume: false
   copy_old_volume: false
   initial_pod: cpu
   source_read_only_after_receipts: true

@@ -1,0 +1,148 @@
+{
+  "corpus_fingerprint_id": "59c94b40bb266a7ac27ec048651f3712e12d33d2bcb1a457755031f930b3c549",
+  "corpus_repeat_identical": true,
+  "counts": {
+    "development": 2,
+    "hidden": 1,
+    "lives": 20,
+    "training": 17
+  },
+  "format": "GENOME_SEMANTIC_EVIDENCE_AUDIT",
+  "pythia_14m_seed9": {
+    "split": "training",
+    "w0_available": true,
+    "wt_available": true
+  },
+  "pythia_31m_seed9": {
+    "split": "hidden",
+    "w0_available": true,
+    "wt_absent": true
+  },
+  "records": [
+    {
+      "merged_fingerprint_id": "8de164240de9f11ebb8033b714f631d273dd18939434d6ddd0d8a16dbc6d4ac0",
+      "run_id": "pythia-14m-seed0",
+      "split": "training",
+      "w0_fingerprint_id": "2c858af78f6df62c147166978d1046f9999ce667331be1061a32a93caff50576"
+    },
+    {
+      "merged_fingerprint_id": "db7d43d105aca5cf5193608f080a2a0fa4e2d837bda08c359377ab7a5efbea7e",
+      "run_id": "pythia-14m-seed1",
+      "split": "training",
+      "w0_fingerprint_id": "d93e28e091629868866c1e82b02724ff19196734c6e20fb2461cf7213ba9d60e"
+    },
+    {
+      "merged_fingerprint_id": "b016bd0db1400589c54cfbdbec2c0ad44310bcc117edec10059643dcc439befd",
+      "run_id": "pythia-14m-seed2",
+      "split": "training",
+      "w0_fingerprint_id": "2d2ca7cfce7c2ca040bd0d4172eea778643fc82687645742448827d7b4cd45fa"
+    },
+    {
+      "merged_fingerprint_id": "e87583119de63c171d8644da0e6d06eacdaca5acec34d53d1028e6e1f8aae9a0",
+      "run_id": "pythia-14m-seed3",
+      "split": "training",
+      "w0_fingerprint_id": "9caa385bfa22d0f42f750a1bcf466a9f021fae909087425fcb79127c0cad0794"
+    },
+    {
+      "merged_fingerprint_id": "73c497b41055505a793b3cfcd54737258ff5d53a501151bd9da6c66017b8b353",
+      "run_id": "pythia-14m-seed4",
+      "split": "training",
+      "w0_fingerprint_id": "a13dcae1e432645734018b911609dc42d87c6edf854b607eb6c35c130b0729e7"
+    },
+    {
+      "merged_fingerprint_id": "60685b5c7792671876e14b069465e6f5a160fd4aeb77dd529274adc46c9da29f",
+      "run_id": "pythia-14m-seed5",
+      "split": "training",
+      "w0_fingerprint_id": "6e3bace9c255023509fa246abb3838a66dbea92b3f16175abef2104e52018efc"
+    },
+    {
+      "merged_fingerprint_id": "1f8367a12b8e302f552d018f0b58c9d1458b9b8010916e65670a018c0da8698c",
+      "run_id": "pythia-14m-seed6",
+      "split": "training",
+      "w0_fingerprint_id": "734d0b12c7a6299354e0024d6300ff0fd5007b0b22b0d4f296b70bd7855d50e3"
+    },
+    {
+      "merged_fingerprint_id": "06ece972cb5924a6fff1ffe22012f997dbe04f1c2ce3f5c965ef2876942e147f",
+      "run_id": "pythia-14m-seed7",
+      "split": "training",
+      "w0_fingerprint_id": "9e23948982c1d620cc0fbf35ecc371ed2eba8b38b533fd77c4921cdf9e0bb226"
+    },
+    {
+      "merged_fingerprint_id": "33607d4380632b1a90f67c71c09a012485ea4f5514daaa0b6631ebc2fb396088",
+      "run_id": "pythia-14m-seed8",
+      "split": "development",
+      "w0_fingerprint_id": "cc847d1dc4d9fa28449ee328ae4bde9e2ae941a199739e28d19aa00f35e269b6"
+    },
+    {
+      "merged_fingerprint_id": "ded9d14b9fb782a41c3fec2dd3382e7d4da0f1535e94d84304bd5bd80b21b3bc",
+      "run_id": "pythia-14m-seed9",
+      "split": "training",
+      "w0_fingerprint_id": "b16071753dbacc92a56481d9302a16f8d300979a5e30bad4fdc693be3194a533"
+    },
+    {
+      "merged_fingerprint_id": "c8ca371f07009e510835278996fc5fd0dc4f614eb660b33c05883e1323d503fd",
+      "run_id": "pythia-31m-seed0",
+      "split": "training",
+      "w0_fingerprint_id": "e29e0f88fab6e868f4fc154269f5ae39f451c9907494b9c32e36af50f82c2dd6"
+    },
+    {
+      "merged_fingerprint_id": "3ba839e325f851350e4367c0a6d3a03dcde11cc4bb748036ac8f49c663dd7202",
+      "run_id": "pythia-31m-seed1",
+      "split": "training",
+      "w0_fingerprint_id": "94b1cf9e6c3183b3ea90599a737eced26d48a03a897b3032f51b4a1ea0f3b796"
+    },
+    {
+      "merged_fingerprint_id": "7bbdd305696cb2c0f3b723f0b167032432f4713de321fe22ce9c901d36ddd656",
+      "run_id": "pythia-31m-seed2",
+      "split": "training",
+      "w0_fingerprint_id": "c3ecbcf63f8d4b664a7232e2eda1af6be3477db5882aaeb2c73fbbaa58f92d6f"
+    },
+    {
+      "merged_fingerprint_id": "f0c522cc9092bf986a183ce3b32821895d0ec73aa18bbdbe6b6b7c66700a5327",
+      "run_id": "pythia-31m-seed3",
+      "split": "training",
+      "w0_fingerprint_id": "e69644fe4c9763504bd47d499badbaae0a09a01f32053ca9caad757910ea680c"
+    },
+    {
+      "merged_fingerprint_id": "77cc881cc5cd3805a5d4524442beb52be3478433574f636faa2009901350d4c8",
+      "run_id": "pythia-31m-seed4",
+      "split": "training",
+      "w0_fingerprint_id": "2bc454c529369f2fcc35269859dd417b431b4c84675cf36d382883a3b42c73af"
+    },
+    {
+      "merged_fingerprint_id": "3503fc0e76e759ec0f90d195313fc8d1784d4dac953d36f28c0ec0d39378d706",
+      "run_id": "pythia-31m-seed5",
+      "split": "training",
+      "w0_fingerprint_id": "9edb4c828af3cccf9369e879290a924150b9506c408598064e3a648d5695e893"
+    },
+    {
+      "merged_fingerprint_id": "787725c60837173dfc8dd59e086dddc0255507833d6877a7a1ca876f50c7ff07",
+      "run_id": "pythia-31m-seed6",
+      "split": "training",
+      "w0_fingerprint_id": "bd33204ce5b1872dad1eed8e7e411917e6a880a0683796bd131b6cc6e0687d88"
+    },
+    {
+      "merged_fingerprint_id": "175bffd5e718af88920c88121a6ac86742dde28eb7e7016d0f3c1e3b50c525ce",
+      "run_id": "pythia-31m-seed7",
+      "split": "training",
+      "w0_fingerprint_id": "9d8abe8095a88f5f31ad5a77b88c47b16506fb16a1cb8e5c9cc216dc3ce84bd4"
+    },
+    {
+      "merged_fingerprint_id": "a9226b62db953fb6cc137a3974588e5091331b07c4dcc3dce3d24cceaeb524e3",
+      "run_id": "pythia-31m-seed8",
+      "split": "development",
+      "w0_fingerprint_id": "3e0987f3acd14ea8ab011e7add7f4d022f11bb71963ec10695fd8b23ba47c3b8"
+    },
+    {
+      "merged_fingerprint_id": "56e463e203a3200b50d2d2b76020b90dbbf98f97ba6c4532dfb0b06f02edb81e",
+      "run_id": "pythia-31m-seed9",
+      "split": "hidden",
+      "w0_fingerprint_id": "599753dc2e82d3969ecbed1515eb19cc639c4828b139058dcaad0b8225d537b1"
+    }
+  ],
+  "source_plan_id": "850fd6eb0652431a5281c93d9196a636aa5864eb4509e7dff4a1579e9f8ef6c7",
+  "verified": true,
+  "version": "1.0.0",
+  "w0_repeat_identical": true,
+  "w0_repeat_run_id": "pythia-14m-seed0"
+}

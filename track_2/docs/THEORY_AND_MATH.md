@@ -123,10 +123,11 @@ V_m=s_m q_m,
 
 Direct vector storage is bounded. It is never permitted for a matrix.
 
-A bounded vector may instead store its values directly in fp16 when every
-vector value must remain trainable during functional refinement. The same
-4,096-value limit applies. Direct vector storage is never permitted for a
-matrix.
+`DIRECT_VECTOR` stores a one-dimensional tensor directly in fp16 when every
+vector value must remain trainable during functional refinement. It is valid
+only when the logical tensor has at most 4,096 values. It is forbidden for
+matrices. Every program audit reports the aggregate payload bytes used by
+all `DIRECT_VECTOR` payloads.
 
 ### Sparse patch
 
@@ -237,6 +238,10 @@ It does not decide acceptance.
 
 Training and development WT may be used offline to fit compact programs. That fitting creates labels; it is not hidden inference.
 
+GENOME targets any functionally good endpoint produced from the same pinned
+corpus and recipe. It does not claim to recover the exact raw WT coordinates or
+the exact historical update order.
+
 The first candidate is globally budgeted truncated SVD. Singular components are ranked by energy per encoded byte. Small vectors are quantized. No residual is added.
 
 The compact parameters can then be optimized through the Runtime and real model:
@@ -328,8 +333,15 @@ For the fresh hidden life:
 7. W0, candidate and WT are evaluated identically.
 8. One-shot results are published before repair.
 
-The first hidden criterion is simply \(P>0\). Values \(P\ge0.25\) and \(P\ge0.50\) are reported as useful and strong transfer, but do not replace the raw metrics.
+Hidden results use predeclared tiers:
+
+- \(P\le0\): no signal;
+- \(0<P<0.25\): weak signal only;
+- \(0.25\le P<0.80\): partial result;
+- \(P\ge0.80\): strong result.
+
+Raw losses, bytes, and endpoint progress are always reported.
 
 ## 11. Scope
 
-Pythia 14M and 31M are the only initial families. Cross-size, dataset, recipe and architecture transfer are deferred until fresh hidden 31M seed9 improves over W0.
+Pythia 14M and 31M are the only initial families. Cross-size, dataset, recipe and architecture transfer are deferred until the sealed fresh hidden 31M seed9 result is reported.

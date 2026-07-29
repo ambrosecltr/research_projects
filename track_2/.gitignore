@@ -3,7 +3,11 @@ __pycache__/
 .pytest_cache/
 *.py[cod]
 .DS_Store
-artifacts/
+artifacts/*
+!artifacts/audit/
+artifacts/audit/*
+!artifacts/audit/pythia_v1_formula_v2_historical/
+!artifacts/audit/pythia_v1_formula_v2_historical/**
 runs/
 logs/
 cache/
@@ -14,3 +18,4 @@ programs/
 compiler/checkpoints/
 *.local.yaml
 *.local.json
+!artifacts/audit/pythia_v1_formula_v2_historical/**

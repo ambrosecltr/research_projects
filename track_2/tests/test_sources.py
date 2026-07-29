@@ -20,6 +20,16 @@ def test_default_pythia_plan_is_fresh_and_whole_life_split() -> None:
     assert seed9_14m[0].split == "training"
     assert seed9_14m[0].w0_revision == "step0"
     assert seed9_14m[0].wt_revision == "step143000"
+    assert {
+        (item.size, item.seed)
+        for item in plan.lives
+        if item.split == "development"
+    } == {("14m", 7), ("31m", 7)}
+    assert all(
+        item.split == "training"
+        for item in plan.lives
+        if item.seed == 8
+    )
     assert hidden[0].wt_commit is None
 
 
@@ -32,7 +42,7 @@ def test_checked_in_source_and_compiler_corpus_plans_match_v1_split() -> None:
     assert SourcePlan.load("configs/sources/pythia_v1.json") == default_pythia_v1_plan()
     corpus_template = load_json("configs/corpus/compiler_v1.template.json")
     assert corpus_template["expected_records"] == {
-        "training": 17,
+        "training": 16,
         "development": 2,
-        "total": 19,
+        "total": 18,
     }

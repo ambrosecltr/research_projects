@@ -1,0 +1,23 @@
+{
+  "evaluation": {
+    "bytes": 18628487,
+    "path": "/workspace/genome_v1/evidence/corpus/probes/evaluation.jsonl",
+    "records": 2048,
+    "sha256": "b1221abcbe557a59dd701aef4e7d7497142146597530fcdce1e2f63c39874ae1"
+  },
+  "format": "GENOME_PROBE_PARTITION",
+  "refinement": {
+    "bytes": 18643117,
+    "path": "/workspace/genome_v1/evidence/corpus/probes/refinement.jsonl",
+    "records": 2048,
+    "sha256": "41568f34c88dfb1f32211fb428dfa437b2ff71c5e83f4220665cf1030135fc33"
+  },
+  "rule": "zero-based-even-refinement-odd-evaluation",
+  "source": {
+    "bytes": 37271604,
+    "path": "/workspace/genome_v1/evidence/corpus/sample/tokens.jsonl",
+    "records": 4096,
+    "sha256": "2721b60b3265eca2000be8a4060f566cce7837277d10233e531c83359735b957"
+  },
+  "version": "1.0.0"
+}

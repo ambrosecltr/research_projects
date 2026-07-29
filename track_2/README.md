@@ -1,116 +1,113 @@
 # GENOME Track 2
 
-GENOME trains a model to generate trained models.
-
-The active experiment is deliberately narrow and testable:
+GENOME trains one compiler that generates compact programs for trained models.
 
 ```text
-true random W0
-+ architecture graph
-+ semantic evidence from the training corpus and W0
-+ complete intended training recipe
-    -> one learned GENOME Compiler
-    -> compact executable Model Genome Program (MGP)
+random W0 + architecture + endpoint-free corpus evidence + training recipe
+    -> GENOME Compiler
+    -> compact Model Genome Program (MGP)
     -> deterministic Runtime
-    -> runnable candidate endpoint
+    -> runnable candidate model
 ```
 
-The compiler never receives the final weights of the life on which it is being tested.
+The compiler never receives the final weights of the life that it must predict.
 
-## Clean project boundary
+## Pythia v1 split
 
-This directory is the authoritative Track 2 implementation. Only forward-use code, tests and documentation are included.
-
-There is exactly one learned model in the active path: `GenomeCompiler`.
-
-The Runtime is normal deterministic tensor code. It executes compact primitives:
-
-```text
-BASE_COPY
-LOW_RANK
-HADAMARD_SCALE
-DIRECT_VECTOR
-QUANTIZED_VECTOR
-SPARSE_PATCH
-COPY_FROM_TIED
-```
-
-There is no dense-delta opcode, exact-residual opcode, neural-field opcode, or one-value-per-weight escape hatch.
-
-## First corpus
-
-Only the standard non-deduplicated Pythia/PolyPythia family is used initially.
-
-| Lives | Assignment |
+| Role | Lives |
 |---|---|
-| Pythia 14M seeds 0–7 and 9 | training |
-| Pythia 14M seed 8 | development |
-| Pythia 31M seeds 0–7 | training |
-| Pythia 31M seed 8 | development |
-| Pythia 31M seed 9 | fresh hidden evaluation |
+| Training and formula development | Pythia 14M seeds 0–6, 8, 9 |
+| Training and formula development | Pythia 31M seeds 0–6, 8 |
+| Fresh development | Pythia 14M seed7 and Pythia 31M seed7 |
+| Hidden | Pythia 31M seed9 |
 
-The split unit is one complete model life. A checkpoint is not an independent example.
-Pythia 14M seed9 is a normal training life. Its W0 and WT are available during
-training-data preparation, and its accepted compact target may supervise the compiler.
+Seed8 affected formula design. Its old results are training and formula-development
+evidence. They are not independent development confirmation.
 
-## Program and functional gates
+Pythia 14M seed9 is a normal training life. Its W0 and WT are available for target
+preparation. It is never a hidden evaluation.
 
-A fitted target MGP is only a candidate until it passes all of these gates:
+Pythia 31M seed9 is the only hidden life. Its W0, architecture, evidence, and recipe
+are available. Its WT stays unresolved until the compiler output and Runtime result
+are sealed.
 
-1. It uses only approved compact primitives.
-2. Its actual serialized target-specific bytes are at most 10% of direct fp16 Delta-T.
-3. It loads and executes through the Runtime.
-4. The resulting model has finite logits.
-5. It beats W0.
-6. On development lives, it closes at least 80% of the W0-to-WT validation-loss gap.
+## Fixed rules
 
-The development threshold is declared before the fresh hidden endpoint is revealed.
+- Actual serialized target-specific bytes must be at most 10% of direct fp16 Delta-T.
+- Development endpoint progress must be at least 80%.
+- Do not add a residual or direct matrix.
+- `DIRECT_VECTOR` is only for one-dimensional fp16 tensors with at most 4,096 values.
+- Every audit reports the total bytes used by all `DIRECT_VECTOR` payloads.
+- The formula is one immutable object with one `formula_id`.
+- Production targets use the single `produce-target` command.
+- Historical low-level fit, refine, evaluate, and accept commands are diagnostic tools.
 
-Endpoint progress is:
+GENOME targets a functionally good endpoint from the same pinned corpus and recipe.
+It does not claim to recreate the exact raw WT coordinates or training path.
 
-\[
-P=\frac{L(W_0)-L(\widehat W)}{L(W_0)-L(W_T)}.
-\]
+## Data checks
 
-No repair is included in the one-shot result.
+The existing even records are refinement data. The existing odd records are
+formula-tuning data. They are not fresh development data.
 
-## Compiler architecture
+Fresh development uses 128 batches from a second immutable verifier. The verifier
+uses a different source shard and has its own receipt and SHA-256.
 
-The compiler is hierarchical rather than a flat coefficient language model:
+Every new evaluation and acceptance report binds:
 
-```text
-model/task evidence
-    -> graph message passing over logical tensors
-    -> bidirectional tensor encoder
-    -> primitive and rank decisions
-    -> shared coordinate-conditioned coefficient heads
-    -> bounded per-tensor coefficient packets
-    -> deterministic MGP serialization
-```
+- run ID and immutable formula ID;
+- program ID, manifest SHA, and payload SHA;
+- W0 and WT state IDs;
+- evaluation JSONL SHA;
+- source-plan ID;
+- full code commit.
 
-Coefficients are emitted through bounded structured heads, not one sequence token per handful of floats.
+The compiler-corpus builder checks every binding again.
 
-## Repository map
+## Required order
 
-| Path | Purpose |
-|---|---|
-| `genome/life.py` | Complete model-life and whole-life split contracts. |
-| `genome/sources.py` | Pythia source plan, ref resolution, materialization and hidden reveal. |
-| `genome/adapters/gpt_neox.py` | Reversible Pythia/GPT-NeoX state adapter. |
-| `genome/fingerprint.py` | Corpus and endpoint-free W0 response evidence. |
-| `genome/mgp/` | Compact program schema, fitting, policy, serialization and Runtime. |
-| `genome/compiler/model.py` | The single learned GENOME Compiler. |
-| `genome/compiler/data.py` | Architecture/W0/evidence features and compiler corpus records. |
-| `genome/compiler/train.py` | Resumable compiler training and development selection. |
-| `genome/evaluation.py` | Functional Genome Gate and endpoint-progress metrics. |
-| `genome/hidden.py` | Prediction sealing before hidden WT reveal. |
-| `genome/workspace.py` | Fresh RunPod volume layout. |
-| `docs/THEORY_AND_MATH.md` | Formal problem and objective. |
-| `docs/EXPERIMENT_PLAN.md` | Ordered gates from source audit through hidden evaluation. |
-| `docs/RUNPOD_HANDOFF.md` | Exact handoff for the next agent. |
-| `docs/SOURCE_MATRIX.md` | Pythia source and storage plan. |
+1. Commit and test the protocol.
+2. Freeze one global formula.
+3. Rerun Pythia 14M seed5 once with that exact formula.
+4. Regenerate every training target with that formula.
+5. Run each seed7 development life exactly once.
+6. Build the compiler corpus from accepted bound targets.
+7. Train the compiler.
+8. Select its checkpoint by free-running generated model quality.
+9. Compile and seal one hidden Pythia 31M seed9 result.
+10. Reveal hidden WT and evaluate.
 
-## Local commands
+The code blocks seed7 while the formula is not frozen. It also blocks seed7 until
+all training reports for the same formula and source plan are present.
+
+Pythia 14M seed5 is a declared rejected training target. Its frozen-formula rerun
+must preserve full diagnostics. The expected compiler corpus is therefore 16 accepted
+training targets and two accepted development targets, for 18 records.
+
+## Compiler checkpoint selection
+
+Teacher-forced development loss is diagnostic only. A selectable checkpoint must:
+
+1. generate an MGP without teacher forcing;
+2. serialize the real MGP;
+3. pass the actual byte audit;
+4. execute through the Runtime;
+5. run real Pythia loss evaluation for at least 128 batches;
+6. report endpoint progress.
+
+The selected checkpoint has the best mean generated endpoint progress across the
+two seed7 development lives.
+
+## Hidden result tiers
+
+| Endpoint progress | Meaning |
+|---:|---|
+| `P <= 0` | no signal |
+| `0 < P < 0.25` | weak signal only |
+| `0.25 <= P < 0.80` | partial result |
+| `P >= 0.80` | strong result |
+
+## Local checks
 
 ```bash
 cd track_2
@@ -120,57 +117,9 @@ python -m pytest -q
 python -m genome --help
 ```
 
-Initialize a new RunPod network volume:
+Current state: both RunPod pods are stopped. The 100 GB network volume
+`4kwmhcepgj` is intact. No compiler training has started. No seed7 target has run.
+No hidden WT has been revealed.
 
-```bash
-genome init-workspace --root /workspace/genome_v1
-```
-
-Write and resolve the source plan:
-
-```bash
-genome write-source-plan --output configs/sources/pythia_v1.generated.json
-genome resolve-source-plan \
-  --plan configs/sources/pythia_v1.generated.json \
-  --output /workspace/genome_v1/control/pythia_v1.pinned.json
-```
-
-The hidden 31M seed9 WT is not resolved or downloaded by this command.
-
-## Current status
-
-Implemented and tested:
-
-- complete model-life schema;
-- whole-life split enforcement;
-- hidden endpoint exclusion;
-- source planning and pinning;
-- reversible GPT-NeoX adapter;
-- corpus and W0-response fingerprints;
-- compact MGP schema and deterministic Runtime;
-- low-rank target fitting with scalable truncated SVD;
-- actual serialized byte audits;
-- functional target refinement hook;
-- functional Genome Gate;
-- hierarchical variable-tensor compiler;
-- prediction-dependent byte proxy;
-- structural and functional compiler losses;
-- compiler checkpointing and resume artifacts;
-- compiler output aligned with the selected target formula;
-- automatic 19-record compiler-corpus construction;
-- hidden prediction seal;
-- 39 local and RunPod tests.
-
-RunPod Gates 0 to 3 are complete. The selected target formula passed both
-development lives:
-
-```text
-Pythia 14M seed8: 83.2048% endpoint progress
-Pythia 31M seed8: 80.1290% endpoint progress
-```
-
-Gate 4 is applying the fixed formula to all training lives. The remaining work
-is compiler-corpus construction, GPU smoke and training, then the sealed one-shot
-Pythia 31M seed9 hidden evaluation.
-
-Read `AGENTS.md` and `docs/RUNPOD_HANDOFF.md` before modifying the project.
+Read `AGENTS.md`, `docs/EXPERIMENT_PLAN.md`, and `docs/RUNPOD_HANDOFF.md` before
+continuing.

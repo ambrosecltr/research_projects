@@ -1,5 +1,7 @@
 format: GENOME_TARGET_FORMULA
-version: 2.0.0
+version: 3.0.0
+formula_id: 4f4e6d9d5d9ef7677dd955bb89be81dfedf161ecb010fdfd405475fdce46d155
+status: formula-development
 locked_from:
   run_id: pythia-14m-seed0
   split: training
@@ -7,7 +9,7 @@ locked_from:
   endpoint_progress: 0.8385243328254446
   git_commit: ee662b3
 
-development_confirmations:
+formula_development_results:
   - run_id: pythia-14m-seed8
     program_id: 3cb0c5d63ca2ed50918fa1f6d5da0bae50a4fd799ad4285bf037cdf915bce164
     endpoint_progress: 0.832047876783571
@@ -38,11 +40,25 @@ refinement:
 
 data:
   refinement: /workspace/genome_v1/evidence/corpus/probes/refinement.jsonl
-  evaluation: /workspace/genome_v1/evidence/corpus/probes/evaluation.jsonl
-  evaluation_batches: 16
+  formula_tuning: /workspace/genome_v1/evidence/corpus/probes/evaluation.jsonl
+  formula_tuning_batches: 16
+  formula_sample_receipt: /workspace/genome_v1/evidence/corpus/sample/receipt.json
+  development_verifier: /workspace/genome_v1/evidence/corpus/verifier/tokens.jsonl
+  development_verifier_receipt: /workspace/genome_v1/evidence/corpus/verifier/receipt.json
+  development_evaluation_batches: 128
 
 acceptance:
   maximum_target_fraction: 0.10
   minimum_endpoint_progress: 0.80
   require_candidate_beats_w0: true
   require_finite_candidate: true
+
+corpus:
+  expected_training_records: 16
+  expected_development_records: 2
+  rejected_training_lives:
+    - pythia-14m-seed5
+
+endpoint_semantics: >-
+  GENOME targets a functionally good endpoint from the same pinned corpus and recipe.
+  It does not claim to reconstruct the exact raw WT coordinates or training trajectory.

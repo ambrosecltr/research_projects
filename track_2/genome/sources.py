@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import Any, Literal, Mapping
+from typing import Any, Literal
 
 from .hashing import sha256_file, sha256_json
 from .io import atomic_write_json, load_json, load_yaml
@@ -65,19 +66,20 @@ class SourcePlan:
         ids = [life.run_id for life in self.lives]
         if len(ids) != len(set(ids)):
             raise ValueError("source-plan run IDs must be unique")
-        assignments = {life.split for life in self.lives}
-        if assignments != {"training", "development", "hidden"}:
-            raise ValueError("source plan requires training, development and hidden lives")
-        seed9_14m = [
-            life
-            for life in self.lives
-            if life.size == "14m" and life.seed == 9 and life.split == "training"
-        ]
-        if len(seed9_14m) != 1:
-            raise ValueError("v1 requires Pythia 14M seed9 as a training life")
-        hidden = [life for life in self.lives if life.split == "hidden"]
-        if len(hidden) != 1 or hidden[0].size != "31m" or hidden[0].seed != 9:
-            raise ValueError("v1 requires exactly Pythia 31M seed9 as the fresh hidden life")
+        expected_lives = {(size, seed) for size in ("14m", "31m") for seed in range(10)}
+        actual_lives = {(life.size, life.seed) for life in self.lives}
+        if actual_lives != expected_lives or len(self.lives) != len(expected_lives):
+            raise ValueError("Pythia v1 requires seeds0-9 at both 14M and 31M")
+        for life in self.lives:
+            expected_split: SourceSplit = "training"
+            if life.seed == 7:
+                expected_split = "development"
+            if life.size == "31m" and life.seed == 9:
+                expected_split = "hidden"
+            if life.split != expected_split:
+                raise ValueError(
+                    f"Pythia v1 requires {life.run_id} in the {expected_split} split"
+                )
 
     @property
     def plan_id(self) -> str:
@@ -107,7 +109,7 @@ class SourcePlan:
         }
 
     @classmethod
-    def from_dict(cls, value: Mapping[str, Any]) -> "SourcePlan":
+    def from_dict(cls, value: Mapping[str, Any]) -> SourcePlan:
         return cls(
             lives=tuple(PythiaLifeSource(**item) for item in value["lives"]),
             tokenizer_repository=str(value["tokenizer_repository"]),
@@ -124,7 +126,7 @@ class SourcePlan:
         )
 
     @classmethod
-    def load(cls, path: str | Path) -> "SourcePlan":
+    def load(cls, path: str | Path) -> SourcePlan:
         value = load_yaml(path) if str(path).endswith((".yaml", ".yml")) else load_json(path)
         return cls.from_dict(value)
 
@@ -136,9 +138,7 @@ def default_pythia_v1_plan() -> SourcePlan:
     lives: list[PythiaLifeSource] = []
     for size in ("14m", "31m"):
         for seed in range(10):
-            split: SourceSplit = (
-                "training" if seed <= 7 or (size == "14m" and seed == 9) else "development"
-            )
+            split: SourceSplit = "development" if seed == 7 else "training"
             if size == "31m" and seed == 9:
                 split = "hidden"
             lives.append(
@@ -161,6 +161,7 @@ def resolve_plan(plan: SourcePlan, *, token: str | None = None) -> SourcePlan:
     """Resolve requested refs to immutable commits without resolving the hidden WT."""
     try:
         from huggingface_hub import HfApi
+        from huggingface_hub.errors import HfHubHTTPError
     except ImportError as error:  # pragma: no cover
         raise RuntimeError("huggingface-hub is required to resolve source refs") from error
     api = HfApi(token=token)
@@ -185,12 +186,12 @@ def resolve_plan(plan: SourcePlan, *, token: str | None = None) -> SourcePlan:
     try:
         info = api.dataset_info(plan.dataset_repository, revision=plan.dataset_revision)
         dataset_commit = None if not info.sha else str(info.sha)
-    except Exception:
+    except HfHubHTTPError:
         dataset_commit = None
     try:
         info = api.dataset_info(plan.order_repository, revision=plan.order_revision)
         order_commit = None if not info.sha else str(info.sha)
-    except Exception:
+    except HfHubHTTPError:
         order_commit = None
     return replace(
         plan,

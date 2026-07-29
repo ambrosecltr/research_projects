@@ -1,0 +1,37 @@
+{
+  "byte_range": {
+    "end": 24063324863,
+    "start": 24062800320
+  },
+  "context_length": 2048,
+  "examples": 128,
+  "filename": "document-00001-of-00020.bin",
+  "format": "GENOME_DATASET_SAMPLE",
+  "maximum_token_id": 50276,
+  "raw": {
+    "bytes": 1062082,
+    "path": "/workspace/genome_v1/evidence/corpus/verifier/raw.jsonl",
+    "sha256": "31b1eefba3a8211b51cdd618a08b2adc9b815cd29a8b3f4e541cb78fbe358079"
+  },
+  "raw_source": "tokenizer_decode_of_exact_training_tokens",
+  "repository": "EleutherAI/pile-standard-pythia-preshuffled",
+  "requested_revision": "bac79b6820adb34e451f9a02cc1dc7cd920febf0",
+  "resolved_commit": "bac79b6820adb34e451f9a02cc1dc7cd920febf0",
+  "seed": 20260730,
+  "source_dtype": "uint16-little-endian",
+  "source_file_bytes": 30000000000,
+  "source_range": {
+    "bytes": 524544,
+    "path": "/workspace/genome_v1/evidence/corpus/verifier/source-range.bin",
+    "sha256": "3815e088bdb09f3293ed31bc8c5a8c3b3491ee27125729cf1a5cc232621224d6"
+  },
+  "source_sequence_length": 2049,
+  "start_sequence": 5871840,
+  "tokens": 262144,
+  "tokens_file": {
+    "bytes": 1168852,
+    "path": "/workspace/genome_v1/evidence/corpus/verifier/tokens.jsonl",
+    "sha256": "6a9cfd8231943cc0603a7c40c9f6f0bfa02c7032e415ff452258c359a4e8cd99"
+  },
+  "version": "1.0.0"
+}

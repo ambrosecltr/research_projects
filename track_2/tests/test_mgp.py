@@ -217,6 +217,7 @@ def test_direct_vector_runtime_keeps_every_value_trainable() -> None:
     assert torch.allclose(candidate["bias"], payloads["bias.values"].float())
     assert set(trainable.parameters_by_key) == {"bias__values"}
     assert audit.accepted_structure
+    assert audit.direct_vector_bytes == 8
 
 
 def test_policy_rejects_direct_vector_on_matrix() -> None:

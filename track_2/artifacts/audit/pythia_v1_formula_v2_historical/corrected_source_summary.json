@@ -1,0 +1,17 @@
+{
+  "format": "GENOME_CORRECTED_SOURCE_SUMMARY",
+  "version": "1.0.0",
+  "pinned_source_details": "control/pythia_v1.pinned.json",
+  "note": "The copied pinned plan is a historical source receipt. Its old split labels are superseded by this corrected split.",
+  "training": {
+    "pythia-14m": [0, 1, 2, 3, 4, 5, 6, 8, 9],
+    "pythia-31m": [0, 1, 2, 3, 4, 5, 6, 8]
+  },
+  "development": {
+    "pythia-14m": [7],
+    "pythia-31m": [7]
+  },
+  "hidden": {
+    "pythia-31m": [9]
+  }
+}

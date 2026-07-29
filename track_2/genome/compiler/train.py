@@ -4,7 +4,7 @@ import json
 import math
 import random
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -13,8 +13,12 @@ import torch
 from safetensors.torch import save_file
 
 from ..data import causal_batches_from_jsonl
+from ..evaluation import evaluate_program
 from ..io import atomic_write_json, ensure_output_dir, load_json
+from ..mgp.policy import audit_program
 from ..mgp.schema import ModelGenomeProgram
+from ..mgp.serialize import save_program
+from ..state import direct_fp16_delta_bytes, load_state
 from .data import CompilerCorpus, CompilerRecord, load_record
 from .model import CompilerConfig, GenomeCompiler, compiler_loss
 
@@ -33,6 +37,11 @@ class TrainingConfig:
     functional_weight: float = 0.05
     functional_every: int = 4
     functional_batches: int = 1
+    development_evaluation_batches: int = 128
+
+    def __post_init__(self) -> None:
+        if self.development_evaluation_batches < 128:
+            raise ValueError("free-running development evaluation requires at least 128 batches")
 
 
 @dataclass(frozen=True)
@@ -81,7 +90,7 @@ def _save_checkpoint(
     step: int,
     epoch: int,
     record_index: int,
-    best_development: float,
+    best_generated_progress: float,
     training_config: TrainingConfig,
     compiler_config: CompilerConfig,
     final: bool = False,
@@ -108,7 +117,7 @@ def _save_checkpoint(
             "step": step,
             "epoch": epoch,
             "record_index": record_index,
-            "best_development": best_development,
+            "best_generated_progress": best_generated_progress,
             "training_config": asdict(training_config),
             "compiler_config": asdict(compiler_config),
         },
@@ -150,7 +159,7 @@ def _load_checkpoint(
         int(state["step"]),
         int(state["epoch"]),
         int(state.get("record_index", 0)),
-        float(state["best_development"]),
+        float(state["best_generated_progress"]),
     )
 
 
@@ -184,6 +193,92 @@ def _evaluate_records(
     return total / max(1, len(records))
 
 
+def _free_running_development(
+    compiler: GenomeCompiler,
+    records: Sequence[CompilerRecord],
+    *,
+    config: CompilerConfig,
+    output: Path,
+    step: int,
+    device: torch.device,
+    evaluation_batches: int,
+) -> dict[str, Any]:
+    if evaluation_batches < 128:
+        raise ValueError("free-running development evaluation requires at least 128 batches")
+    try:
+        from transformers import GPTNeoXConfig, GPTNeoXForCausalLM
+    except ImportError as error:  # pragma: no cover
+        raise RuntimeError("transformers is required for free-running development evaluation") from error
+    step_root = output / "free-running-development" / f"step-{step:08d}"
+    step_root.mkdir(parents=True, exist_ok=False)
+    reports: list[dict[str, Any]] = []
+    compiler.eval()
+    for record in records:
+        if record.model_config_path is None:
+            raise ValueError(f"record {record.run_id} lacks model_config_path")
+        example, w0, _, _, _ = load_record(
+            record,
+            global_feature_dim=config.global_feature_dim,
+            tensor_feature_dim=config.tensor_feature_dim,
+        )
+        program, payloads = compiler.generate_program(
+            example,
+            direct_fp16_delta_bytes=direct_fp16_delta_bytes(w0),
+        )
+        program_root = step_root / record.run_id
+        accounting = save_program(program_root, program, payloads)
+        audit = audit_program(
+            program,
+            payloads,
+            direct_fp16_delta_bytes=direct_fp16_delta_bytes(w0),
+            artifact_directory=program_root,
+        )
+        if not (audit.accepted_structure and audit.serialized and audit.primary_budget_pass):
+            raise ValueError(
+                f"generated development program for {record.run_id} failed the byte audit"
+            )
+        model_config = GPTNeoXConfig.from_dict(load_json(record.model_config_path))
+        comparison = evaluate_program(
+            model_factory=lambda model_config=model_config: GPTNeoXForCausalLM(model_config),
+            base_state=w0,
+            program=program,
+            payloads=payloads,
+            batches=causal_batches_from_jsonl(record.evaluation_jsonl),
+            endpoint_state=load_state(record.wt_path),
+            device=device,
+            max_batches=evaluation_batches,
+        )
+        report = {
+            "run_id": record.run_id,
+            "split": "development",
+            "program_path": str(program_root),
+            "accounting": accounting,
+            "audit": asdict(audit),
+            "evaluation_jsonl": record.evaluation_jsonl,
+            "evaluation_batches": evaluation_batches,
+            "comparison": comparison.to_dict(),
+        }
+        atomic_write_json(program_root / "free_running_evaluation.json", report)
+        reports.append(report)
+    progresses = [
+        float(report["comparison"]["endpoint_progress"])
+        for report in reports
+        if report["comparison"]["endpoint_progress"] is not None
+    ]
+    if len(progresses) != len(records):
+        raise ValueError("free-running development evaluation lacks endpoint progress")
+    summary = {
+        "format": "GENOME_FREE_RUNNING_DEVELOPMENT",
+        "version": "1.0.0",
+        "step": step,
+        "selection_metric": "mean_endpoint_progress",
+        "mean_endpoint_progress": sum(progresses) / len(progresses),
+        "reports": reports,
+    }
+    atomic_write_json(step_root / "summary.json", summary)
+    return summary
+
+
 def _functional_context(record: CompilerRecord, w0: Mapping[str, torch.Tensor], limit: int):
     if record.model_config_path is None or record.probe_jsonl is None:
         raise ValueError(
@@ -213,6 +308,7 @@ def train_compiler(
     training_config: TrainingConfig = TrainingConfig(),
     overwrite: bool = False,
     resume_from: str | Path | None = None,
+    free_running_evaluator: Callable[..., dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if resume_from is None:
         output_path = ensure_output_dir(output, force=overwrite)
@@ -241,9 +337,9 @@ def train_compiler(
     step = 0
     start_epoch = 0
     start_record_index = 0
-    best_development = float("inf")
+    best_generated_progress = float("-inf")
     if resume_from is not None:
-        step, start_epoch, start_record_index, best_development = _load_checkpoint(
+        step, start_epoch, start_record_index, best_generated_progress = _load_checkpoint(
             Path(resume_from),
             compiler,
             optimizer,
@@ -313,7 +409,7 @@ def train_compiler(
             with metrics_path.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(row, sort_keys=True) + "\n")
             if step % training_config.development_every == 0:
-                development_loss = _evaluate_records(
+                teacher_forced_loss = _evaluate_records(
                     compiler,
                     development,
                     config=compiler_config,
@@ -326,15 +422,26 @@ def train_compiler(
                                 "step": step,
                                 "epoch": epoch,
                                 "split": "development",
-                                "loss": development_loss,
+                                "teacher_forced_surrogate_loss": teacher_forced_loss,
                                 "elapsed_seconds": time.time() - started,
                             },
                             sort_keys=True,
                         )
                         + "\n"
                     )
-                if development_loss < best_development:
-                    best_development = development_loss
+                evaluator = free_running_evaluator or _free_running_development
+                generated = evaluator(
+                    compiler,
+                    development,
+                    config=compiler_config,
+                    output=output_path,
+                    step=step,
+                    device=device,
+                    evaluation_batches=training_config.development_evaluation_batches,
+                )
+                generated_progress = float(generated["mean_endpoint_progress"])
+                if generated_progress > best_generated_progress:
+                    best_generated_progress = generated_progress
                     save_file(
                         {
                             name: tensor.detach().cpu()
@@ -344,7 +451,12 @@ def train_compiler(
                     )
                     atomic_write_json(
                         output_path / "best.json",
-                        {"step": step, "development_loss": best_development},
+                        {
+                            "step": step,
+                            "selection_metric": "mean_endpoint_progress",
+                            "mean_endpoint_progress": best_generated_progress,
+                            "teacher_forced_surrogate_loss": teacher_forced_loss,
+                        },
                     )
             if step % training_config.checkpoint_every == 0:
                 next_position = record_position + 1
@@ -359,25 +471,41 @@ def train_compiler(
                     step=step,
                     epoch=next_epoch,
                     record_index=next_position,
-                    best_development=best_development,
+                    best_generated_progress=best_generated_progress,
                     training_config=training_config,
                     compiler_config=compiler_config,
                 )
         start_record_index = 0
-    if not math.isfinite(best_development):
-        best_development = _evaluate_records(
+    if not math.isfinite(best_generated_progress):
+        teacher_forced_loss = _evaluate_records(
             compiler,
             development,
             config=compiler_config,
             rate_weight=training_config.rate_weight,
         )
+        evaluator = free_running_evaluator or _free_running_development
+        generated = evaluator(
+            compiler,
+            development,
+            config=compiler_config,
+            output=output_path,
+            step=step,
+            device=device,
+            evaluation_batches=training_config.development_evaluation_batches,
+        )
+        best_generated_progress = float(generated["mean_endpoint_progress"])
         save_file(
             {name: tensor.detach().cpu() for name, tensor in compiler.state_dict().items()},
             str(output_path / "best-compiler.safetensors"),
         )
         atomic_write_json(
             output_path / "best.json",
-            {"step": step, "development_loss": best_development},
+            {
+                "step": step,
+                "selection_metric": "mean_endpoint_progress",
+                "mean_endpoint_progress": best_generated_progress,
+                "teacher_forced_surrogate_loss": teacher_forced_loss,
+            },
         )
     _save_checkpoint(
         output_path,
@@ -386,7 +514,7 @@ def train_compiler(
         step=step,
         epoch=training_config.epochs,
         record_index=0,
-        best_development=best_development,
+        best_generated_progress=best_generated_progress,
         training_config=training_config,
         compiler_config=compiler_config,
         final=True,
@@ -395,7 +523,7 @@ def train_compiler(
         "format": "GENOME_COMPILER_TRAINING_SUMMARY",
         "version": "1.0.0",
         "steps": step,
-        "best_development_loss": best_development,
+        "best_generated_endpoint_progress": best_generated_progress,
         "elapsed_seconds": time.time() - started,
         "device": str(device),
         "compiler_parameters": sum(item.numel() for item in compiler.parameters()),

@@ -1,0 +1,75 @@
+{
+  "format": "GENOME_NON_WEIGHT_AUDIT_BUNDLE",
+  "version": "1.0.0",
+  "purpose": "Historical evidence collected before the corrected seed7 development split and artifact-binding protocol.",
+  "contains_model_weights": false,
+  "historical_reports_are_compiler_corpus_eligible": false,
+  "reason_not_corpus_eligible": "The reports predate immutable formula and artifact bindings. Seed8 is now training and formula-development evidence, not independent development evidence.",
+  "formula_id": "4f4e6d9d5d9ef7677dd955bb89be81dfedf161ecb010fdfd405475fdce46d155",
+  "historical_code_commit": "6462d9452b78065b0e9f486cf858b3b478f468dc",
+  "probe_hashes": {
+    "source_tokens_jsonl_sha256": "2721b60b3265eca2000be8a4060f566cce7837277d10233e531c83359735b957",
+    "refinement_even_records_jsonl_sha256": "41568f34c88dfb1f32211fb428dfa437b2ff71c5e83f4220665cf1030135fc33",
+    "formula_tuning_odd_records_jsonl_sha256": "b1221abcbe557a59dd701aef4e7d7497142146597530fcdce1e2f63c39874ae1",
+    "independent_development_verifier_jsonl_sha256": "6a9cfd8231943cc0603a7c40c9f6f0bfa02c7032e415ff452258c359a4e8cd99"
+  },
+  "independent_development_verifier": {
+    "batches": 128,
+    "filename": "document-00001-of-00020.bin",
+    "different_shard_from_formula_data": true
+  },
+  "historical_outcomes": [
+    {
+      "run_id": "pythia-14m-seed0",
+      "accepted": true,
+      "endpoint_progress": 0.8385243328254446,
+      "byte_fraction": 0.09999369478135464
+    },
+    {
+      "run_id": "pythia-14m-seed1",
+      "accepted": true,
+      "endpoint_progress": 0.8187752123308131,
+      "byte_fraction": 0.09999369478135464
+    },
+    {
+      "run_id": "pythia-14m-seed2",
+      "accepted": true,
+      "endpoint_progress": 0.8146167568314495,
+      "byte_fraction": 0.09999369478135464
+    },
+    {
+      "run_id": "pythia-14m-seed3",
+      "accepted": true,
+      "endpoint_progress": 0.8073982887811445,
+      "byte_fraction": 0.09999369478135464
+    },
+    {
+      "run_id": "pythia-14m-seed4",
+      "accepted": true,
+      "endpoint_progress": 0.8480371951580288,
+      "byte_fraction": 0.09999369478135464
+    },
+    {
+      "run_id": "pythia-14m-seed5",
+      "accepted": false,
+      "endpoint_progress": 0.7337536234143157,
+      "byte_fraction": 0.09999369478135464
+    },
+    {
+      "run_id": "pythia-14m-seed8",
+      "accepted": true,
+      "endpoint_progress": 0.832047876783571,
+      "byte_fraction": 0.09999369478135464
+    },
+    {
+      "run_id": "pythia-31m-seed8",
+      "accepted": true,
+      "endpoint_progress": 0.8012902043466249,
+      "byte_fraction": 0.08498112132198624
+    }
+  ],
+  "hidden_audit": {
+    "run_id": "pythia-31m-seed9",
+    "wt_absent": true
+  }
+}

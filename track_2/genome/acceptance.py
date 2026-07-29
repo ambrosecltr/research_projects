@@ -10,6 +10,7 @@ from .hashing import sha256_file
 from .io import atomic_write_json, load_json
 from .mgp.policy import ProgramPolicy, audit_program
 from .mgp.serialize import load_program
+from .protocol import ArtifactBinding
 from .state import direct_fp16_delta_bytes, load_state
 
 
@@ -42,6 +43,7 @@ def accept_target_program(
     evaluation_report_path: str | Path,
     gate: FunctionalGate = FunctionalGate(),
     policy: ProgramPolicy = ProgramPolicy(),
+    expected_binding: ArtifactBinding | None = None,
 ) -> dict[str, Any]:
     root = Path(program_directory)
     program, payloads, manifest = load_program(root)
@@ -52,7 +54,19 @@ def accept_target_program(
         artifact_directory=root,
         policy=policy,
     )
-    comparison = _comparison(load_json(evaluation_report_path))
+    evaluation_report = load_json(evaluation_report_path)
+    if evaluation_report.get("format") != "GENOME_TARGET_EVALUATION":
+        raise ValueError("target evaluation report has the wrong format")
+    binding = ArtifactBinding.from_dict(evaluation_report["binding"])
+    if expected_binding is not None and binding != expected_binding:
+        raise ValueError("target evaluation binding differs from the expected binding")
+    if binding.program_id != manifest["program_id"]:
+        raise ValueError("evaluation binding program_id differs from the program")
+    if binding.program_manifest_sha256 != sha256_file(root / "manifest.json"):
+        raise ValueError("evaluation binding manifest SHA differs from the program")
+    if binding.payload_sha256 != manifest["payload_sha256"]:
+        raise ValueError("evaluation binding payload SHA differs from the program")
+    comparison = _comparison(evaluation_report["comparison"])
     accepted = bool(
         audit.primary_budget_pass
         and audit.accepted_structure
@@ -61,10 +75,9 @@ def accept_target_program(
     )
     report = {
         "format": "GENOME_TARGET_ACCEPTANCE",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "accepted": accepted,
-        "program_id": manifest["program_id"],
-        "program_manifest_sha256": sha256_file(root / "manifest.json"),
+        "binding": binding.to_dict(),
         "evaluation_report_sha256": sha256_file(evaluation_report_path),
         "audit": asdict(audit),
         "functional_gate": asdict(gate),

@@ -41,7 +41,11 @@ from .mgp import (
 )
 from .mgp.fit import FitConfig
 from .prepare import canonicalize_pythia_life, prepare_pythia_life
-from .sampling import partition_probe_sample, prepare_dataset_sample
+from .sampling import (
+    partition_probe_sample,
+    prepare_dataset_sample,
+    verify_independent_evaluation_sample,
+)
 from .sources import (
     SourcePlan,
     default_pythia_v1_plan,
@@ -50,6 +54,7 @@ from .sources import (
     reveal_hidden_endpoint,
 )
 from .state import direct_fp16_delta_bytes, load_state, save_state, state_id
+from .targets import produce_target
 from .workspace import initialize_workspace
 
 app = typer.Typer(
@@ -137,6 +142,21 @@ def partition_probe_sample_command(
         partition_probe_sample(
             source_jsonl=source_jsonl,
             output=output,
+        )
+    )
+
+
+@app.command("verify-evaluation-sample")
+def verify_evaluation_sample_command(
+    formula_sample_receipt: Path = typer.Option(...),
+    verifier_receipt: Path = typer.Option(...),
+    minimum_batches: int = typer.Option(128),
+) -> None:
+    _echo_json(
+        verify_independent_evaluation_sample(
+            formula_sample_receipt=formula_sample_receipt,
+            verifier_receipt=verifier_receipt,
+            minimum_batches=minimum_batches,
         )
     )
 
@@ -290,6 +310,28 @@ def fit_compact_target(
     )
     atomic_write_json(output / "structural_audit.json", asdict(audit))
     _echo_json({"accounting": accounting, "audit": asdict(audit), "candidate_only": True})
+
+
+@app.command("produce-target")
+def produce_target_command(
+    plan_path: Path = typer.Option(..., "--plan"),
+    formula_path: Path = typer.Option(..., "--formula"),
+    run_id: str = typer.Option(...),
+    workspace: Path = typer.Option(...),
+    output: Path = typer.Option(...),
+    repository: Path = typer.Option(...),
+) -> None:
+    report = produce_target(
+        plan_path=plan_path,
+        formula_path=formula_path,
+        run_id=run_id,
+        workspace=workspace,
+        output=output,
+        repository=repository,
+    )
+    _echo_json(report)
+    if not report["acceptance"]["accepted"]:
+        raise typer.Exit(code=2)
 
 
 @app.command("refine-compact-target")
@@ -465,14 +507,14 @@ def build_compiler_corpus_command(
     plan_path: Path = typer.Option(..., "--plan"),
     workspace: Path = typer.Option(...),
     program_root: Path = typer.Option(...),
-    probe_jsonl: Path = typer.Option(...),
+    formula_path: Path = typer.Option(..., "--formula"),
     output: Path = typer.Option(...),
 ) -> None:
     corpus = build_compiler_corpus(
         SourcePlan.load(plan_path),
         workspace=workspace,
         program_root=program_root,
-        probe_jsonl=probe_jsonl,
+        formula_path=formula_path,
     )
     atomic_write_json(output, corpus.to_dict())
     _echo_json(

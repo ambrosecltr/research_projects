@@ -1,0 +1,26 @@
+{
+  "candidate": {
+    "finite": true,
+    "loss": 4.86229145526886,
+    "perplexity": 129.32017517089844,
+    "tokens": 32768
+  },
+  "candidate_beats_w0": true,
+  "decode_seconds": 0.03924744017422199,
+  "endpoint": {
+    "finite": true,
+    "loss": 3.467901200056076,
+    "perplexity": 32.069366455078125,
+    "tokens": 32768
+  },
+  "endpoint_progress": 0.8146167568314495,
+  "logit_kl_to_endpoint": 3445.5382080078125,
+  "parameter_distortion": 2.5479140462379997,
+  "top1_agreement": 0.470947265625,
+  "w0": {
+    "finite": true,
+    "loss": 10.989564061164856,
+    "perplexity": 59252.5390625,
+    "tokens": 32768
+  }
+}

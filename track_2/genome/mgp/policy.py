@@ -23,6 +23,7 @@ class ProgramAudit:
     accepted_structure: bool
     serialized: bool
     direct_fp16_delta_bytes: int
+    direct_vector_bytes: int
     target_specific_bytes: int | None
     byte_fraction: float | None
     primary_budget_pass: bool
@@ -46,6 +47,7 @@ def audit_program(
     payload_use: set[str] = set()
     total_values = sum(int(torch.tensor(item.shape).prod().item()) for item in program.tensors)
     sparse_values = 0
+    direct_vector_payload_keys: set[str] = set()
     for tensor in program.tensors:
         for component in tensor.components:
             payload_use.update(component.payload.values())
@@ -55,7 +57,10 @@ def audit_program(
                 if tensor.shape[0] > policy.max_vector_values:
                     reasons.append(f"vector_too_large:{tensor.name}")
             if component.primitive == "DIRECT_VECTOR":
-                values = payloads.get(component.payload.get("values", ""))
+                values_key = component.payload.get("values", "")
+                values = payloads.get(values_key)
+                if values is not None:
+                    direct_vector_payload_keys.add(values_key)
                 if len(tensor.shape) != 1:
                     reasons.append(f"direct_vector_on_non_vector:{tensor.name}")
                 elif tensor.shape[0] > policy.max_vector_values:
@@ -100,6 +105,10 @@ def audit_program(
         reasons.append(f"unused_payloads:{','.join(sorted(unused))}")
     if total_values and sparse_values / total_values > policy.max_sparse_fraction:
         reasons.append("sparse_patch_budget_exceeded")
+    direct_vector_bytes = sum(
+        payloads[key].numel() * payloads[key].element_size()
+        for key in direct_vector_payload_keys
+    )
     serialized = artifact_directory is not None
     target_bytes: int | None = None
     fraction: float | None = None
@@ -117,6 +126,7 @@ def audit_program(
         accepted_structure=not reasons,
         serialized=serialized and target_bytes is not None,
         direct_fp16_delta_bytes=direct_fp16_delta_bytes,
+        direct_vector_bytes=direct_vector_bytes,
         target_specific_bytes=target_bytes,
         byte_fraction=fraction,
         primary_budget_pass=primary,

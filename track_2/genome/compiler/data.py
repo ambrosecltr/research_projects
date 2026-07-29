@@ -11,12 +11,14 @@ from safetensors.torch import load_file
 
 from ..architecture import ArchitectureGraph
 from ..fingerprint import FingerprintBundle
-from ..hashing import stable_u64
+from ..hashing import sha256_file, stable_u64
 from ..io import load_json
 from ..mgp.runtime import execute_program
 from ..mgp.schema import ModelGenomeProgram
 from ..mgp.serialize import load_program
+from ..protocol import ArtifactBinding, TargetFormula, require_matching_bindings
 from ..sources import SourcePlan
+from ..state import load_state, state_id
 from .model import CompilerExample, TensorEvidence
 
 NON_SEMANTIC_RECIPE_KEYS = frozenset(
@@ -202,22 +204,28 @@ class CompilerRecord:
     split: str
     graph_path: str
     w0_path: str
+    wt_path: str
     fingerprint_path: str
     recipe_path: str
     program_path: str
+    evaluation_report_path: str
+    evaluation_jsonl: str
     model_config_path: str | None = None
     probe_jsonl: str | None = None
 
     @classmethod
-    def from_dict(cls, value: Mapping[str, Any]) -> "CompilerRecord":
+    def from_dict(cls, value: Mapping[str, Any]) -> CompilerRecord:
         required = {
             "run_id",
             "split",
             "graph_path",
             "w0_path",
+            "wt_path",
             "fingerprint_path",
             "recipe_path",
             "program_path",
+            "evaluation_report_path",
+            "evaluation_jsonl",
         }
         missing = required - set(value)
         if missing:
@@ -229,8 +237,10 @@ class CompilerRecord:
 @dataclass(frozen=True)
 class CompilerCorpus:
     records: tuple[CompilerRecord, ...]
+    formula_id: str
+    source_plan_id: str
     format: str = "GENOME_COMPILER_CORPUS"
-    version: str = "1.0.0"
+    version: str = "2.0.0"
 
     def __post_init__(self) -> None:
         ids = [item.run_id for item in self.records]
@@ -243,20 +253,21 @@ class CompilerCorpus:
         if not any(item.split == "development" for item in self.records):
             raise ValueError("compiler corpus requires development lives")
         for item in self.records:
-            acceptance_path = Path(item.program_path) / "acceptance.json"
-            if not acceptance_path.is_file():
-                raise ValueError(f"compiler target for {item.run_id} has no acceptance.json")
-            acceptance = load_json(acceptance_path)
-            if acceptance.get("accepted") is not True:
-                raise ValueError(f"compiler target for {item.run_id} did not pass the Genome Gate")
+            verify_compiler_record(
+                item,
+                formula_id=self.formula_id,
+                source_plan_id=self.source_plan_id,
+            )
 
     @classmethod
-    def load(cls, path: str | Path) -> "CompilerCorpus":
+    def load(cls, path: str | Path) -> CompilerCorpus:
         value = load_json(path)
         return cls(
             records=tuple(CompilerRecord.from_dict(item) for item in value["records"]),
+            formula_id=str(value["formula_id"]),
+            source_plan_id=str(value["source_plan_id"]),
             format=str(value.get("format", "GENOME_COMPILER_CORPUS")),
-            version=str(value.get("version", "1.0.0")),
+            version=str(value.get("version", "2.0.0")),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -270,8 +281,60 @@ class CompilerCorpus:
                 "development": development,
                 "total": len(self.records),
             },
+            "formula_id": self.formula_id,
+            "source_plan_id": self.source_plan_id,
             "records": [asdict(item) for item in self.records],
         }
+
+
+def verify_compiler_record(
+    record: CompilerRecord,
+    *,
+    formula_id: str,
+    source_plan_id: str,
+) -> ArtifactBinding:
+    program_root = Path(record.program_path)
+    acceptance_path = program_root / "acceptance.json"
+    if not acceptance_path.is_file():
+        raise ValueError(f"compiler target for {record.run_id} has no acceptance.json")
+    acceptance = load_json(acceptance_path)
+    if acceptance.get("accepted") is not True:
+        raise ValueError(f"compiler target for {record.run_id} did not pass the Genome Gate")
+    evaluation_path = Path(record.evaluation_report_path)
+    evaluation = load_json(evaluation_path)
+    if evaluation.get("format") != "GENOME_TARGET_EVALUATION":
+        raise ValueError(f"compiler target for {record.run_id} has an invalid evaluation report")
+    if acceptance.get("format") != "GENOME_TARGET_ACCEPTANCE":
+        raise ValueError(f"compiler target for {record.run_id} has an invalid acceptance report")
+    evaluation_binding = ArtifactBinding.from_dict(evaluation["binding"])
+    acceptance_binding = ArtifactBinding.from_dict(acceptance["binding"])
+    require_matching_bindings(
+        evaluation_binding,
+        acceptance_binding,
+        context=f"compiler target {record.run_id}",
+    )
+    binding = acceptance_binding
+    if binding.run_id != record.run_id:
+        raise ValueError(f"compiler target binding has the wrong run_id for {record.run_id}")
+    if binding.formula_id != formula_id:
+        raise ValueError(f"compiler target {record.run_id} has the wrong formula_id")
+    if binding.source_plan_id != source_plan_id:
+        raise ValueError(f"compiler target {record.run_id} has the wrong source-plan ID")
+    _, _, manifest = load_program(program_root)
+    checks = {
+        "program_id": str(manifest["program_id"]),
+        "program_manifest_sha256": sha256_file(program_root / "manifest.json"),
+        "payload_sha256": sha256_file(program_root / "payload.safetensors"),
+        "w0_state_id": state_id(load_state(record.w0_path)),
+        "wt_state_id": state_id(load_state(record.wt_path)),
+        "evaluation_jsonl_sha256": sha256_file(record.evaluation_jsonl),
+    }
+    for name, actual in checks.items():
+        if getattr(binding, name) != actual:
+            raise ValueError(f"compiler target {record.run_id} has a stale {name} binding")
+    if sha256_file(evaluation_path) != acceptance["evaluation_report_sha256"]:
+        raise ValueError(f"compiler target {record.run_id} acceptance points to another evaluation")
+    return binding
 
 
 def build_compiler_corpus(
@@ -279,27 +342,74 @@ def build_compiler_corpus(
     *,
     workspace: str | Path,
     program_root: str | Path,
-    probe_jsonl: str | Path,
+    formula_path: str | Path,
 ) -> CompilerCorpus:
     root = Path(workspace)
     accepted = Path(program_root)
-    probe = Path(probe_jsonl)
-    records = tuple(
-        CompilerRecord(
-            run_id=life.run_id,
-            split=life.split,
-            graph_path=str(root / "canonical" / "lives" / life.run_id / "architecture.json"),
-            w0_path=str(root / "canonical" / "lives" / life.run_id / "w0.safetensors"),
-            fingerprint_path=str(root / "evidence" / life.run_id),
-            recipe_path=str(root / "canonical" / "lives" / life.run_id / "recipe.json"),
-            program_path=str(accepted / life.run_id),
-            model_config_path=str(root / "canonical" / "lives" / life.run_id / "model_config.json"),
-            probe_jsonl=str(probe),
+    formula = TargetFormula.load(formula_path)
+    if formula.status != "frozen":
+        raise ValueError("compiler corpus construction requires the global formula to be frozen")
+    probe = Path(formula.data["refinement"])
+    rejected = {str(item) for item in formula.corpus["rejected_training_lives"]}
+    records: list[CompilerRecord] = []
+    for life in plan.lives:
+        if life.split not in {"training", "development"}:
+            continue
+        program_path = accepted / life.run_id
+        acceptance_path = program_path / "acceptance.json"
+        if not acceptance_path.is_file():
+            raise ValueError(f"target report is missing for {life.run_id}")
+        acceptance = load_json(acceptance_path)
+        should_be_rejected = life.run_id in rejected
+        if should_be_rejected:
+            if life.split != "training" or acceptance.get("accepted") is not False:
+                raise ValueError(f"declared rejected training life {life.run_id} is not rejected")
+            binding = ArtifactBinding.from_dict(acceptance["binding"])
+            if binding.formula_id != formula.formula_id or binding.source_plan_id != plan.plan_id:
+                raise ValueError(f"rejection report for {life.run_id} has stale bindings")
+            continue
+        if acceptance.get("accepted") is not True:
+            raise ValueError(f"required compiler target {life.run_id} was not accepted")
+        records.append(
+            CompilerRecord(
+                run_id=life.run_id,
+                split=life.split,
+                graph_path=str(
+                    root / "canonical" / "lives" / life.run_id / "architecture.json"
+                ),
+                w0_path=str(root / "canonical" / "lives" / life.run_id / "w0.safetensors"),
+                wt_path=str(root / "canonical" / "lives" / life.run_id / "wt.safetensors"),
+                fingerprint_path=str(root / "evidence" / life.run_id),
+                recipe_path=str(root / "canonical" / "lives" / life.run_id / "recipe.json"),
+                program_path=str(program_path),
+                evaluation_report_path=str(program_path / "evaluation.json"),
+                evaluation_jsonl=str(
+                    formula.data[
+                        "development_verifier"
+                        if life.split == "development"
+                        else "formula_tuning"
+                    ]
+                ),
+                model_config_path=str(
+                    root / "canonical" / "lives" / life.run_id / "model_config.json"
+                ),
+                probe_jsonl=str(probe),
+            )
         )
-        for life in plan.lives
-        if life.split in {"training", "development"}
+    training_count = sum(record.split == "training" for record in records)
+    development_count = sum(record.split == "development" for record in records)
+    expected_training = int(formula.corpus["expected_training_records"])
+    expected_development = int(formula.corpus["expected_development_records"])
+    if (training_count, development_count) != (expected_training, expected_development):
+        raise ValueError(
+            "compiler corpus count differs from the declared protocol: "
+            f"{training_count} training, {development_count} development"
+        )
+    return CompilerCorpus(
+        records=tuple(records),
+        formula_id=formula.formula_id,
+        source_plan_id=plan.plan_id,
     )
-    return CompilerCorpus(records=records)
 
 
 def load_record(

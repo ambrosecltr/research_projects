@@ -212,12 +212,12 @@ def evaluate_program(
 class FunctionalGate:
     maximum_target_fraction: float = 0.10
     minimum_development_progress: float = 0.80
-    minimum_hidden_progress: float = 0.0
 
     def accept_development(self, comparison: ComparisonResult, target_fraction: float) -> bool:
         return bool(
             comparison.endpoint_progress is not None
             and comparison.candidate.finite
+            and comparison.candidate_beats_w0
             and target_fraction <= self.maximum_target_fraction
             and comparison.endpoint_progress >= self.minimum_development_progress
         )
@@ -226,6 +226,18 @@ class FunctionalGate:
         return bool(
             comparison.endpoint_progress is not None
             and comparison.candidate.finite
+            and comparison.candidate_beats_w0
             and target_fraction <= self.maximum_target_fraction
-            and comparison.endpoint_progress > self.minimum_hidden_progress
+            and hidden_result_tier(comparison.endpoint_progress) == "strong_result"
         )
+
+
+def hidden_result_tier(endpoint_progress_value: float) -> str:
+    """Return the predeclared interpretation of one sealed hidden result."""
+    if endpoint_progress_value <= 0:
+        return "no_signal"
+    if endpoint_progress_value < 0.25:
+        return "weak_signal"
+    if endpoint_progress_value < 0.80:
+        return "partial_result"
+    return "strong_result"

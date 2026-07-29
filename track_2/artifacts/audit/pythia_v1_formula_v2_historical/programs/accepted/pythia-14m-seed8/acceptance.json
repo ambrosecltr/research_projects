@@ -1,0 +1,49 @@
+{
+  "accepted": true,
+  "audit": {
+    "accepted_structure": true,
+    "byte_fraction": 0.09999369478135464,
+    "direct_fp16_delta_bytes": 28135424,
+    "exploratory_budget_pass": true,
+    "primary_budget_pass": true,
+    "reasons": [],
+    "serialized": true,
+    "target_specific_bytes": 2813365
+  },
+  "comparison": {
+    "candidate": {
+      "finite": true,
+      "loss": 4.831791132688522,
+      "perplexity": 125.4354019165039,
+      "tokens": 32768
+    },
+    "candidate_beats_w0": true,
+    "decode_seconds": 0.04368642158806324,
+    "endpoint": {
+      "finite": true,
+      "loss": 3.5753739178180695,
+      "perplexity": 35.707969665527344,
+      "tokens": 32768
+    },
+    "endpoint_progress": 0.832047876783571,
+    "logit_kl_to_endpoint": 3299.52490234375,
+    "parameter_distortion": 2.3784092597210074,
+    "top1_agreement": 0.47900390625,
+    "w0": {
+      "finite": true,
+      "loss": 11.056179702281952,
+      "perplexity": 63334.15234375,
+      "tokens": 32768
+    }
+  },
+  "evaluation_report_sha256": "50fca4763884b1b91f5e06091f1cc5ab8d4ef7a4b66af66c1b44e6dcff1566b5",
+  "format": "GENOME_TARGET_ACCEPTANCE",
+  "functional_gate": {
+    "maximum_target_fraction": 0.1,
+    "minimum_development_progress": 0.8,
+    "minimum_hidden_progress": 0.0
+  },
+  "program_id": "3cb0c5d63ca2ed50918fa1f6d5da0bae50a4fd799ad4285bf037cdf915bce164",
+  "program_manifest_sha256": "357eb0c35100bce76bd9f9a0af60d83286f093d7eac1b692ed1850d2590a4275",
+  "version": "1.0.0"
+}
