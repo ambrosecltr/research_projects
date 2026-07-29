@@ -18,6 +18,7 @@
 | `configs/polypythia_14m_round1.yaml` | Sealed Round One source, split, recipe, and training configuration. |
 | `configs/lm_eval_round1/` | Pinned zero-shot task definitions and dataset revisions. |
 | `POLYPYTHIA_ROUND1.md` | Exact local and RunPod execution order. |
+| `POLYPYTHIA_ROUND1_RESULTS.md` | Completed decoder, Compiler, hidden, and task-suite results. |
 | `genome/adapters/poetry50m.py` | Legacy 50M Track 1 G0 adapter. |
 | `configs/poetry50m_track1.example.yaml` | Legacy 50M Track 1 example, not the new 8M full-life record. |
 | `tests/test_polypythia_round1.py` | Round One split, compatibility, leakage, learned-path, and source-pin regressions. |

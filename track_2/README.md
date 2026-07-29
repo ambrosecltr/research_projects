@@ -43,6 +43,8 @@ The hidden sequence is strict:
 6. only then materialize hidden WT and evaluate.
 
 See [POLYPYTHIA_ROUND1.md](POLYPYTHIA_ROUND1.md) for the exact commands and artifact order.
+See [POLYPYTHIA_ROUND1_RESULTS.md](POLYPYTHIA_ROUND1_RESULTS.md) for the completed result,
+including the successful V4 decoder and failed hidden Compiler transfer.
 
 ## Install and test
 

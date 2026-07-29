@@ -74,7 +74,7 @@ The current local source plan reports:
 
 The large catalogue total is provenance, not the primary download size.
 
-## Paid Round One results so far
+## Paid Round One result
 
 Two decoder designs were rejected before compiler training:
 
@@ -112,17 +112,36 @@ remaining residual:
 This removes arbitrary latent-code labels, preserves the known endpoint at the measured precision,
 and makes Compiler training a direct endpoint-prediction test. The V4 residual payload is expected
 to be about 28.4 MB before MGP metadata, plus one shared decoder amortized across model lives.
-Real V4 and Compiler quality are not yet claimed.
+The V4 decoder passed its full seeds0–8 audit:
+
+- mean parameter relative L2: `0.000137383`;
+- worst parameter relative L2: `0.000195750`;
+- mean Wikitext loss gap: `0.000105020`;
+- worst Wikitext loss gap: `0.001437497`;
+- mean anchor-logit KL: `0.000131592`.
+
+The V4 Compiler then failed hidden seed9 transfer:
+
+- W0 loss: `11.072410`;
+- predicted WT loss: `78.254531`;
+- true WT loss: `5.253024`;
+- predicted parameter relative L2: `1.144849`;
+- predicted-versus-true loss gap: `73.001507`;
+- top-1 and top-5 agreement: `0`.
+
+The Compiler did emit a complete sealed genome, and the MGP Runtime assembled and ran the model
+before reveal. The failure is predictive quality, not serialization or Runtime execution.
+
+See `POLYPYTHIA_ROUND1_RESULTS.md` for all metrics, hashes, and interpretation.
 
 ## Not yet claimed
 
-- Real shared-decoder reconstruction quality on PolyPythia.
-- Real one-shot hidden seed9 quality.
-- A compact rate-quality result after counting the shared decoder.
 - Cross-size transfer or evidence that the compiler did not learn a 14M-only rule.
 - Transfer to the local 8M Track 1 model or another architecture family.
 
-Those claims require the paid Round One execution and its immutable result artifacts.
+Round One established the measured V4 shared-decoder rate-quality point. It also established that
+the current Compiler does not transfer to hidden seed9. Cross-size Round Two is not warranted as
+a memorization confirmation until same-family hidden transfer works.
 
 ## Track 1 status
 
