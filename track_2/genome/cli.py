@@ -16,6 +16,7 @@ from .compiler import (
     CompilerCorpus,
     GenomeCompiler,
     TrainingConfig,
+    build_compiler_corpus,
     build_compiler_example,
     train_compiler,
 )
@@ -457,6 +458,31 @@ def train_compiler_command(
         resume_from=resume_from,
     )
     _echo_json(summary)
+
+
+@app.command("build-compiler-corpus")
+def build_compiler_corpus_command(
+    plan_path: Path = typer.Option(..., "--plan"),
+    workspace: Path = typer.Option(...),
+    program_root: Path = typer.Option(...),
+    probe_jsonl: Path = typer.Option(...),
+    output: Path = typer.Option(...),
+) -> None:
+    corpus = build_compiler_corpus(
+        SourcePlan.load(plan_path),
+        workspace=workspace,
+        program_root=program_root,
+        probe_jsonl=probe_jsonl,
+    )
+    atomic_write_json(output, corpus.to_dict())
+    _echo_json(
+        {
+            "output": str(output),
+            "training": sum(item.split == "training" for item in corpus.records),
+            "development": sum(item.split == "development" for item in corpus.records),
+            "total": len(corpus.records),
+        }
+    )
 
 
 @app.command("compile")

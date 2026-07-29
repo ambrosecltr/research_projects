@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 import torch
 from safetensors.torch import load_file
@@ -13,7 +14,9 @@ from ..fingerprint import FingerprintBundle
 from ..hashing import stable_u64
 from ..io import load_json
 from ..mgp.runtime import execute_program
+from ..mgp.schema import ModelGenomeProgram
 from ..mgp.serialize import load_program
+from ..sources import SourcePlan
 from .model import CompilerExample, TensorEvidence
 
 NON_SEMANTIC_RECIPE_KEYS = frozenset(
@@ -256,18 +259,66 @@ class CompilerCorpus:
             version=str(value.get("version", "1.0.0")),
         )
 
+    def to_dict(self) -> dict[str, Any]:
+        training = sum(item.split == "training" for item in self.records)
+        development = sum(item.split == "development" for item in self.records)
+        return {
+            "format": self.format,
+            "version": self.version,
+            "expected_records": {
+                "training": training,
+                "development": development,
+                "total": len(self.records),
+            },
+            "records": [asdict(item) for item in self.records],
+        }
+
+
+def build_compiler_corpus(
+    plan: SourcePlan,
+    *,
+    workspace: str | Path,
+    program_root: str | Path,
+    probe_jsonl: str | Path,
+) -> CompilerCorpus:
+    root = Path(workspace)
+    accepted = Path(program_root)
+    probe = Path(probe_jsonl)
+    records = tuple(
+        CompilerRecord(
+            run_id=life.run_id,
+            split=life.split,
+            graph_path=str(root / "canonical" / "lives" / life.run_id / "architecture.json"),
+            w0_path=str(root / "canonical" / "lives" / life.run_id / "w0.safetensors"),
+            fingerprint_path=str(root / "evidence" / life.run_id),
+            recipe_path=str(root / "canonical" / "lives" / life.run_id / "recipe.json"),
+            program_path=str(accepted / life.run_id),
+            model_config_path=str(root / "canonical" / "lives" / life.run_id / "model_config.json"),
+            probe_jsonl=str(probe),
+        )
+        for life in plan.lives
+        if life.split in {"training", "development"}
+    )
+    return CompilerCorpus(records=records)
+
 
 def load_record(
     record: CompilerRecord,
     *,
     global_feature_dim: int,
     tensor_feature_dim: int,
-) -> tuple[CompilerExample, dict[str, torch.Tensor], dict[str, torch.Tensor], Any, dict[str, torch.Tensor]]:
+) -> tuple[
+    CompilerExample,
+    dict[str, torch.Tensor],
+    dict[str, torch.Tensor],
+    ModelGenomeProgram,
+    dict[str, torch.Tensor],
+]:
     graph = ArchitectureGraph.from_dict(load_json(record.graph_path))
     w0 = dict(load_file(record.w0_path, device="cpu"))
     fingerprint = FingerprintBundle.load(record.fingerprint_path)
     recipe = load_json(record.recipe_path)
-    program, payloads, manifest = load_program(record.program_path)
+    program, payloads, _ = load_program(record.program_path)
     base_state_id = str(program.base_state_id)
     example = build_compiler_example(
         graph,

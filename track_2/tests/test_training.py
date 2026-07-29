@@ -1,16 +1,23 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import torch
 from safetensors.torch import save_file
 
 from genome.architecture import graph_from_state
-from genome.compiler import CompilerConfig, CompilerCorpus, CompilerRecord, TrainingConfig, train_compiler
+from genome.compiler import (
+    CompilerConfig,
+    CompilerCorpus,
+    CompilerRecord,
+    TrainingConfig,
+    build_compiler_corpus,
+    train_compiler,
+)
 from genome.fingerprint import corpus_fingerprint
 from genome.io import atomic_write_json
 from genome.mgp import FitConfig, fit_low_rank_program, save_program
+from genome.sources import default_pythia_v1_plan
 
 
 def test_compiler_training_smoke(tmp_path: Path) -> None:
@@ -21,10 +28,7 @@ def test_compiler_training_smoke(tmp_path: Path) -> None:
         "layers.1.weight": torch.randn(12, 16),
         "final_norm.weight": torch.ones(12),
     }
-    wt = {
-        name: value + torch.randn_like(value) * 0.01
-        for name, value in w0.items()
-    }
+    wt = {name: value + torch.randn_like(value) * 0.01 for name, value in w0.items()}
     graph = graph_from_state(w0, family="toy", config={"hidden": 12})
     graph_path = tmp_path / "graph.json"
     atomic_write_json(graph_path, graph.to_dict())
@@ -82,6 +86,26 @@ def test_compiler_training_smoke(tmp_path: Path) -> None:
     assert (tmp_path / "run" / "best-compiler.safetensors").is_file()
     assert (tmp_path / "run" / "summary.json").is_file()
 
+
+def test_compiler_corpus_builder_includes_14m_seed9_and_excludes_hidden(
+    tmp_path: Path,
+) -> None:
+    program_root = tmp_path / "accepted"
+    for life in default_pythia_v1_plan().lives:
+        if life.split != "hidden":
+            program = program_root / life.run_id
+            program.mkdir(parents=True)
+            atomic_write_json(program / "acceptance.json", {"accepted": True})
+    corpus = build_compiler_corpus(
+        default_pythia_v1_plan(),
+        workspace=tmp_path / "workspace",
+        program_root=program_root,
+        probe_jsonl=tmp_path / "evaluation.jsonl",
+    )
+    by_id = {record.run_id: record for record in corpus.records}
+    assert len(corpus.records) == 19
+    assert by_id["pythia-14m-seed9"].split == "training"
+    assert "pythia-31m-seed9" not in by_id
 
 
 def test_compiler_training_resume(tmp_path: Path) -> None:
