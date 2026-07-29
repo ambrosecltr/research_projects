@@ -139,7 +139,7 @@ The hidden 31M seed9 WT is not resolved or downloaded by this command.
 
 ## Current status
 
-Implemented and locally exercised:
+Implemented and tested:
 
 - complete model-life schema;
 - whole-life split enforcement;
@@ -156,18 +156,21 @@ Implemented and locally exercised:
 - prediction-dependent byte proxy;
 - structural and functional compiler losses;
 - compiler checkpointing and resume artifacts;
+- compiler output aligned with the selected target formula;
+- automatic 19-record compiler-corpus construction;
 - hidden prediction seal;
-- local unit and end-to-end compiler smoke tests.
+- 38 local and RunPod tests.
 
-Still intentionally left for the RunPod agent:
+RunPod Gates 0 to 3 are complete. The selected target formula passed both
+development lives:
 
-- pin exact Hugging Face commits in the network environment;
-- materialize the approved Pythia W0/WT pairs;
-- build real Pile sample and W0-response evidence;
-- fit and functionally refine real compact target programs;
-- admit only programs that pass the gates;
-- construct the compiler corpus manifest;
-- run the real GPU smoke and production compiler training;
-- seal and evaluate fresh hidden Pythia 31M seed9.
+```text
+Pythia 14M seed8: 83.2048% endpoint progress
+Pythia 31M seed8: 80.1290% endpoint progress
+```
+
+Gate 4 is applying the fixed formula to all training lives. The remaining work
+is compiler-corpus construction, GPU smoke and training, then the sealed one-shot
+Pythia 31M seed9 hidden evaluation.
 
 Read `AGENTS.md` and `docs/RUNPOD_HANDOFF.md` before modifying the project.

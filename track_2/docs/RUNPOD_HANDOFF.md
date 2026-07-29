@@ -1,111 +1,152 @@
 # RunPod handoff
 
-## Branch
+## Active resources
 
-Use only:
-
-```text
-agent/genome-clean-start
-```
-
-Record the exact commit after pulling. Use this branch only.
-
-## Volume
-
-Create a new 100 GB network volume. Suggested name:
+Use the existing clean experiment resources:
 
 ```text
-genome-pythia-v1
+Network volume: genome-pythia-v1
+Volume ID:      4kwmhcepgj
+Region:         EU-RO-1
+Size:           100 GB
+Mount:          /workspace
+
+CPU pod ID:     ufz8yhwxxmzufs
+CPU pod state:  stopped
+
+GPU pod:        genome-pythia-v1-gpu
+GPU pod ID:     g3ou14zh0wb7q7
+GPU:            RTX 4090
 ```
 
-Do not copy any pre-existing GENOME workspace into the new volume.
+Repository and experiment roots:
 
-## CPU setup pod
+```text
+/workspace/genome_v1/repo
+/workspace/genome_v1
+```
 
-Use a CPU pod first for source resolution and storage inspection.
+The local branch is:
+
+```text
+track_2/pythia-seed9-training
+```
+
+The local repository commit at this handoff is:
+
+```text
+93be185af603fb09e284990c60d3f9ef0ee66071
+```
+
+The matching RunPod tree has the same changes. Its commit is:
+
+```text
+a9b480893579ce8225cd8490986e850d4f05e018
+```
+
+The hashes differ because the commits were copied with `git am`. The file content
+is the same.
+
+## Environment
+
+RunPod uses:
+
+```text
+Python 3.11.10
+PyTorch 2.6.0+cu124
+Transformers 4.57.6
+```
+
+The current RunPod test result is:
+
+```text
+38 passed
+5 informational PyTorch nested-tensor warnings
+0 failures
+```
+
+## Completed gates
+
+Gates 0 to 3 are complete.
+
+- The source plan has 17 training lives, two development lives, and one hidden life.
+- Pythia 14M seed9 is a training life. Its W0 and WT are materialized.
+- Pythia 31M seed9 is the only hidden life. Only W0 is materialized.
+- Do not resolve, download, or read Pythia 31M seed9 WT before the prediction seal.
+- All available lives have canonical states, architecture graphs, recipes, evidence,
+  and finalized life manifests.
+- The even-record refinement probe and odd-record evaluation probe are separate.
+
+The fixed target formula is in:
+
+```text
+configs/targets/pythia_v1.yaml
+```
+
+The formula passed both development lives:
+
+| Life | Serialized fraction | Endpoint progress | Result |
+|---|---:|---:|---|
+| Pythia 14M seed8 | 9.9994% | 83.2048% | accepted |
+| Pythia 31M seed8 | 8.4981% | 80.1290% | accepted |
+
+The selected formula uses:
+
+- base-relative row and column matrix scaling;
+- rank-balanced low-rank factors;
+- one shared vocabulary left factor;
+- direct fp16 vectors no larger than 4,096 values;
+- 16,384 refinement steps at 0.001;
+- 2,048 final refinement steps at 0.0003;
+- teacher KL weight 1.0;
+- no payload anchor.
+
+## Work in progress
+
+Gate 4 is applying the fixed formula to every training life.
+
+At the time of this handoff, Pythia 14M seed1 is running in the background.
+
+```text
+PID: 19629
+Log: /workspace/genome_v1/logs/target-pythia-14m-seed1-formula-v2.log
+```
+
+Check it with:
 
 ```bash
-cd /workspace
-git clone --branch agent/genome-clean-start \
-  https://github.com/ambrosecltr/research_projects.git genome_v1/repo
+ps -p 19629 -o pid=,etime=,stat=
+tail -50 /workspace/genome_v1/logs/target-pythia-14m-seed1-formula-v2.log
+```
+
+If a target does not pass the declared 80% gate, stop the target queue. Do not
+train the compiler with a rejected target.
+
+## Next gates
+
+After all 17 training targets and both development targets have accepted programs:
+
+1. Put each accepted program at
+   `/workspace/genome_v1/programs/accepted/<run-id>`.
+2. Build the 19-record corpus:
+
+```bash
 cd /workspace/genome_v1/repo/track_2
-python -m pip install -e '.[dev,evaluation]'
-genome init-workspace --root /workspace/genome_v1
-python -m compileall -q genome tests
-python -m pytest -q
-```
-
-Write and resolve the plan:
-
-```bash
-genome write-source-plan \
-  --output /workspace/genome_v1/control/pythia_v1.requested.json
-
-genome resolve-source-plan \
-  --plan /workspace/genome_v1/control/pythia_v1.requested.json \
-  --output /workspace/genome_v1/control/pythia_v1.pinned.json
-```
-
-Inspect the pinned plan and source metadata before downloading. Hidden 31M seed9 WT must still have no resolved commit.
-Pythia 14M seed9 is a training life, so its W0 and WT must both be resolved and materialized.
-
-Materialize approved W0/WT snapshots:
-
-```bash
-genome materialize-sources \
+python3 -m genome.cli build-compiler-corpus \
   --plan /workspace/genome_v1/control/pythia_v1.pinned.json \
-  --workspace /workspace/genome_v1
+  --workspace /workspace/genome_v1 \
+  --program-root /workspace/genome_v1/programs/accepted \
+  --probe-jsonl /workspace/genome_v1/evidence/corpus/probes/refinement.jsonl \
+  --output /workspace/genome_v1/compiler/corpus/pythia_v1.json
 ```
 
-Canonicalize and verify each materialized life before building semantic evidence:
+3. Check that the command reports 17 training, two development, and 19 total.
+4. Run the tiny compiler smoke and checkpoint-resume test.
+5. Start production compiler training only after the smoke gates pass.
+6. Select the compiler checkpoint with the two development lives only.
+7. Compile one Pythia 31M seed9 candidate.
+8. Seal all required hashes.
+9. Reveal hidden WT only after the seal.
+10. Report the one-shot hidden result before any repair.
 
-```bash
-genome canonicalize-life \
-  --plan /workspace/genome_v1/control/pythia_v1.pinned.json \
-  --run-id pythia-14m-seed0 \
-  --workspace /workspace/genome_v1
-```
-
-## Required setup outputs
-
-Before switching to GPU, produce:
-
-```text
-control/environment.json
-control/git.json
-control/pythia_v1.pinned.json
-source/receipts/materialization.json
-control/storage_actual.json
-control/source_audit.md
-```
-
-Mark `source/hf` read-only after receipts are verified.
-
-## GPU phase
-
-Attach the same new network volume to a GPU pod. Start with a single A40, L40S, RTX 4090, or comparable GPU; Pythia 14M/31M do not justify a premium multi-GPU pod for setup.
-
-The GPU agent must follow `docs/EXPERIMENT_PLAN.md` in order. It must not launch compiler training before both development sizes have accepted compact target programs.
-The complete compiler corpus is expected to contain 17 training records and two development records.
-
-## Production compiler configuration
-
-Use `configs/compiler/pythia_v1.yaml` as the starting point. Benchmark memory and throughput before increasing model width or layer count.
-
-## Hidden reveal
-
-After one-shot hidden compilation:
-
-```bash
-genome seal-hidden ...
-genome reveal-hidden ...
-```
-
-The reveal command rejects a seal that does not match the hidden run and source plan.
-
-## Handoff result
-
-The next agent is done when either:
-
-- a legitimate compiler run is active with accepted compact targets and resumable checkpoints; or
-- a pretraining gate fails and the failure is documented without launching invalid training.
+Do not push. Commit local changes only.

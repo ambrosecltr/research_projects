@@ -8,10 +8,10 @@ Repository:
 https://github.com/ambrosecltr/research_projects
 ```
 
-Branch:
+Active branch:
 
 ```text
-agent/genome-clean-start
+track_2/pythia-seed9-training
 ```
 
 Read, in order:
@@ -29,9 +29,14 @@ track_2/docs/IMPLEMENTATION_STATUS.md
 
 Treat the checked-out Track 2 tree as the complete authoritative project.
 
-Your job is to take the current implementation through the real Pythia source, compact-target and GPU-training gates.
+Gates 0 to 3 are complete. The fixed compact-target formula passed both
+development lives. Gate 4 is applying that formula to every training life.
 
-Create a new 100 GB RunPod network volume named `genome-pythia-v1` or a close date-suffixed equivalent. Do not mount or copy any pre-existing GENOME volume.
+Continue from the exact state in `docs/RUNPOD_HANDOFF.md`. Do not create a new
+volume and do not repeat completed source or evidence work.
+
+Use the existing 100 GB RunPod volume `genome-pythia-v1`, volume ID
+`4kwmhcepgj`.
 
 Use only:
 
@@ -49,22 +54,16 @@ training. Never describe it as a hidden evaluation.
 
 Follow the gates in `docs/EXPERIMENT_PLAN.md` exactly:
 
-1. initialize the new workspace;
-2. resolve and pin sources without resolving hidden WT;
-3. inspect actual storage before downloading;
-4. materialize W0/WT pairs and receipts;
-5. build canonical lives and verify native/canonical round trips;
-6. build real corpus and W0-response evidence, then finalize life manifests;
-7. fit and functionally refine compact targets at the declared byte budgets;
-8. require both development lives to pass the 10% byte and 80% endpoint-progress gates;
-9. construct the compiler corpus;
-10. run a tiny complete compiler smoke and resume test;
-11. launch the production compiler run only after every gate passes;
-12. freeze the selected compiler using development lives only;
-13. compile exactly one hidden 31M seed9 candidate;
-14. seal compiler/evidence/program/runtime hashes;
-15. reveal hidden WT only after sealing;
-16. report one-shot results before any repair.
+1. finish the fixed-formula targets for all training lives;
+2. stop if any required target fails its declared gate;
+3. construct the 19-record compiler corpus;
+4. run a tiny complete compiler smoke and resume test;
+5. launch the production compiler run only after every gate passes;
+6. freeze the selected compiler using development lives only;
+7. compile exactly one hidden 31M seed9 candidate;
+8. seal compiler, evidence, program, and Runtime hashes;
+9. reveal hidden WT only after sealing;
+10. report one-shot results before any repair.
 
 Non-negotiable:
 
@@ -77,4 +76,6 @@ Non-negotiable:
 - no extra model family or size before hidden 31M success;
 - stop rather than bypass a failed compact or functional gate.
 
-Commit code/config/docs to a new branch from `agent/genome-clean-start`. Save exact RunPod volume/pod IDs, environment, commands, hashes, storage, target frontier, compiler metrics and resume command. Do not merge your own branch.
+Commit code, configuration, and documents to the active branch. Save exact
+RunPod volume and pod IDs, environment, commands, hashes, storage, target
+results, compiler metrics, and resume command. Commit only. Do not push.

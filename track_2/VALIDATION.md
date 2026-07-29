@@ -1,41 +1,74 @@
-# Current local validation
+# Current validation
 
-This clean Track 2 tree was validated in the available CPU environment with:
+## Local
+
+Environment:
 
 ```text
-python 3.13.5
-torch 2.10.0+cpu
+Python 3.11.15
+PyTorch 2.4.1
 ```
 
 Commands:
 
 ```bash
-python -m compileall -q genome tests
-python -m pytest -q
-PYTHONPATH=. python -m genome --help
+.venv/bin/python -m pytest -q
+.venv/bin/ruff check \
+  genome/compiler/model.py \
+  genome/compiler/train.py \
+  genome/compiler/data.py \
+  tests/test_compiler.py \
+  tests/test_training.py \
+  --ignore B008
 ```
 
 Result:
 
 ```text
-18 passed
-4 informational PyTorch Transformer nested-tensor warnings
+38 passed
+5 informational PyTorch nested-tensor warnings
 0 failures
 0 skips
 ```
 
+## RunPod
+
+Environment:
+
+```text
+Python 3.11.10
+PyTorch 2.6.0+cu124
+Transformers 4.57.6
+RTX 4090
+```
+
+Result:
+
+```text
+38 passed
+5 informational PyTorch nested-tensor warnings
+0 failures
+```
+
 The suite covers:
 
-- whole-life and hidden split rules;
-- undeclared and non-monotonic checkpoints;
-- clean 17-training, two-development, one-hidden Pythia source split;
-- hidden WT non-materialization;
-- semantic fingerprint determinism;
-- forbidden MGP primitives;
-- compact program fitting, serialization, Runtime and audit;
-- hierarchical compiler forward/backward and byte bound;
-- compiler training smoke;
-- compiler checkpoint resume;
-- fresh workspace and CLI boundary.
+- 17 training, two development, and one hidden life;
+- Pythia 14M seed9 as training data;
+- Pythia 31M seed9 hidden WT exclusion;
+- source materialization rules;
+- canonical state conversion;
+- semantic evidence;
+- compact-program fitting, serialization, Runtime, and audit;
+- matrix scales, low-rank factors, and direct vectors;
+- compiler byte limits;
+- complete compiler-corpus construction;
+- compiler training and checkpoint resume;
+- workspace and command boundaries.
 
-The local environment did not contain `transformers` or `datasets`, so real Pythia loading, Hugging Face source resolution and RunPod GPU operations are intentionally the next agent's first environment-backed checks.
+Real development results also passed:
+
+```text
+Pythia 14M seed8: 83.2048% endpoint progress
+Pythia 31M seed8: 80.1290% endpoint progress
+Required:          80.0000%
+```

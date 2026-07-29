@@ -1,46 +1,50 @@
 # Implementation status
 
-## Ready
+## Code ready
 
 - clean Pythia-only source plan;
-- 20-life whole-life split;
-- 14M seed9 included as the seventeenth training life;
-- sealed 31M seed9 endpoint;
-- immutable ref resolution and file receipts;
-- complete multi-stage model-life schema;
-- hidden compiler view;
-- GPT-NeoX adapter and graph builder;
-- corpus and W0 semantic fingerprints;
-- compact MGP schema with no dense/neural escape hatch;
-- deterministic differentiable Runtime;
-- low-rank candidate fitting;
+- 17 training lives, including Pythia 14M seed9;
+- two development lives;
+- one hidden life, Pythia 31M seed9;
+- hidden WT exclusion and guarded reveal;
+- immutable source resolution and file receipts;
+- canonical model-life artifacts;
+- corpus and W0 semantic evidence;
+- deterministic compact-program Runtime;
+- serialized byte audit and functional acceptance gate;
+- scalable randomized target fitting;
+- base-relative matrix scaling;
+- shared vocabulary factors;
+- bounded direct fp16 vectors;
 - functional compact-coefficient refinement;
-- actual serialized byte audit;
-- functional Genome Gate;
-- hierarchical variable-tensor compiler;
-- bounded coefficient packets;
-- prediction-dependent rate proxy;
-- compiler training/checkpointing;
-- hidden prediction seal and guarded reveal;
-- local tests and a tiny compiler training smoke.
+- compiler output for matrix scaling, low-rank factors, and direct vectors;
+- compiler byte accounting for those instructions;
+- automatic 19-record compiler-corpus construction;
+- compiler training, checkpointing, and resume;
+- prediction sealing.
 
-## RunPod work remaining
+## RunPod complete
 
-1. Create the new volume.
-2. Resolve exact Hugging Face refs.
-3. Compare resolved storage against the 100 GB plan.
-4. Download approved snapshots.
-5. Build canonical life manifests.
-6. Pin a deterministic Pile evidence sample.
-7. Build W0 response evidence.
-8. Fit the real compact target frontier.
-9. Functionally refine candidates.
-10. Accept programs only after both development gates pass.
-11. Build the compiler corpus manifest.
-12. Run GPU smoke and resume test.
-13. Train the compiler.
-14. Freeze the selected checkpoint.
-15. Compile and seal hidden 31M seed9.
-16. Reveal and evaluate hidden WT.
+- Gates 0 to 3;
+- all approved sources and canonical lives;
+- fixed evidence and disjoint probes;
+- target formula selection;
+- Pythia 14M seed8 development acceptance at 83.2048% endpoint progress;
+- Pythia 31M seed8 development acceptance at 80.1290% endpoint progress.
 
-No scientific GENOME result is claimed by this repository state. It is a clean implementation foundation ready for the real Pythia experiment.
+## RunPod active
+
+Gate 4 is applying the fixed formula to all training lives. Pythia 14M seed1 is
+the current job.
+
+## RunPod remaining
+
+1. Complete and accept all training targets.
+2. Build the 19-record compiler corpus.
+3. Run the GPU compiler smoke and resume test.
+4. Train the production compiler.
+5. Freeze the checkpoint selected by development lives.
+6. Compile and seal one hidden Pythia 31M seed9 candidate.
+7. Reveal and evaluate hidden WT.
+
+No hidden GENOME result is claimed yet.
