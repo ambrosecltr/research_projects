@@ -158,15 +158,41 @@ be the direct fp16 Delta-T baseline. The primary target gate is:
 
 \(B_{MGP}\) is measured from the serialized manifest and Safetensors payload. It includes factor values, vector values, scales, indices and container overhead. Shared assets are counted separately and reported both unamortized and amortized.
 
-A differentiable compiler rate proxy must depend on predicted primitive probabilities and predicted ranks:
+A differentiable compiler rate proxy must depend on predicted primitive
+probabilities and predicted ranks. For a non-vocabulary matrix with shape
+\(d_o\times d_i\), the active formula counts both its low-rank factors and its
+row/column scales:
 
 \[
-\widehat B_\phi=\sum_m
+\widehat B_{\phi,m}=
 P_\phi(\text{low-rank}\mid m)
-\,2(d_o+d_i)\,\mathbb E_\phi[r_m]
-+
-P_\phi(\text{vector}\mid m)(d_m+4).
+\,2(d_o+d_i)\left(\mathbb E_\phi[r_m]+1\right).
 \]
+
+For compatible vocabulary matrices with shapes
+\(d_v\times d_{\text{in}}\) and \(d_v\times d_{\text{out}}\), the shared term is:
+
+\[
+\widehat B_{\phi,\text{vocab}}=
+\bar P_\phi(\text{low-rank})
+\,2\left[
+\left(d_v+d_{\text{in}}+d_{\text{out}}\right)\mathbb E_\phi[r]
++2d_v+d_{\text{in}}+d_{\text{out}}
+\right].
+\]
+
+The first bracketed term counts one shared vocabulary factor and two separate
+right factors. The second counts row/column scales for both matrices.
+
+For an active direct fp16 vector of length \(d_m\):
+
+\[
+\widehat B_{\phi,m}=
+P_\phi(\text{direct-vector}\mid m)\,2d_m.
+\]
+
+The full proxy is the sum of the non-overlapping matrix, shared-vocabulary, and
+vector terms.
 
 A constant teacher sequence length is not a rate loss.
 
