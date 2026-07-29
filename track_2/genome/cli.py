@@ -307,7 +307,21 @@ def refine_compact_target(
         device=device,
     )
     accounting = save_program(output, program, refined)
-    _echo_json({"output": str(output), "accounting": accounting, "candidate_only": True})
+    audit = audit_program(
+        program,
+        refined,
+        direct_fp16_delta_bytes=direct_fp16_delta_bytes(base_state),
+        artifact_directory=output,
+    )
+    atomic_write_json(output / "structural_audit.json", asdict(audit))
+    _echo_json(
+        {
+            "output": str(output),
+            "accounting": accounting,
+            "audit": asdict(audit),
+            "candidate_only": True,
+        }
+    )
 
 
 @app.command("audit-program")

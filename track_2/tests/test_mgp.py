@@ -123,6 +123,37 @@ def test_all_floating_program_coefficients_are_trainable() -> None:
     assert set(trainable.constants) == {"vector.values"}
 
 
+def test_trainable_program_restores_compact_storage_dtypes() -> None:
+    program = ModelGenomeProgram(
+        architecture_id="a",
+        base_state_id="b",
+        tensors=(
+            TensorProgram(
+                name="matrix",
+                shape=(2, 2),
+                components=(
+                    Component("BASE_COPY"),
+                    Component(
+                        "LOW_RANK",
+                        payload={"left": "matrix.left", "right": "matrix.right"},
+                        arguments={"rank": 1},
+                    ),
+                ),
+            ),
+        ),
+    )
+    trainable = TrainableProgram(
+        program,
+        {
+            "matrix.left": torch.ones(2, 1, dtype=torch.float16),
+            "matrix.right": torch.ones(2, 1, dtype=torch.float16),
+        },
+    )
+
+    assert trainable.payloads()["matrix.left"].dtype == torch.float32
+    assert trainable.export_payloads()["matrix.left"].dtype == torch.float16
+
+
 def test_teacher_kl_is_averaged_per_token() -> None:
     student = torch.tensor([[[2.0, -1.0]]])
     teacher = torch.tensor([[[1.0, 0.0]]])

@@ -228,7 +228,9 @@ class TrainableProgram(torch.nn.Module):
         self.program = program
         self.parameters_by_key = torch.nn.ParameterDict()
         self.constants: dict[str, torch.Tensor] = {}
+        self.storage_dtypes: dict[str, torch.dtype] = {}
         for key, value in payloads.items():
+            self.storage_dtypes[key] = value.dtype
             if value.is_floating_point():
                 self.parameters_by_key[key.replace(".", "__")] = torch.nn.Parameter(value.float())
             else:
@@ -239,6 +241,12 @@ class TrainableProgram(torch.nn.Module):
         for key, value in self.parameters_by_key.items():
             result[key.replace("__", ".")] = value
         return result
+
+    def export_payloads(self) -> dict[str, torch.Tensor]:
+        return {
+            key: value.detach().to(dtype=self.storage_dtypes[key], device="cpu")
+            for key, value in self.payloads().items()
+        }
 
     def materialize(self, base_state: Mapping[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         return execute_program(
@@ -296,4 +304,4 @@ def refine_program_functionally(
         loss.backward()
         torch.nn.utils.clip_grad_norm_(trainable.parameters(), 1.0)
         optimizer.step()
-    return {key: value.detach().cpu() for key, value in trainable.payloads().items()}
+    return trainable.export_payloads()
