@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 
 from genome.architecture import graph_from_state
-from genome.compiler.data import build_compiler_example
+from genome.compiler.data import build_compiler_example, recipe_vector
 from genome.compiler.model import CompilerConfig, GenomeCompiler, compiler_loss
 from genome.fingerprint import corpus_fingerprint
 from genome.state import direct_fp16_delta_bytes, state_id
@@ -76,3 +76,32 @@ def test_output_packet_count_is_bounded_by_program_budget() -> None:
     _, payloads = compiler.generate_program(example, direct_fp16_delta_bytes=direct_fp16_delta_bytes(w0))
     payload_bytes = sum(item.numel() * item.element_size() for item in payloads.values())
     assert payload_bytes <= int(direct_fp16_delta_bytes(w0) * config.target_fraction)
+
+
+def test_recipe_vector_excludes_provenance_but_keeps_data_order_seed() -> None:
+    recipe = {
+        "dataset": {
+            "dataset_id": "pile-standard",
+            "repository": "EleutherAI/pile",
+            "revision": "a" * 40,
+            "order_id": "seed9-at-a",
+            "data_order_seed": 9,
+        },
+        "stage": {"steps": 143000, "tokens": 299892736000},
+    }
+    changed_provenance = {
+        **recipe,
+        "dataset": {
+            **recipe["dataset"],
+            "repository": "different/repository",
+            "revision": "b" * 40,
+            "order_id": "seed9-at-b",
+        },
+    }
+    changed_order_seed = {
+        **recipe,
+        "dataset": {**recipe["dataset"], "data_order_seed": 8},
+    }
+    base = recipe_vector(recipe, 128)
+    assert torch.equal(base, recipe_vector(changed_provenance, 128))
+    assert not torch.equal(base, recipe_vector(changed_order_seed, 128))

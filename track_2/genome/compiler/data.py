@@ -16,6 +16,26 @@ from ..mgp.runtime import execute_program
 from ..mgp.serialize import load_program
 from .model import CompilerExample, TensorEvidence
 
+NON_SEMANTIC_RECIPE_KEYS = frozenset(
+    {
+        "commit",
+        "licence",
+        "license",
+        "order_files",
+        "order_id",
+        "order_repository",
+        "order_revision",
+        "path",
+        "provenance",
+        "repository",
+        "revision",
+        "run_id",
+        "sha256",
+        "source_plan_id",
+        "uri",
+    }
+)
+
 
 def _count_sketch(values: torch.Tensor, dim: int, *, seed: int) -> torch.Tensor:
     flat = values.detach().float().reshape(-1).cpu()
@@ -57,6 +77,8 @@ def recipe_vector(recipe: Mapping[str, Any], dim: int, *, seed: int = 3107) -> t
             output[index] += 1.0
         elif isinstance(value, Mapping):
             for key in sorted(value):
+                if str(key).lower() in NON_SEMANTIC_RECIPE_KEYS:
+                    continue
                 visit(f"{prefix}.{key}", value[key])
         elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
             for index, item in enumerate(value):
