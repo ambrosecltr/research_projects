@@ -621,8 +621,12 @@ def compiler_loss(
     primitive_targets = target_primitives.to(device)
     rank_targets = target_ranks.to(device)
     primitive_loss = F.cross_entropy(prediction.primitive_logits, primitive_targets)
-    rank_loss = F.cross_entropy(prediction.rank_logits, rank_targets)
     rank_mask = primitive_targets == 1
+    rank_loss = (
+        F.cross_entropy(prediction.rank_logits[rank_mask], rank_targets[rank_mask])
+        if bool(rank_mask.any())
+        else torch.zeros((), device=device)
+    )
     rank_correct = prediction.rank_logits.argmax(dim=-1) == rank_targets
     rank_accuracy = (
         rank_correct[rank_mask].float().mean()
