@@ -1,0 +1,38 @@
+format: GENOME_TARGET_FORMULA
+version: 1.0.0
+locked_from:
+  run_id: pythia-14m-seed0
+  split: training
+  program_id: 300d42e916b431335ea33c235496c8cdbd049b314f044fe7982ea8dab8a469bf
+  endpoint_progress: 0.8114571601511297
+  git_commit: de4045d
+
+fit:
+  budget_fraction: 0.10
+  max_rank: 32
+  minimum_matrix_rank: 0
+  allocation_strategy: rank_balanced
+  matrix_scaling: true
+  shared_vocabulary_factors: true
+  svd_method: randomized
+  device: cuda
+
+refinement:
+  teacher_kl_weight: 1.0
+  device: cuda
+  stages:
+    - steps: 16384
+      learning_rate: 0.001
+    - steps: 2048
+      learning_rate: 0.0003
+
+data:
+  refinement: /workspace/genome_v1/evidence/corpus/probes/refinement.jsonl
+  evaluation: /workspace/genome_v1/evidence/corpus/probes/evaluation.jsonl
+  evaluation_batches: 16
+
+acceptance:
+  maximum_target_fraction: 0.10
+  minimum_endpoint_progress: 0.80
+  require_candidate_beats_w0: true
+  require_finite_candidate: true

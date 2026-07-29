@@ -132,6 +132,9 @@ finite model
 ```
 
 Both 14M seed8 and 31M seed8 must pass. Otherwise stop and improve the deterministic formula language. Do not train the compiler.
+Freeze the successful training-life formula and refinement schedule before
+running either development life. Apply that schedule unchanged to both
+development lives.
 
 ## Gate 5 — compiler corpus
 
