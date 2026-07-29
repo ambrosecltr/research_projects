@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Mapping, Sequence
 
 import torch
 import torch.nn.functional as F
@@ -25,7 +25,7 @@ ROLES = (
     "other",
 )
 ROLE_TO_ID = {name: index for index, name in enumerate(ROLES)}
-PRIMITIVES = ("BASE_COPY", "LOW_RANK", "QUANTIZED_VECTOR")
+PRIMITIVES = ("BASE_COPY", "LOW_RANK", "DIRECT_VECTOR")
 
 
 @dataclass(frozen=True)
@@ -139,7 +139,9 @@ class CoordinateHead(torch.nn.Module):
             )
             side_feature = torch.full((size, 1), side, device=context.device)
             expanded = context.unsqueeze(0).expand(size, -1)
-            inputs = torch.cat([expanded, coordinate, local, component_feature, side_feature], dim=-1)
+            inputs = torch.cat(
+                [expanded, coordinate, local, component_feature, side_feature], dim=-1
+            )
             outputs.append(self.network(inputs).squeeze(-1))
         return torch.stack(outputs, dim=1)
 
@@ -170,6 +172,8 @@ class GenomeCompiler(torch.nn.Module):
         self.rank_head = torch.nn.Linear(config.d_model, config.max_rank + 1)
         self.left_head = CoordinateHead(config.d_model, config.coordinate_feature_dim)
         self.right_head = CoordinateHead(config.d_model, config.coordinate_feature_dim)
+        self.row_scale_head = CoordinateHead(config.d_model, config.coordinate_feature_dim)
+        self.column_scale_head = CoordinateHead(config.d_model, config.coordinate_feature_dim)
         self.vector_head = CoordinateHead(config.d_model, config.coordinate_feature_dim)
 
     def forward(self, example: CompilerExample) -> CompilerPrediction:
@@ -177,7 +181,9 @@ class GenomeCompiler(torch.nn.Module):
         global_feature = example.global_features.to(device).float()
         if global_feature.numel() != self.config.global_feature_dim:
             raise ValueError("global feature dimension mismatch")
-        tensor_features = torch.stack([item.features for item in example.tensors]).to(device).float()
+        tensor_features = (
+            torch.stack([item.features for item in example.tensors]).to(device).float()
+        )
         if tensor_features.shape[1] != self.config.tensor_feature_dim:
             raise ValueError("tensor feature dimension mismatch")
         role_ids = torch.tensor(
@@ -236,7 +242,33 @@ class GenomeCompiler(torch.nn.Module):
             local_features=evidence.row_features,
         ).squeeze(1)
 
-    def expected_bytes(self, example: CompilerExample, prediction: CompilerPrediction) -> torch.Tensor:
+    def scales(
+        self,
+        context: torch.Tensor,
+        evidence: TensorEvidence,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        if len(evidence.shape) != 2:
+            raise ValueError("Hadamard scales require a matrix")
+        rows, columns = evidence.shape
+        row = self.row_scale_head(
+            context,
+            size=rows,
+            rank=1,
+            side=0.25,
+            local_features=evidence.row_features,
+        ).squeeze(1)
+        column = self.column_scale_head(
+            context,
+            size=columns,
+            rank=1,
+            side=0.75,
+            local_features=evidence.col_features,
+        ).squeeze(1)
+        return row, column
+
+    def expected_bytes(
+        self, example: CompilerExample, prediction: CompilerPrediction
+    ) -> torch.Tensor:
         primitive_prob = prediction.primitive_logits.softmax(dim=-1)
         rank_prob = prediction.rank_logits.softmax(dim=-1)
         ranks = torch.arange(self.config.max_rank + 1, device=rank_prob.device).float()
@@ -244,20 +276,14 @@ class GenomeCompiler(torch.nn.Module):
         costs = []
         for index, evidence in enumerate(example.tensors):
             if len(evidence.shape) == 2:
-                low_rank = 2.0 * (evidence.shape[0] + evidence.shape[1]) * expected_rank[index]
+                dimensions = evidence.shape[0] + evidence.shape[1]
+                low_rank = 2.0 * dimensions * (expected_rank[index] + 1.0)
                 costs.append(primitive_prob[index, 1] * low_rank)
             elif len(evidence.shape) == 1 and evidence.shape[0] <= self.config.max_vector_values:
-                costs.append(primitive_prob[index, 2] * float(evidence.shape[0] + 4))
+                costs.append(primitive_prob[index, 2] * float(2 * evidence.shape[0]))
             else:
                 costs.append(torch.zeros((), device=rank_prob.device))
         return torch.stack(costs).sum()
-
-    @staticmethod
-    def _quantize_vector(values: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        maximum = values.detach().abs().max()
-        scale = torch.ones((), device=values.device) if maximum == 0 else maximum / 127.0
-        quantized = torch.round(values / scale).clamp(-127, 127).to(torch.int8)
-        return quantized, scale.reshape(1).float()
 
     def generate_program(
         self,
@@ -272,7 +298,11 @@ class GenomeCompiler(torch.nn.Module):
             desired_rank = prediction.rank_logits.argmax(dim=-1).tolist()
             # Enforce the hard target-specific budget by reducing ranks with the weakest marginal
             # confidence. This bounds output packets without a giant autoregressive sequence.
-            budget = max(0, int(direct_fp16_delta_bytes * self.config.target_fraction) - self.config.manifest_reserve_bytes)
+            budget = max(
+                0,
+                int(direct_fp16_delta_bytes * self.config.target_fraction)
+                - self.config.manifest_reserve_bytes,
+            )
             ranks = [0] * len(example.tensors)
             vector_enabled = [False] * len(example.tensors)
             import heapq
@@ -285,7 +315,7 @@ class GenomeCompiler(torch.nn.Module):
                 if evidence.tied_to is not None:
                     continue
                 if len(evidence.shape) == 1 and desired_primitive[index] == 2:
-                    cost = evidence.shape[0] + 4
+                    cost = 2 * evidence.shape[0]
                     if evidence.shape[0] <= self.config.max_vector_values and used + cost <= budget:
                         vector_enabled[index] = True
                         used += cost
@@ -295,7 +325,7 @@ class GenomeCompiler(torch.nn.Module):
                         continue
                     probabilities = prediction.rank_logits[index].softmax(dim=-1)
                     rank_probabilities[index] = probabilities
-                    cost = 2 * (evidence.shape[0] + evidence.shape[1])
+                    cost = 4 * (evidence.shape[0] + evidence.shape[1])
                     marginal = float(probabilities[1 : maximum + 1].sum())
                     heapq.heappush(heap, (-marginal / max(1, cost), index, 1, maximum, cost))
             while heap:
@@ -310,6 +340,7 @@ class GenomeCompiler(torch.nn.Module):
                 if next_component <= maximum:
                     probabilities = rank_probabilities[index]
                     marginal = float(probabilities[next_component : maximum + 1].sum())
+                    cost = 2 * (example.tensors[index].shape[0] + example.tensors[index].shape[1])
                     heapq.heappush(
                         heap,
                         (-marginal / max(1, cost), index, next_component, maximum, cost),
@@ -331,6 +362,20 @@ class GenomeCompiler(torch.nn.Module):
                     continue
                 components: list[Component] = [Component("BASE_COPY")]
                 if ranks[index] > 0:
+                    row_scale, column_scale = self.scales(
+                        prediction.contexts[index],
+                        evidence,
+                    )
+                    row_scale_key = f"tensor.{index}.hadamard_scale.row"
+                    column_scale_key = f"tensor.{index}.hadamard_scale.column"
+                    payloads[row_scale_key] = row_scale.cpu().to(torch.float16)
+                    payloads[column_scale_key] = column_scale.cpu().to(torch.float16)
+                    components.append(
+                        Component(
+                            "HADAMARD_SCALE",
+                            payload={"row": row_scale_key, "column": column_scale_key},
+                        )
+                    )
                     left, right = self.factors(prediction.contexts[index], evidence, ranks[index])
                     left_key = f"tensor.{index}.low_rank.left"
                     right_key = f"tensor.{index}.low_rank.right"
@@ -345,19 +390,18 @@ class GenomeCompiler(torch.nn.Module):
                     )
                 elif vector_enabled[index]:
                     values = self.vector(prediction.contexts[index], evidence)
-                    quantized, scale = self._quantize_vector(values)
                     value_key = f"tensor.{index}.vector.values"
-                    scale_key = f"tensor.{index}.vector.scale"
-                    payloads[value_key] = quantized.cpu()
-                    payloads[scale_key] = scale.cpu()
+                    payloads[value_key] = values.cpu().to(torch.float16)
                     components.append(
                         Component(
-                            "QUANTIZED_VECTOR",
-                            payload={"values": value_key, "scale": scale_key},
+                            "DIRECT_VECTOR",
+                            payload={"values": value_key},
                         )
                     )
                 tensor_programs.append(
-                    TensorProgram(name=evidence.name, shape=evidence.shape, components=tuple(components))
+                    TensorProgram(
+                        name=evidence.name, shape=evidence.shape, components=tuple(components)
+                    )
                 )
             return (
                 ModelGenomeProgram(
@@ -369,7 +413,6 @@ class GenomeCompiler(torch.nn.Module):
             )
 
 
-
 def decode_teacher_forced(
     compiler: GenomeCompiler,
     example: CompilerExample,
@@ -377,6 +420,7 @@ def decode_teacher_forced(
     *,
     target_primitives: torch.Tensor,
     target_ranks: torch.Tensor,
+    w0_state: Mapping[str, torch.Tensor],
 ) -> dict[str, torch.Tensor]:
     device = prediction.contexts.device
     primitives = target_primitives.to(device)
@@ -389,7 +433,11 @@ def decode_teacher_forced(
             decoded[evidence.name] = decoded[evidence.tied_to]
         elif primitive == 1 and rank > 0 and len(evidence.shape) == 2:
             left, right = compiler.factors(prediction.contexts[index], evidence, rank)
-            decoded[evidence.name] = left @ right.transpose(0, 1)
+            row_scale, column_scale = compiler.scales(prediction.contexts[index], evidence)
+            base = w0_state[evidence.name].to(device).float()
+            decoded[evidence.name] = left @ right.transpose(0, 1) + base * (
+                row_scale.unsqueeze(1) + column_scale.unsqueeze(0)
+            )
         elif primitive == 2 and len(evidence.shape) == 1:
             decoded[evidence.name] = compiler.vector(prediction.contexts[index], evidence)
         else:
@@ -404,9 +452,9 @@ def compiler_loss(
     target_primitives: torch.Tensor,
     target_ranks: torch.Tensor,
     target_deltas: Mapping[str, torch.Tensor],
+    w0_state: Mapping[str, torch.Tensor],
     rate_weight: float = 1e-6,
     functional_model: torch.nn.Module | None = None,
-    w0_state: Mapping[str, torch.Tensor] | None = None,
     functional_batches: Sequence[Mapping[str, torch.Tensor]] = (),
     functional_weight: float = 0.0,
 ) -> tuple[torch.Tensor, dict[str, float]]:
@@ -420,6 +468,7 @@ def compiler_loss(
         prediction,
         target_primitives=target_primitives,
         target_ranks=target_ranks,
+        w0_state=w0_state,
     )
     reconstruction = torch.zeros((), device=device)
     for evidence in example.tensors:
@@ -432,12 +481,11 @@ def compiler_loss(
     expected_bytes = compiler.expected_bytes(example, prediction)
     functional = torch.zeros((), device=device)
     if functional_weight > 0:
-        if functional_model is None or w0_state is None or not functional_batches:
+        if functional_model is None or not functional_batches:
             raise ValueError("functional compiler loss requires model, W0 state and batches")
         functional_model = functional_model.to(device).eval()
         predicted_state = {
-            name: w0_state[name].to(device).float() + predicted[name]
-            for name in predicted
+            name: w0_state[name].to(device).float() + predicted[name] for name in predicted
         }
         losses = []
         for batch in functional_batches:

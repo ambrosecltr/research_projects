@@ -4,9 +4,10 @@ import json
 import math
 import random
 import time
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any
 
 import torch
 from safetensors.torch import save_file
@@ -50,7 +51,11 @@ def labels_from_program(program: ModelGenomeProgram) -> TargetLabels:
             continue
         low_rank = next((item for item in tensor.components if item.primitive == "LOW_RANK"), None)
         vector = next(
-            (item for item in tensor.components if item.primitive == "QUANTIZED_VECTOR"),
+            (
+                item
+                for item in tensor.components
+                if item.primitive in {"DIRECT_VECTOR", "QUANTIZED_VECTOR"}
+            ),
             None,
         )
         if low_rank is not None:
@@ -66,7 +71,6 @@ def labels_from_program(program: ModelGenomeProgram) -> TargetLabels:
         primitives=torch.tensor(primitive_ids, dtype=torch.long),
         ranks=torch.tensor(ranks, dtype=torch.long),
     )
-
 
 
 def _save_checkpoint(
@@ -131,8 +135,12 @@ def _load_checkpoint(
     current_training.pop("epochs", None)
     if previous_training != current_training:
         raise ValueError("resume training configuration differs from checkpoint")
-    compiler.load_state_dict(load_file(str(checkpoint / "compiler.safetensors"), device="cpu"), strict=True)
-    optimizer.load_state_dict(torch.load(checkpoint / "optimizer.pt", map_location="cpu", weights_only=False))
+    compiler.load_state_dict(
+        load_file(str(checkpoint / "compiler.safetensors"), device="cpu"), strict=True
+    )
+    optimizer.load_state_dict(
+        torch.load(checkpoint / "optimizer.pt", map_location="cpu", weights_only=False)
+    )
     rng = torch.load(checkpoint / "rng.pt", map_location="cpu", weights_only=False)
     random.setstate(rng["python_random"])
     torch.set_rng_state(rng["torch_rng"])
@@ -169,11 +177,11 @@ def _evaluate_records(
                 target_primitives=labels.primitives,
                 target_ranks=labels.ranks.clamp_max(config.max_rank),
                 target_deltas=target_deltas,
+                w0_state=w0,
                 rate_weight=rate_weight,
             )
             total += float(loss)
     return total / max(1, len(records))
-
 
 
 def _functional_context(record: CompilerRecord, w0: Mapping[str, torch.Tensor], limit: int):
@@ -195,6 +203,7 @@ def _functional_context(record: CompilerRecord, w0: Mapping[str, torch.Tensor], 
     if not batches:
         raise ValueError(f"record {record.run_id} has no functional probe batches")
     return model, batches
+
 
 def train_compiler(
     corpus: CompilerCorpus,
@@ -277,9 +286,9 @@ def train_compiler(
                 target_primitives=labels.primitives,
                 target_ranks=labels.ranks.clamp_max(compiler_config.max_rank),
                 target_deltas=target_deltas,
+                w0_state=w0,
                 rate_weight=training_config.rate_weight,
                 functional_model=functional_model,
-                w0_state=w0 if use_functional else None,
                 functional_batches=functional_batches,
                 functional_weight=training_config.functional_weight if use_functional else 0.0,
             )
@@ -327,7 +336,10 @@ def train_compiler(
                 if development_loss < best_development:
                     best_development = development_loss
                     save_file(
-                        {name: tensor.detach().cpu() for name, tensor in compiler.state_dict().items()},
+                        {
+                            name: tensor.detach().cpu()
+                            for name, tensor in compiler.state_dict().items()
+                        },
                         str(output_path / "best-compiler.safetensors"),
                     )
                     atomic_write_json(
