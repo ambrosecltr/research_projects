@@ -24,8 +24,22 @@ jobs:
           cache: pip
           cache-dependency-path: track_2/pyproject.toml
       - name: Install
-        run: python -m pip install -e '.[dev]'
+        run: python -m pip install -e '.[dev,evaluation]'
       - name: Compile
         run: python -m compileall -q genome tests
       - name: Test
-        run: python -m pytest -q
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m pytest -q 2>&1 | tee ../track2-pytest.log
+      - name: Pack tested source
+        if: always()
+        run: tar -czf ../track2-source.tgz genome tests pyproject.toml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: track2-validation
+          path: |
+            track2-pytest.log
+            track2-source.tgz
+          retention-days: 3
