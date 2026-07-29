@@ -1,148 +1,211 @@
 # GENOME implementation status
 
-## Proven before PolyPythia Round One
+## Active direction
+
+Track 2 is being recovered as a **compact executable program compiler**.
+
+```text
+true W0 + variable architecture graph + semantic dataset/W0 evidence + complete staged recipe
+    -> one learned GENOME Compiler
+    -> compact MGP
+    -> deterministic MGP Runtime
+    -> runnable model
+```
+
+The PolyPythia V4 decoder/compiler remains a recorded failed experiment. It is not the active architecture.
+
+## What was already trustworthy
 
 - Canonical W0/WT tensor inventories and tied-weight handling.
-- Deterministic MGP serialization, integrity validation, and decoding.
-- Exact known-endpoint round trips through the Track 1 adapter.
-- Dense, quantized, SVD, sparse, and single-life neural G0 mechanics.
+- Deterministic MGP serialization, integrity validation and decoding.
+- Exact known-endpoint Track 1 round trips.
+- Dense, quantized, SVD and sparse rate-distortion baselines.
+- GPT-NeoX native/canonical conversion and real-model round-trip tests.
+- Immutable Hugging Face revisions, LFS hashes and download receipts.
+- Whole-life train/development/hidden split mechanics.
+- Hidden endpoint prediction seals and reveal controls.
+- Wikitext and LM Evaluation Harness evaluation.
 
-These results prove known-endpoint representation. They do not prove endpoint prediction.
+These establish representation and evaluation mechanics. They do not establish endpoint prediction.
 
-## Implemented for PolyPythia Round One
+## PolyPythia Round One: preserved negative evidence
 
-### Immutable source and split
+Round One used Pythia 14M seeds0–7 for training, seed8 for development and seed9 as a sealed hidden life.
 
-- Ten standard non-deduplicated Pythia 14M lives.
-- Training seeds 0–7, development seed8, hidden seed9.
-- All 154 branches per life pinned by commit.
-- Every selected weight pinned by exact LFS SHA-256 and byte count.
-- Pile data-order files and tokenizer files pinned by commit and content identity.
-- Intermediate checkpoints remain catalogued but are not downloaded by the primary endpoint experiment.
+V1–V3 failed to represent functional endpoints compactly. V4 then stored one fp16 residual for every position in every 16x16 block:
 
-### GPT-NeoX compatibility
+```text
+true normalized Delta-T block - learned decoder prediction
+```
 
-- Strict native-to-canonical and canonical-to-native key conversion.
-- Support for historical `embed_out` and current Transformers `lm_head` output names.
-- Explicit exclusion of regenerated historical attention-mask and rotary buffers.
-- Exact tensor and real-model logit round-trip regression tests.
-- Canonical endpoint artifacts in safetensors.
+Its target-specific MGP was approximately 28.45 MB, while direct fp16 Delta-T was approximately 28.14 MB, before counting the approximately 4.61 MB learned decoder. V4 therefore did not demonstrate a compact genome language.
 
-### Neural Genome Decoder
+The hidden compiler result was substantially worse than W0:
 
-- One role-conditioned block decoder shared across independent model lives.
-- Per-life global, layer, tensor, and block genome codes.
-- W0 block values are decoder inputs; WT values are reconstruction targets only.
-- Vector and scalar tensors use the neural block opcode instead of dense endpoint payloads.
-- Frozen-decoder development code fitting for seed8.
-- Decoder audit across seeds0–8 with byte accounting, parameter metrics, Wikitext behavior, and logit comparisons.
-
-### GENOME Compiler
-
-- Endpoint-free evidence from W0, architecture, tokenizer, data order, and training recipe.
-- No endpoint hashes, fitted target codes, early weights, or intermediate weights in compiler inputs.
-- Training through the frozen decoder against Delta-T block loss.
-- No arbitrary latent-code label matching.
-- Blockwise code generation avoids a model-sized flat output head.
-- One-shot hidden prediction and immutable prediction seal.
-
-### Hidden evaluation
-
-- Hidden seed9 WT cannot be materialized before a valid prediction seal.
-- The predicted genome is decoded and run before reveal.
-- Full pinned Wikitext comparison of W0, predicted WT, and true WT.
-- Six pinned zero-shot LM Evaluation Harness tasks:
-  LAMBADA OpenAI, PIQA, Winogrande, ARC-Easy, SciQ, and document-level Wikitext.
-- No repair, polishing, or early training prefix in the primary result.
-
-## Local validation
-
-- 49 automated tests pass locally; the one additional CUDA Runtime test is skipped on the Mac.
-- Python bytecode compilation passes.
-- Focused Ruff checks pass for all new and modified Round One modules.
-- A complete synthetic learned path passes:
-  shared decoder training, development-code fitting, compiler training, hidden prediction, seal creation, MGP decoding, GPT-NeoX assembly, and forward execution.
-- The exact 14M block sampler measured about 0.0084 seconds per 256-block CPU batch on the local Mac. This is about 421 seconds of sampler work for 50,000 updates before GPU compute.
-
-## Pinned source totals
-
-The current local source plan reports:
-
-- full 1,540-checkpoint catalogue: 78,251,476,072 bytes;
-- sealed primary endpoint materialization: 962,921,344 bytes;
-- post-seal endpoint materialization: 1,016,252,936 bytes.
-
-The large catalogue total is provenance, not the primary download size.
-
-## Paid Round One result
-
-Two decoder designs were rejected before compiler training:
-
-- V1 used role-wide scales and had no block codes. Mean parameter relative L2 was
-  `0.662834`; mean Wikitext loss gap was `81.079589`.
-- V2 corrected QKV roles, padded-vector loss, per-tensor scales, and block coordinates.
-  Mean parameter relative L2 was `0.643889`; mean Wikitext loss gap was `87.325305`.
-
-Both designs made decoded models much worse than W0, including on fitted training lives.
-They proved that one global/layer/tensor code hierarchy did not have enough target-specific
-capacity. The hidden seed9 endpoint remained sealed, and no compiler was trained through either
-failed decoder.
-
-V3 added one free 16-value latent code per 16-by-16 block. It reduced mean parameter relative L2
-to `0.389099`, but mean Wikitext loss gap increased to `89.719535`. Seed8 decoded loss was
-`193.530336`, compared with W0 at `11.055402` and WT at `5.461259`. Free block latents therefore
-improved parameter reconstruction without preserving model function.
-
-The exact rate analysis then established why:
-
-- 16-value role-conditioned linear block codes preserve only `47.9460%` of centered delta energy;
-- the input embedding preserves only `6.97%` at width 16 and `51.77%` at width 128;
-- fp16 SVD rank 112 is still worse than W0 on seed8, with Wikitext loss `14.018015`;
-- full rank 128 reaches loss `5.519440` but uses `28,994,048` payload bytes;
-- direct fp16 Delta-T uses `28,135,424` payload bytes and reaches loss `5.460485`;
-- direct int8 Delta-T uses `14,068,016` bytes but degrades loss to `7.263859`;
-- direct int4 Delta-T uses `7,034,160` bytes and degrades loss to `57.704032`.
-
-V4 therefore uses canonical fp16 block residuals. The shared decoder learns a structured
-global/layer/tensor prediction from W0 and metadata. Each genome stores the deterministic
-remaining residual:
-
-`normalized Delta-T block - frozen structured decoder prediction`.
-
-This removes arbitrary latent-code labels, preserves the known endpoint at the measured precision,
-and makes Compiler training a direct endpoint-prediction test. The V4 residual payload is expected
-to be about 28.4 MB before MGP metadata, plus one shared decoder amortized across model lives.
-The V4 decoder passed its full seeds0–8 audit:
-
-- mean parameter relative L2: `0.000137383`;
-- worst parameter relative L2: `0.000195750`;
-- mean Wikitext loss gap: `0.000105020`;
-- worst Wikitext loss gap: `0.001437497`;
-- mean anchor-logit KL: `0.000131592`.
-
-The V4 Compiler then failed hidden seed9 transfer:
-
-- W0 loss: `11.072410`;
-- predicted WT loss: `78.254531`;
+- W0 Wikitext loss: `11.072410`;
+- predicted loss: `78.254531`;
 - true WT loss: `5.253024`;
-- predicted parameter relative L2: `1.144849`;
-- predicted-versus-true loss gap: `73.001507`;
+- relative parameter error: `1.144849`;
 - top-1 and top-5 agreement: `0`.
 
-The Compiler did emit a complete sealed genome, and the MGP Runtime assembled and ran the model
-before reveal. The failure is predictive quality, not serialization or Runtime execution.
+The strict hidden protocol worked. The predictive architecture failed. See `POLYPYTHIA_ROUND1_RESULTS.md` for immutable evidence.
 
-See `POLYPYTHIA_ROUND1_RESULTS.md` for all metrics, hashes, and interpretation.
+## Recovery foundation implemented
 
-## Not yet claimed
+### Complete model lives
 
-- Cross-size transfer or evidence that the compiler did not learn a 14M-only rule.
-- Transfer to the local 8M Track 1 model or another architecture family.
+`genome/life_schema.py` adds `GENOME_MODEL_LIFE` v0.3.0:
 
-Round One established the measured V4 shared-decoder rate-quality point. It also established that
-the current Compiler does not transfer to hidden seed9. Cross-size Round Two is not warranted as
-a memorization confirmation until same-family hidden transfer works.
+- true random initialization;
+- tokenizer and vocabulary;
+- dataset records and semantic fingerprints;
+- ordered pretraining/SFT/DPO/RL/etc. stages;
+- checkpoint trajectory;
+- available or sealed final endpoint;
+- endpoint-free compiler evidence;
+- complete/partial/endpoint-only classification;
+- whole-lineage split validation and split commitments.
 
-## Track 1 status
+The compiler view excludes WT, fitted programs, trajectory, evaluations, hashes, paths and run identity.
 
-The previous 50M Track 1 boundary is legacy G0 integration. The new 8M model needs a full-life record from its true random W0 through pretraining and SFT to final WT. The pretrain-to-SFT segment can be retained as auxiliary stage-local data. It must not replace the full random-W0-to-final-WT record.
+### Semantic evidence
+
+`genome/semantic_fingerprint.py` provides deterministic bounded evidence from actual content and W0 response:
+
+- token unigram and bigram CountSketches;
+- byte frequencies;
+- sequence-length and supervision statistics;
+- per-role W0 gradient sketches and moments;
+- W0 activation moments and quantiles.
+
+SHA-256 and repository revisions remain provenance only and are never concatenated into semantic model features.
+
+### Compact target policy
+
+`genome/mgp/policy.py` rejects:
+
+- dense large-tensor Delta-T;
+- full/exact residuals;
+- residual block mode;
+- one neural code value per weight;
+- excessive direct values or sparse exceptions;
+- target programs outside their declared byte budget;
+- target programs not smaller than direct fp16 Delta-T.
+
+The primary target-specific budget defaults to 10% of direct fp16 Delta-T. Up to 25% is an explicitly exploratory band.
+
+### Deterministic structured MGP Runtime
+
+The Runtime now supports:
+
+- `LOW_RANK`;
+- `KRONECKER`;
+- `SPECTRAL_DCT`;
+- `SHARED_BASIS`;
+- `CODEBOOK_BLOCKS`;
+- bounded low-rank and sparse patches;
+- tied copies.
+
+These are executable formulas and require no learned interpreter.
+
+### Canonical compact target fitting
+
+`genome/compact_targets.py` implements:
+
+- canonical SVD sign conventions;
+- global singular-component allocation by energy per byte;
+- no dense matrix residual;
+- optional small int8 vectors under aggregate policy limits;
+- compiler-target policy auditing.
+
+A fitted MGP is not accepted until the functional Genome Gate executes it and confirms the predeclared quality band.
+
+### Variable program compiler
+
+`genome/program_compiler.py` implements one learned compiler with:
+
+- variable training-stage tokens;
+- variable logical tensor tokens;
+- role, shape and architecture features;
+- tensor-graph message passing;
+- bidirectional conditioning attention;
+- autoregressive MGP token and coefficient generation;
+- no fixed output head tied to one model's block count.
+
+`genome/program_tokens.py` provides deterministic tokenization and inverse reconstruction for the first canonical low-rank target language. It rejects dense fallback payloads.
+
+### Regression coverage added
+
+New tests cover:
+
+- complete multi-stage life validation and hidden WT exclusion;
+- whole-lineage split leakage;
+- semantic corpus, gradient and activation fingerprints;
+- Kronecker, DCT, shared-basis and codebook Runtime execution;
+- compact target fitting and canonical SVD signs;
+- rejection of V4-style per-weight residuals and dense target labels;
+- MGP program tokenization/inverse reconstruction;
+- variable compiler forward, backward and bounded generation.
+
+## Validation state
+
+A repository-level Python 3.11 Track 2 workflow is installed on `main`. The recovery PR remains draft until the complete existing and new test suite is green. No production training or large download has been launched from the recovery branch.
+
+## Next implementation gates
+
+### R0 — green recovery foundation
+
+- Existing tests pass unchanged.
+- New recovery tests pass.
+- V4 residual targets are rejected.
+- A toy compact target round-trips through target tokens and Runtime.
+- The variable compiler performs a finite forward/backward/generation smoke.
+
+### R1 — public source audit
+
+Commit the exact source matrix before downloading:
+
+- repository/revision/licence;
+- architecture and sizes;
+- true W0 and WT status;
+- checkpoint count;
+- dataset/tokenizer/recipe access;
+- complete/partial/endpoint-only role;
+- storage estimates;
+- frozen whole-life split.
+
+### R2 — functional compact target frontier
+
+For development lives, evaluate actual serialized MGP bytes against:
+
+- validation loss and perplexity;
+- task metrics;
+- logit KL and top-k agreement;
+- tensor-family failure;
+- decode time.
+
+Do not train the compiler until multiple development lives pass both byte and functional gates.
+
+### R3 — tiny compiler smoke
+
+Prove the complete path without WT access at inference:
+
+```text
+life evidence -> program tokens -> MGP -> Runtime -> executable model
+```
+
+### R4 — hidden same-family transfer
+
+Seal the MGP and Runtime output before revealing WT. The first hidden candidate must meaningfully beat W0. Report:
+
+```text
+(L(W0) - L(predicted)) / (L(W0) - L(WT))
+```
+
+Cross-size, cross-dataset and cross-family work remains blocked until same-family hidden transfer succeeds.
+
+## Track 1 boundary
+
+The old 50M Track 1 integration remains useful for deterministic G0 compatibility. The current 8M life must be recorded from true random pretraining W0 through pretraining and SFT to final WT. The pretrain-to-SFT segment may remain an auxiliary stage-local record, but it cannot replace the full life.
+
+Track 1 WT remains outside public-life compiler training and is evaluated last.
