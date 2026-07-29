@@ -214,6 +214,8 @@ The compact parameters can then be optimized through the Runtime and real model:
 \min_p
 L_{task}(\operatorname{Runtime}(p,W_0))
 +\lambda_{KL}D_{KL}(f_{W_T}\Vert f_{\widehat W})
++\lambda_A\frac{\|p-p_{\mathrm{fit}}\|_2^2}
+{\|p_{\mathrm{fit}}\|_2^2+\epsilon}
 +\beta B(p).
 \]
 

@@ -107,6 +107,8 @@ of the residual.
 If the embedding and language-model head use the same vocabulary row coordinate
 and share a useful residual subspace, evaluate one shared vocabulary factor with
 separate per-tensor right factors.
+If functional refinement produces large payload drift and development
+overfitting, evaluate a global relative anchor to the fitted compact payload.
 
 Evaluate every candidate on the identical fixed odd-record Pythia evaluation
 sample. Functional refinement may read only the even-record probe.

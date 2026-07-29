@@ -17,7 +17,7 @@ from genome.mgp import (
     load_program,
     save_program,
 )
-from genome.mgp.fit import TrainableProgram, _token_mean_kl
+from genome.mgp.fit import TrainableProgram, _relative_anchor_loss, _token_mean_kl
 from genome.mgp.policy import ProgramPolicy
 from genome.mgp.serialize import serialized_program_bytes
 from genome.state import direct_fp16_delta_bytes
@@ -331,6 +331,22 @@ def test_teacher_kl_is_averaged_per_token() -> None:
     repeated = _token_mean_kl(student.repeat(1, 8, 1), teacher.repeat(1, 8, 1))
 
     assert repeated == pytest.approx(float(expected))
+
+
+def test_relative_anchor_loss_uses_one_global_scale() -> None:
+    anchors = {
+        "large": torch.tensor([2.0, 2.0]),
+        "zero": torch.tensor([0.0]),
+    }
+    parameters = {
+        "large": torch.tensor([3.0, 1.0]),
+        "zero": torch.tensor([1.0]),
+    }
+
+    loss = _relative_anchor_loss(parameters, anchors)
+
+    assert loss == pytest.approx(3.0 / 8.0)
+    assert _relative_anchor_loss(anchors, anchors) == 0
 
 
 def test_policy_rejects_noncompact_low_rank() -> None:

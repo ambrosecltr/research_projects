@@ -299,6 +299,7 @@ def refine_compact_target(
     steps: int = typer.Option(100),
     learning_rate: float = typer.Option(0.001),
     kl_weight: float = typer.Option(0.1),
+    anchor_weight: float = typer.Option(0.0),
     device: str = typer.Option("cuda"),
 ) -> None:
     try:
@@ -325,6 +326,7 @@ def refine_compact_target(
         learning_rate=learning_rate,
         teacher_model=teacher,
         kl_weight=kl_weight if teacher is not None else 0.0,
+        anchor_weight=anchor_weight,
         device=device,
     )
     accounting = save_program(output, program, refined)

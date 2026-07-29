@@ -398,6 +398,24 @@ def _token_mean_kl(student_logits: torch.Tensor, teacher_logits: torch.Tensor) -
     return per_token.mean()
 
 
+def _relative_anchor_loss(
+    parameters: Mapping[str, torch.Tensor],
+    anchors: Mapping[str, torch.Tensor],
+) -> torch.Tensor:
+    if set(parameters) != set(anchors):
+        raise ValueError("anchor and trainable parameter keys differ")
+    if not parameters:
+        raise ValueError("anchor loss requires trainable parameters")
+    first = next(iter(parameters.values()))
+    numerator = torch.zeros((), device=first.device)
+    denominator = torch.zeros((), device=first.device)
+    for key, parameter in parameters.items():
+        anchor = anchors[key]
+        numerator = numerator + (parameter - anchor).square().sum()
+        denominator = denominator + anchor.square().sum()
+    return numerator / denominator.clamp_min(1e-12)
+
+
 def refine_program_functionally(
     model: torch.nn.Module,
     base_state: Mapping[str, torch.Tensor],
@@ -409,9 +427,17 @@ def refine_program_functionally(
     learning_rate: float = 1e-3,
     teacher_model: torch.nn.Module | None = None,
     kl_weight: float = 0.0,
+    anchor_weight: float = 0.0,
     device: str | torch.device = "cpu",
 ) -> dict[str, torch.Tensor]:
+    if anchor_weight < 0:
+        raise ValueError("anchor_weight must be non-negative")
     trainable = TrainableProgram(program, payloads).to(device)
+    anchors = (
+        {key: parameter.detach().clone() for key, parameter in trainable.parameters_by_key.items()}
+        if anchor_weight > 0
+        else {}
+    )
     model = model.to(device).eval()
     if teacher_model is not None:
         teacher_model = teacher_model.to(device).eval()
@@ -434,6 +460,11 @@ def refine_program_functionally(
                 teacher = teacher_model(**batch).logits
             student = outputs.logits
             loss = loss + kl_weight * _token_mean_kl(student, teacher)
+        if anchor_weight > 0:
+            loss = loss + anchor_weight * _relative_anchor_loss(
+                trainable.parameters_by_key,
+                anchors,
+            )
         if not torch.isfinite(loss):
             raise ValueError("functional refinement produced non-finite loss")
         loss.backward()
