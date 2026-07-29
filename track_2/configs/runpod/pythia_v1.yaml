@@ -1,0 +1,22 @@
+workspace_root: /workspace/genome_v1
+recommended_volume_gb: 100
+recommended_volume_name: genome-pythia-v1
+source_plan: configs/sources/pythia_v1.json
+compiler_config: configs/compiler/pythia_v1.yaml
+setup:
+  use_new_volume: true
+  copy_old_volume: false
+  initial_pod: cpu
+  source_read_only_after_receipts: true
+gpu:
+  preferred_single_gpu:
+    - RTX_4090
+    - A40
+    - L40S
+  precision: bf16
+  allow_multi_gpu_initially: false
+hidden:
+  run_id: pythia-31m-seed9
+  candidates: 1
+  selection_rule: one-shot-single-candidate
+  reveal_requires_prediction_seal: true

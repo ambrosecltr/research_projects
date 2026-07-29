@@ -1,0 +1,14 @@
+repository: EleutherAI/pile
+revision: REPLACE_WITH_RESOLVED_COMMIT
+configuration: null
+split: train
+text_field: text
+examples: 4096
+context_length: 2048
+seed: 20260729
+shuffle_buffer: 10000
+fingerprint:
+  unigram_dim: 256
+  bigram_dim: 512
+  gradient_dim: 128
+  max_probe_batches: 16

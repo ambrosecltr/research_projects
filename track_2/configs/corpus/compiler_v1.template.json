@@ -1,0 +1,17 @@
+{
+  "format": "GENOME_COMPILER_CORPUS",
+  "version": "1.0.0",
+  "records": [
+    {
+      "run_id": "pythia-14m-seed0",
+      "split": "training",
+      "graph_path": "/workspace/genome_v1/canonical/lives/pythia-14m-seed0/architecture.json",
+      "w0_path": "/workspace/genome_v1/canonical/lives/pythia-14m-seed0/w0.safetensors",
+      "fingerprint_path": "/workspace/genome_v1/evidence/pythia-14m-seed0",
+      "recipe_path": "/workspace/genome_v1/canonical/lives/pythia-14m-seed0/recipe.json",
+      "program_path": "/workspace/genome_v1/programs/accepted/pythia-14m-seed0",
+      "model_config_path": "/workspace/genome_v1/canonical/lives/pythia-14m-seed0/model_config.json",
+      "probe_jsonl": "/workspace/genome_v1/evidence/probes/tokens.jsonl"
+    }
+  ]
+}
