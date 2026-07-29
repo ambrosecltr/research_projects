@@ -14,6 +14,7 @@ from ..neural import (
     PredictiveCompilerTrainingConfig,
     SharedDecoderTrainingConfig,
     analyze_block_rate_distortion,
+    analyze_tensor_svd_rate_distortion,
     fit_genome_code_with_frozen_decoder,
     predict_hidden_genome,
     train_predictive_compiler,
@@ -207,6 +208,27 @@ def analyze_block_rate_command(
         decoder_config=decoder_config,
         widths=parsed_widths,
         batch_size=batch_size,
+        device=device,
+        output_path=output,
+    )
+    typer.echo(json.dumps(result, indent=2))
+
+
+@app.command("analyze-tensor-rate")
+def analyze_tensor_rate_command(
+    corpus: Path = typer.Option(..., exists=True, file_okay=False),
+    output: Path = typer.Option(...),
+    ranks: str = typer.Option("0,1,2,4,8,16,24,32,48,64,80,96,112,128"),
+    device: str = typer.Option("cuda"),
+) -> None:
+    """Measure exact whole-tensor SVD rate-distortion on training lives."""
+    parsed_ranks = tuple(int(item.strip()) for item in ranks.split(",") if item.strip())
+    canonical = load_canonical_life_corpus(corpus)
+    result = analyze_tensor_svd_rate_distortion(
+        canonical.for_split("training"),
+        tensor_specs=canonical.inventory,
+        tied_groups=canonical.tied_groups,
+        ranks=parsed_ranks,
         device=device,
         output_path=output,
     )

@@ -9,6 +9,8 @@ import torch
 from ..hashing import sha256_json
 from ..io import write_json
 from ..polypythia.lives import CanonicalModelLife
+from ..state import compute_delta
+from ..tensor_inventory import tied_owner_map
 from ..types import TensorSpec
 from .block_decoder import BlockDecoderConfig
 from .multilife_decoder import MultiLifeBlockSampler
@@ -203,6 +205,163 @@ def analyze_block_rate_distortion(
         "untied_blocks_per_life": len(sampler.references),
         "sample_count": aggregate_samples,
         "valid_value_count": aggregate_valid_values,
+        "roles": role_results,
+        "aggregate_rate_points": aggregate_points,
+    }
+    result["content_sha256"] = sha256_json(result)
+    write_json(destination, result, canonical=True)
+    return result
+
+
+def analyze_tensor_svd_rate_distortion(
+    lives: Sequence[CanonicalModelLife],
+    *,
+    tensor_specs: Sequence[TensorSpec],
+    tied_groups: Sequence[Sequence[str]],
+    ranks: Sequence[int],
+    device: str | torch.device,
+    output_path: str | Path,
+) -> dict[str, Any]:
+    if not lives or any(life.split != "training" for life in lives):
+        raise ValueError("tensor SVD analysis requires training-split model lives")
+    destination = Path(output_path)
+    if destination.exists():
+        raise FileExistsError(destination)
+
+    aliases = tied_owner_map(tied_groups)
+    unique_specs = [spec for spec in tensor_specs if spec.name not in aliases]
+    matrix_specs = [spec for spec in unique_specs if len(spec.shape) == 2]
+    if not matrix_specs:
+        raise ValueError("tensor SVD analysis requires matrix tensors")
+    maximum_rank = max(min(spec.shape) for spec in matrix_specs)
+    checked_ranks = _validate_widths(ranks, maximum_rank)
+    active_device = torch.device(device)
+    tensor_results = {
+        spec.name: {
+            "tensor_name": spec.name,
+            "tensor_role": spec.role,
+            "layer_index": spec.layer_index,
+            "shape": list(spec.shape),
+            "full_rank": min(spec.shape),
+            "energy": 0.0,
+            "retained_energy": {rank: 0.0 for rank in checked_ranks},
+        }
+        for spec in matrix_specs
+    }
+
+    for life in lives:
+        delta = compute_delta(life.load_base(), life.load_target(), tensor_specs)
+        for spec in matrix_specs:
+            singular = torch.linalg.svdvals(
+                delta[spec.name].to(device=active_device, dtype=torch.float32)
+            )
+            energy = singular.square().to(torch.float64)
+            cumulative = energy.cumsum(0)
+            result = tensor_results[spec.name]
+            result["energy"] += float(cumulative[-1].item())
+            for rank in checked_ranks:
+                retained = 0.0 if rank == 0 else float(cumulative[min(rank, energy.numel()) - 1])
+                result["retained_energy"][rank] += retained
+
+    role_results: dict[str, dict[str, Any]] = {}
+    for spec in matrix_specs:
+        tensor = tensor_results[spec.name]
+        role = role_results.setdefault(
+            spec.role,
+            {
+                "tensor_role": spec.role,
+                "matrix_count_per_life": 0,
+                "matrix_values_per_life": 0,
+                "energy": 0.0,
+                "retained_energy": {rank: 0.0 for rank in checked_ranks},
+                "factor_values_per_life": {rank: 0 for rank in checked_ranks},
+            },
+        )
+        role["matrix_count_per_life"] += 1
+        role["matrix_values_per_life"] += spec.numel
+        role["energy"] += tensor["energy"]
+        for rank in checked_ranks:
+            actual_rank = min(rank, min(spec.shape))
+            role["retained_energy"][rank] += tensor["retained_energy"][rank]
+            role["factor_values_per_life"][rank] += actual_rank * (
+                spec.shape[0] + spec.shape[1] + 1
+            )
+
+    aggregate_energy = sum(float(role["energy"]) for role in role_results.values())
+    aggregate_points = []
+    for rank in checked_ranks:
+        retained = sum(
+            float(role["retained_energy"][rank]) for role in role_results.values()
+        )
+        factor_values = sum(
+            int(role["factor_values_per_life"][rank]) for role in role_results.values()
+        )
+        aggregate_points.append(
+            {
+                "rank_per_matrix": rank,
+                "explained_matrix_delta_energy": (
+                    1.0 if aggregate_energy == 0 else retained / aggregate_energy
+                ),
+                "relative_residual_matrix_delta_energy": (
+                    0.0 if aggregate_energy == 0 else (aggregate_energy - retained) / aggregate_energy
+                ),
+                "fp16_factor_bytes_per_life": factor_values * 2,
+                "fp32_factor_bytes_per_life": factor_values * 4,
+            }
+        )
+
+    for tensor in tensor_results.values():
+        energy = float(tensor.pop("energy"))
+        retained_by_rank = tensor.pop("retained_energy")
+        tensor["total_delta_energy_across_lives"] = energy
+        tensor["rate_points"] = [
+            {
+                "rank": rank,
+                "explained_delta_energy": (
+                    1.0 if energy == 0 else float(retained_by_rank[rank]) / energy
+                ),
+                "relative_residual_delta_energy": (
+                    0.0 if energy == 0 else (energy - float(retained_by_rank[rank])) / energy
+                ),
+            }
+            for rank in checked_ranks
+        ]
+
+    for role in role_results.values():
+        energy = float(role.pop("energy"))
+        retained_by_rank = role.pop("retained_energy")
+        factor_values_by_rank = role.pop("factor_values_per_life")
+        role["total_delta_energy_across_lives"] = energy
+        role["rate_points"] = [
+            {
+                "rank_per_matrix": rank,
+                "explained_delta_energy": (
+                    1.0 if energy == 0 else float(retained_by_rank[rank]) / energy
+                ),
+                "relative_residual_delta_energy": (
+                    0.0 if energy == 0 else (energy - float(retained_by_rank[rank])) / energy
+                ),
+                "fp16_factor_bytes_per_life": int(factor_values_by_rank[rank]) * 2,
+                "fp32_factor_bytes_per_life": int(factor_values_by_rank[rank]) * 4,
+            }
+            for rank in checked_ranks
+        ]
+
+    vector_values_per_life = sum(spec.numel for spec in unique_specs if len(spec.shape) != 2)
+    result = {
+        "format": "GENOME_TENSOR_SVD_RATE_DISTORTION",
+        "version": "0.1.0",
+        "method": "exact_per_life_full_matrix_svd",
+        "training_run_ids": [life.run_id for life in lives],
+        "hidden_endpoints_seen": False,
+        "ranks": list(checked_ranks),
+        "life_count": len(lives),
+        "matrix_count_per_life": len(matrix_specs),
+        "matrix_values_per_life": sum(spec.numel for spec in matrix_specs),
+        "non_matrix_values_per_life": vector_values_per_life,
+        "direct_fp16_non_matrix_bytes_per_life": vector_values_per_life * 2,
+        "direct_fp32_non_matrix_bytes_per_life": vector_values_per_life * 4,
+        "tensors": tensor_results,
         "roles": role_results,
         "aggregate_rate_points": aggregate_points,
     }
