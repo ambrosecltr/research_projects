@@ -51,6 +51,7 @@ def test_rank_one_target_is_compact_and_decodes_without_residual() -> None:
     assert result.audit.accepted
     assert result.audit.target_fraction < 0.10
     assert result.allocated_ranks == {"weight": 1}
+    assert result.program.manifest["created_unix"] == 0.0
     assert result.program.manifest["contains_exact_residual"] is False
     assert all(
         component.opcode != DENSE_DELTA
@@ -111,7 +112,7 @@ def test_v4_style_per_weight_residual_is_rejected() -> None:
 
 
 def test_full_dense_delta_is_not_a_compiler_target() -> None:
-    spec = matrix_spec(32)
+    spec = matrix_spec(128)
     program = GenomeProgram(
         manifest={"format": "MGP", "version": "0.1.0", "candidate_id": "dense"},
         records=[
