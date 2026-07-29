@@ -104,6 +104,9 @@ index.
 If multiplicative row/column structure explains material residual energy,
 evaluate base-relative Hadamard row/column scaling followed by low-rank fitting
 of the residual.
+If the embedding and language-model head use the same vocabulary row coordinate
+and share a useful residual subspace, evaluate one shared vocabulary factor with
+separate per-tensor right factors.
 
 Evaluate every candidate on the identical fixed odd-record Pythia evaluation
 sample. Functional refinement may read only the even-record probe.

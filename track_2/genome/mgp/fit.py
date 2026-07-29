@@ -25,6 +25,7 @@ class FitConfig:
     minimum_matrix_rank: int = 0
     allocation_strategy: AllocationStrategy = "energy"
     matrix_scaling: bool = False
+    shared_vocabulary_factors: bool = False
     scaling_iterations: int = 8
     vector_quantization: bool = True
     account_for_serialization: bool = False
@@ -136,8 +137,9 @@ def fit_low_rank_program(
     vector_cost = 0
     scaling_components: dict[str, Component] = {}
     scaling_cost = 0
+    matrix_deltas: dict[str, torch.Tensor] = {}
     candidates: list[tuple[float, int, str, int, torch.Tensor, torch.Tensor, torch.Tensor]] = []
-    # score, incremental bytes, name, component index, U, S, V
+    # score, incremental bytes, allocation group, component index, U, S, V
     for name in sorted(base_state):
         node = tensor_by_name[name]
         delta = target_state[name].detach().cpu().float() - base_state[name].detach().cpu().float()
@@ -179,13 +181,52 @@ def fit_low_rank_program(
                 },
             )
             scaling_cost += 2 * (delta.shape[0] + delta.shape[1])
-        u, s, vh = _truncated_svd(delta, name, config)
+        matrix_deltas[name] = delta
+
+    group_by_name = {name: name for name in matrix_deltas}
+    shared_column_slices: dict[str, tuple[int, int]] = {}
+    if config.shared_vocabulary_factors:
+        vocabulary_names = [
+            node.name
+            for node in graph.tensors
+            if node.role in {"embedding", "lm_head"}
+            and node.tied_to is None
+            and node.name in matrix_deltas
+        ]
+        if len(vocabulary_names) != 2:
+            raise ValueError(
+                "shared vocabulary factors require one embedding and one language-model head"
+            )
+        row_counts = {matrix_deltas[name].shape[0] for name in vocabulary_names}
+        if len(row_counts) != 1:
+            raise ValueError("shared vocabulary factors require a common vocabulary row coordinate")
+        shared_group = "shared.vocabulary"
+        offset = 0
+        for name in vocabulary_names:
+            width = matrix_deltas[name].shape[1]
+            group_by_name[name] = shared_group
+            shared_column_slices[name] = (offset, offset + width)
+            offset += width
+
+    deltas_by_group: dict[str, torch.Tensor] = {}
+    for name, delta in matrix_deltas.items():
+        group = group_by_name[name]
+        if group == name:
+            deltas_by_group[group] = delta
+    if shared_column_slices:
+        deltas_by_group["shared.vocabulary"] = torch.cat(
+            [matrix_deltas[name] for name in shared_column_slices],
+            dim=1,
+        )
+
+    for group, delta in deltas_by_group.items():
+        u, s, vh = _truncated_svd(delta, group, config)
         rank_limit = min(config.max_rank, s.numel())
         for index in range(rank_limit):
             bytes_for_component = 2 * (delta.shape[0] + delta.shape[1])
             energy = float(s[index].square())
             score = energy / max(1, bytes_for_component)
-            candidates.append((score, bytes_for_component, name, index, u, s, vh))
+            candidates.append((score, bytes_for_component, group, index, u, s, vh))
     svd_cache: dict[str, tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = {}
     for item in candidates:
         name = item[2]
@@ -248,21 +289,31 @@ def fit_low_rank_program(
             components: list[Component] = [Component("BASE_COPY")]
             if node.name in scaling_components:
                 components.append(scaling_components[node.name])
-            rank = selected.get(node.name, 0)
+            group = group_by_name.get(node.name, node.name)
+            rank = selected.get(group, 0)
             if rank:
-                u, s, vh = svd_cache[node.name]
+                u, s, vh = svd_cache[group]
                 root = s[:rank].sqrt()
                 left = u[:, :rank] * root.unsqueeze(0)
-                right = vh[:rank, :].transpose(0, 1) * root.unsqueeze(0)
+                column_slice = shared_column_slices.get(node.name)
+                right_values = (
+                    vh[:rank, :]
+                    if column_slice is None
+                    else vh[:rank, column_slice[0] : column_slice[1]]
+                )
+                right = right_values.transpose(0, 1) * root.unsqueeze(0)
                 left, right = _canonicalize_svd_signs(left, right)
                 prefix = f"tensor.{node.index}.low_rank"
-                selected_payloads[f"{prefix}.left"] = left.to(torch.float16)
+                left_key = (
+                    f"{prefix}.left" if column_slice is None else "shared.vocabulary.low_rank.left"
+                )
+                selected_payloads[left_key] = left.to(torch.float16)
                 selected_payloads[f"{prefix}.right"] = right.to(torch.float16)
                 components.append(
                     Component(
                         primitive="LOW_RANK",
                         payload={
-                            "left": f"{prefix}.left",
+                            "left": left_key,
                             "right": f"{prefix}.right",
                         },
                         arguments={"rank": rank},

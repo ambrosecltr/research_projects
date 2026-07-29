@@ -98,6 +98,20 @@ B_H=2(d_o+d_i)\text{ bytes}.
 It is not a one-value-per-weight representation. The Runtime expands it
 deterministically from W0.
 
+### Shared vocabulary factor
+
+When an embedding matrix and language-model head use the same vocabulary row
+coordinate, they may share one left factor:
+
+\[
+L_{\text{in}}=A_{\text{vocab}}B_{\text{in}}^\top,\qquad
+L_{\text{out}}=A_{\text{vocab}}B_{\text{out}}^\top.
+\]
+
+The shared payload is serialized once. Each tensor keeps its own right factor.
+This sharing is allowed only when the architecture graph proves that the row
+coordinates are compatible.
+
 ### Quantized vector
 
 For one-dimensional normalization and bias tensors:

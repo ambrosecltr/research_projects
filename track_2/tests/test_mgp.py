@@ -216,6 +216,52 @@ def test_fit_hadamard_scale_removes_base_relative_matrix_change() -> None:
     assert relative_error < 1e-4
 
 
+def test_fit_can_share_one_vocabulary_factor_between_embeddings() -> None:
+    torch.manual_seed(15)
+    shared = torch.randn(64, 4)
+    input_right = torch.randn(8, 4)
+    output_right = torch.randn(8, 4)
+    w0 = {
+        "embed_out.weight": torch.randn(64, 8),
+        "gpt_neox.embed_in.weight": torch.randn(64, 8),
+    }
+    wt = {
+        "embed_out.weight": w0["embed_out.weight"] + shared @ output_right.transpose(0, 1),
+        "gpt_neox.embed_in.weight": (
+            w0["gpt_neox.embed_in.weight"] + shared @ input_right.transpose(0, 1)
+        ),
+    }
+    graph = graph_from_state(w0, family="toy", config={})
+
+    program, payloads = fit_low_rank_program(
+        w0,
+        wt,
+        graph,
+        config=FitConfig(
+            budget_fraction=0.50,
+            max_rank=4,
+            allocation_strategy="rank_balanced",
+            shared_vocabulary_factors=True,
+            svd_method="exact",
+        ),
+    )
+    candidate = execute_program(w0, program, payloads)
+    left_keys = {
+        component.payload["left"]
+        for tensor in program.tensors
+        for component in tensor.components
+        if component.primitive == "LOW_RANK"
+    }
+
+    assert left_keys == {"shared.vocabulary.low_rank.left"}
+    assert torch.allclose(candidate["embed_out.weight"], wt["embed_out.weight"], atol=0.02)
+    assert torch.allclose(
+        candidate["gpt_neox.embed_in.weight"],
+        wt["gpt_neox.embed_in.weight"],
+        atol=0.02,
+    )
+
+
 def test_all_floating_program_coefficients_are_trainable() -> None:
     program = ModelGenomeProgram(
         architecture_id="a",

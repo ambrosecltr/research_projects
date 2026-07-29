@@ -40,6 +40,8 @@ Edges connect tensors within one layer, adjacent layers and global embedding/out
 8. Materialize one deterministic MGP.
 
 The coordinate heads are shared across all tensors and model sizes. They are part of the compiler, not a second model or Runtime.
+Compatible embedding and language-model head tensors may reference one shared
+vocabulary-side factor while keeping separate hidden-side factors.
 
 ## Output complexity
 
