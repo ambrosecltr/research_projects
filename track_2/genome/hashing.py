@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 import torch
 
@@ -31,6 +32,22 @@ def sha256_file(path: str | Path, *, chunk_size: int = 1024 * 1024) -> str:
     with Path(path).open("rb") as handle:
         while chunk := handle.read(chunk_size):
             digest.update(chunk)
+    return digest.hexdigest()
+
+
+def sha256_directory(path: str | Path) -> str:
+    root = Path(path).expanduser().resolve(strict=True)
+    if not root.is_dir():
+        raise ValueError(f"directory hash target is not a directory: {root}")
+    digest = hashlib.sha256()
+    files = sorted(item for item in root.rglob("*") if item.is_file())
+    for file in files:
+        if file.is_symlink():
+            raise ValueError(f"directory hash does not accept symlinks: {file}")
+        relative = file.relative_to(root).as_posix()
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(bytes.fromhex(sha256_file(file)))
     return digest.hexdigest()
 
 

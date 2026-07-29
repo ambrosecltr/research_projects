@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import replace
-from typing import Iterable, Mapping, Sequence
 
 import torch
 from torch import nn
 
 from .types import TensorSpec
-
 
 ROLE_ORDER = {
     "embedding": 0,
@@ -82,7 +81,7 @@ def infer_role(name: str, tensor: torch.Tensor, *, is_buffer: bool = False) -> s
             return "o_proj"
         if lower.endswith(".attention.qk_scale"):
             return "attention_scale"
-        if lower.endswith(".attention_rate") or lower.endswith(".mlp_rate"):
+        if lower.endswith((".attention_rate", ".mlp_rate")):
             return "residual_rate"
         if ".mlp.in_projection." in lower:
             return "gate_up_proj"
@@ -100,7 +99,9 @@ def infer_role(name: str, tensor: torch.Tensor, *, is_buffer: bool = False) -> s
     # Architecture-generic fallbacks.
     if "lm_head" in lower or lower in {"output.weight", "output.bias"}:
         return "lm_head"
-    if any(token in lower for token in ("tok_emb", "token_emb", "embed_tokens", "wte", "embedding")):
+    if any(
+        token in lower for token in ("tok_emb", "token_emb", "embed_tokens", "wte", "embedding")
+    ):
         return "embedding"
     if any(token in lower for token in ("position", "pos_emb", "wpe", "rotary")):
         return "position"
@@ -134,7 +135,10 @@ def infer_role(name: str, tensor: torch.Tensor, *, is_buffer: bool = False) -> s
         return "bias"
     return "other"
 
-def _tensor_storage_identity(tensor: torch.Tensor) -> tuple[int, int, tuple[int, ...], tuple[int, ...]]:
+
+def _tensor_storage_identity(
+    tensor: torch.Tensor,
+) -> tuple[int, int, tuple[int, ...], tuple[int, ...]]:
     try:
         pointer = tensor.untyped_storage().data_ptr()
     except RuntimeError:
@@ -167,24 +171,52 @@ def build_tensor_inventory(
 ) -> tuple[list[TensorSpec], list[list[str]]]:
     canonical_state = canonicalize_state_dict(state if state is not None else model.state_dict())
     tied_groups = discover_tied_groups(model)
-    tied_by_name: dict[str, str] = {}
     canonical_tied_groups: list[list[str]] = []
-    for index, names in enumerate(tied_groups):
+    for names in tied_groups:
         canonical_names = []
         for name in names:
-            canonical_name = name[len("module.") :] if name.startswith("module.") else name
+            canonical_name = name.removeprefix("module.")
             canonical_names.append(canonical_name)
-            tied_by_name[canonical_name] = f"tie_{index:04d}"
         canonical_tied_groups.append(sorted(canonical_names))
 
     parameter_names = {
-        name[len("module.") :] if name.startswith("module.") else name
-        for name, _ in model.named_parameters(remove_duplicate=False)
+        name.removeprefix("module.") for name, _ in model.named_parameters(remove_duplicate=False)
     }
+    return build_tensor_inventory_from_state(
+        canonical_state,
+        tied_groups=canonical_tied_groups,
+        parameter_names=parameter_names,
+    )
+
+
+def build_tensor_inventory_from_state(
+    state: Mapping[str, torch.Tensor],
+    *,
+    tied_groups: Sequence[Sequence[str]] = (),
+    parameter_names: Iterable[str] | None = None,
+) -> tuple[list[TensorSpec], list[list[str]]]:
+    canonical_state = canonicalize_state_dict(state)
+    canonical_tied_groups = [sorted(str(name) for name in group) for group in tied_groups]
+    tied_by_name: dict[str, str] = {}
+    for index, names in enumerate(canonical_tied_groups):
+        if len(names) < 2:
+            raise ValueError("tied groups must contain at least two tensor names")
+        for name in names:
+            if name not in canonical_state:
+                raise ValueError(f"tied group references an unknown tensor: {name}")
+            if name in tied_by_name:
+                raise ValueError(f"tensor appears in more than one tied group: {name}")
+            tied_by_name[name] = f"tie_{index:04d}"
+    parameter_name_set = (
+        set(canonical_state) if parameter_names is None else {str(name) for name in parameter_names}
+    )
+    unknown_parameters = parameter_name_set - set(canonical_state)
+    if unknown_parameters:
+        raise ValueError(f"parameter names are absent from state: {sorted(unknown_parameters)}")
 
     provisional: list[TensorSpec] = []
     for name, tensor in canonical_state.items():
-        is_buffer = name not in parameter_names
+        is_buffer = name not in parameter_name_set
         role = infer_role(name, tensor, is_buffer=is_buffer)
         provisional.append(
             TensorSpec(
@@ -229,12 +261,16 @@ def validate_inventory(inventory: Sequence[TensorSpec], state: Mapping[str, torc
             raise ValueError("inventory canonical indices are not contiguous")
         tensor = state[spec.name]
         if tuple(tensor.shape) != spec.shape:
-            raise ValueError(f"shape mismatch for {spec.name}: {tuple(tensor.shape)} != {spec.shape}")
+            raise ValueError(
+                f"shape mismatch for {spec.name}: {tuple(tensor.shape)} != {spec.shape}"
+            )
         if tensor.numel() != spec.numel:
             raise ValueError(f"numel mismatch for {spec.name}")
 
 
-def inventory_to_dict(inventory: Sequence[TensorSpec], tied_groups: Sequence[Sequence[str]]) -> dict:
+def inventory_to_dict(
+    inventory: Sequence[TensorSpec], tied_groups: Sequence[Sequence[str]]
+) -> dict:
     return {
         "version": "1.0",
         "role_order": ROLE_ORDER,
@@ -260,7 +296,9 @@ def tied_owner_map(tied_groups: Iterable[Sequence[str]]) -> dict[str, str]:
     return result
 
 
-def assert_tied_equal(state: Mapping[str, torch.Tensor], tied_groups: Iterable[Sequence[str]]) -> None:
+def assert_tied_equal(
+    state: Mapping[str, torch.Tensor], tied_groups: Iterable[Sequence[str]]
+) -> None:
     for group in tied_groups:
         if len(group) < 2:
             continue

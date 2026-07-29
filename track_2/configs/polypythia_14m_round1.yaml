@@ -1,0 +1,237 @@
+experiment:
+  id: polypythia-14m-round1
+  research_level: G2
+  primary_mode: one_shot
+  early_training_prefix: false
+  repair_or_polishing: false
+
+source:
+  family: EleutherAI/PolyPythias
+  architecture: gpt_neox
+  model_size: 14m
+  checkpoint_steps:
+    - 0
+    - 1
+    - 2
+    - 4
+    - 8
+    - 16
+    - 32
+    - 64
+    - 128
+    - 256
+    - 512
+  checkpoint_range:
+    start: 1000
+    stop: 143000
+    step: 1000
+  initial_step: 0
+  final_step: 143000
+  primary_materialization:
+    training_and_development:
+      - 0
+      - 143000
+    hidden_before_prediction:
+      - 0
+    hidden_after_prediction:
+      - 143000
+    intermediate_checkpoints: pinned_not_downloaded
+  lives:
+    - run_id: pythia-14m-seed0
+      seed: 1234
+      data_order_seed: 0
+      repository: EleutherAI/pythia-14m
+      split: training
+    - run_id: pythia-14m-seed1
+      seed: 1
+      data_order_seed: 1
+      repository: EleutherAI/pythia-14m-seed1
+      split: training
+    - run_id: pythia-14m-seed2
+      seed: 2
+      data_order_seed: 2
+      repository: EleutherAI/pythia-14m-seed2
+      split: training
+    - run_id: pythia-14m-seed3
+      seed: 3
+      data_order_seed: 3
+      repository: EleutherAI/pythia-14m-seed3
+      split: training
+    - run_id: pythia-14m-seed4
+      seed: 4
+      data_order_seed: 4
+      repository: EleutherAI/pythia-14m-seed4
+      split: training
+    - run_id: pythia-14m-seed5
+      seed: 5
+      data_order_seed: 5
+      repository: EleutherAI/pythia-14m-seed5
+      split: training
+    - run_id: pythia-14m-seed6
+      seed: 6
+      data_order_seed: 6
+      repository: EleutherAI/pythia-14m-seed6
+      split: training
+    - run_id: pythia-14m-seed7
+      seed: 7
+      data_order_seed: 7
+      repository: EleutherAI/pythia-14m-seed7
+      split: training
+    - run_id: pythia-14m-seed8
+      seed: 8
+      data_order_seed: 8
+      repository: EleutherAI/pythia-14m-seed8
+      split: development
+    - run_id: pythia-14m-seed9
+      seed: 9
+      data_order_seed: 9
+      repository: EleutherAI/pythia-14m-seed9
+      split: hidden
+  dataset:
+    repository: EleutherAI/pile-preshuffled-seeds
+    corpus: EleutherAI/pile
+    variant: standard_non_deduplicated
+    token_count: 300000000000
+  tokenizer_source: EleutherAI/pythia-14m-seed1
+  training_recipe:
+    source:
+      repository: https://github.com/EleutherAI/pythia
+      commit: a19eecb807ec2c79a39ebf18108816e6ffffc1d5
+      path: models/14M/pythia-14m.yml
+      polypythia_paper: https://arxiv.org/abs/2503.09543
+    parallelism:
+      pipe_parallel_size: 0
+      model_parallel_size: 1
+      training_gpus: 32
+    architecture:
+      num_layers: 6
+      hidden_size: 128
+      num_attention_heads: 4
+      sequence_length: 2048
+      max_position_embeddings: 2048
+      position_embedding: rotary
+      rotary_fraction: 0.25
+      weight_tying: false
+      parallel_residual: true
+      attention: flash
+    initialization:
+      input: small_init
+      output: wang_init
+    optimizer:
+      type: Adam
+      learning_rate: 0.001
+      betas:
+        - 0.9
+        - 0.95
+      epsilon: 0.00000001
+      minimum_learning_rate: 0.0001
+      weight_decay: 0.1
+      gradient_clipping: 1.0
+    batch:
+      micro_batch_size_per_gpu: 32
+      gradient_accumulation_steps: 1
+      global_batch_sequences: 1024
+    precision:
+      fp16: true
+      dynamic_loss_scale: true
+      initial_scale_power: 12
+    schedule:
+      training_steps: 143000
+      decay_steps: 143000
+      decay_style: cosine
+      warmup_fraction: 0.01
+    regularization:
+      hidden_dropout: 0.0
+      attention_dropout: 0.0
+    data:
+      implementation: mmap
+      corpus: EleutherAI/pile
+      variant: standard_non_deduplicated
+      tokenizer: 20B_tokenizer.json
+
+conditioning:
+  allowed:
+    - canonical_W0_fingerprint
+    - architecture
+    - tokenizer_fingerprint
+    - dataset_and_order_fingerprint
+    - complete_training_recipe
+  forbidden:
+    - WT_values
+    - endpoint_hashes
+    - endpoint_fitted_codes
+    - intermediate_or_early_training_weights
+
+decoder:
+  block_rows: 16
+  block_cols: 16
+  global_code_dim: 64
+  layer_code_dim: 32
+  tensor_code_dim: 32
+  role_embedding_dim: 16
+  hidden_dim: 512
+  depth: 4
+  updates: 50000
+  batch_size: 256
+  learning_rate: 0.0003
+  weight_decay: 0.0001
+  code_weight_decay: 0.000001
+  grad_clip_norm: 1.0
+  seed: 1701
+
+development_code_fit:
+  updates: 20000
+  batch_size: 256
+  learning_rate: 0.001
+  weight_decay: 0.000001
+  grad_clip_norm: 1.0
+  seed: 3141
+
+compiler:
+  initialization_sketch_dim_per_role: 128
+  digest_vector_dim: 32
+  hidden_dim: 1024
+  depth: 4
+  updates: 50000
+  batch_size: 256
+  learning_rate: 0.0003
+  weight_decay: 0.0001
+  rate_weight: 0.00001
+  seed: 2718
+
+evaluation:
+  text_corpus:
+    repository: Salesforce/wikitext
+    revision: b08601e04326c79dfdd32d625aee71d232d685c3
+    configuration: wikitext-2-raw-v1
+    split: test
+  lm_eval:
+    version: 0.4.7
+    task_directory: lm_eval_round1
+    tasks:
+      - genome_lambada_openai
+      - genome_piqa
+      - genome_winogrande
+      - genome_arc_easy
+      - genome_sciq
+      - genome_wikitext
+    num_fewshot: 0
+    batch_size: auto
+    max_batch_size: 64
+    bootstrap_iters: 100000
+    seeds:
+      python: 0
+      numpy: 1234
+      torch: 1234
+      fewshot: 1234
+  compare:
+    - W0
+    - predicted_WT
+    - true_WT
+  primary_hidden_run: pythia-14m-seed9
+
+runpod:
+  resource_prefix: track2-polypythia-r1
+  network_volume_name: track2-polypythia-r1
+  workspace_root: /workspace/genome
+  datacenter: EU-RO-1

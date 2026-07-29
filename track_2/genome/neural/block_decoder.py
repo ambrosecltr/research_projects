@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import math
 import shutil
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 import torch
 from safetensors.torch import load_file, save_file
@@ -58,7 +59,7 @@ class BlockDecoderConfig:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, value: Mapping[str, Any]) -> "BlockDecoderConfig":
+    def from_dict(cls, value: Mapping[str, Any]) -> BlockDecoderConfig:
         expected = set(cls.__dataclass_fields__)
         if set(value) != expected:
             missing = sorted(expected - set(value))
@@ -160,9 +161,9 @@ class LazyDeltaBlockDataset:
         self.references: list[BlockReference] = []
         self.spec_by_name = {spec.name: spec for spec in tensor_specs}
         for spec in tensor_specs:
-            if spec.name in tied_aliases or len(spec.shape) != 2:
+            if spec.name in tied_aliases:
                 continue
-            rows, cols = spec.shape
+            rows, cols = tensor_matrix_shape(spec.shape)
             for row_start in range(0, rows, config.block_rows):
                 for col_start in range(0, cols, config.block_cols):
                     self.references.append(
@@ -188,7 +189,7 @@ class LazyDeltaBlockDataset:
         return len(self.references)
 
     def _features(self, reference: BlockReference) -> torch.Tensor:
-        base = self.base_state[reference.tensor_name].to(torch.float32)
+        base = tensor_matrix_view(self.base_state[reference.tensor_name].to(torch.float32))
         block = base[
             reference.row_start : reference.row_end,
             reference.col_start : reference.col_end,
@@ -199,9 +200,10 @@ class LazyDeltaBlockDataset:
         layer_value = (
             -1.0
             if self.spec_by_name[reference.tensor_name].layer_index is None
-            else float(self.spec_by_name[reference.tensor_name].layer_index) / max(layer_count - 1, 1)
+            else float(self.spec_by_name[reference.tensor_name].layer_index)
+            / max(layer_count - 1, 1)
         )
-        return torch.tensor(
+        metadata = torch.tensor(
             [
                 layer_value,
                 reference.block_row / max(row_blocks - 1, 1),
@@ -213,6 +215,7 @@ class LazyDeltaBlockDataset:
             ],
             dtype=torch.float32,
         )
+        return append_base_block_features(metadata, block, self.config)
 
     def make_batch(
         self,
@@ -223,7 +226,9 @@ class LazyDeltaBlockDataset:
     ) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
         references = [self.references[int(index)] for index in indices.tolist()]
         features = torch.stack([self._features(reference) for reference in references]).to(device)
-        role_ids = torch.tensor([reference.role_id for reference in references], dtype=torch.long, device=device)
+        role_ids = torch.tensor(
+            [reference.role_id for reference in references], dtype=torch.long, device=device
+        )
         layer_slots = torch.tensor(
             [reference.layer_slot for reference in references], dtype=torch.long, device=device
         )
@@ -236,7 +241,7 @@ class LazyDeltaBlockDataset:
         for batch_index, reference in enumerate(references):
             spec = self.spec_by_name[reference.tensor_name]
             scale = max(float(self.role_scales[spec.role]), 1e-12)
-            block = self.delta_state[reference.tensor_name][
+            block = tensor_matrix_view(self.delta_state[reference.tensor_name])[
                 reference.row_start : reference.row_end,
                 reference.col_start : reference.col_end,
             ].to(torch.float32)
@@ -301,17 +306,22 @@ class NeuralBlockInterpreter:
         layer_codes = program.payload_tensors[str(args["layer_codes_key"])].to(self.device)
         layer_slot = int(args["layer_slot"])
         layer_code = layer_codes[layer_slot]
-        rows, cols = (int(x) for x in args["shape"])
+        original_shape = tuple(int(x) for x in args["shape"])
+        raw_matrix_shape = args.get("matrix_shape", args["shape"])
+        rows, cols = (int(x) for x in raw_matrix_shape)
+        if rows * cols != math.prod(original_shape):
+            raise ValueError(f"invalid neural matrix shape for {record_name}")
+        base_matrix = base_tensor.reshape(rows, cols)
         result = torch.zeros(rows, cols, dtype=torch.float32, device=self.device)
         items: list[tuple[int, int, int, int, torch.Tensor]] = []
         for row_start in range(0, rows, self.config.block_rows):
             for col_start in range(0, cols, self.config.block_cols):
                 row_end = min(row_start + self.config.block_rows, rows)
                 col_end = min(col_start + self.config.block_cols, cols)
-                base_block = base_tensor[row_start:row_end, col_start:col_end].to(torch.float32)
+                base_block = base_matrix[row_start:row_end, col_start:col_end].to(torch.float32)
                 row_blocks = max(math.ceil(rows / self.config.block_rows), 1)
                 col_blocks = max(math.ceil(cols / self.config.block_cols), 1)
-                feature = torch.tensor(
+                metadata = torch.tensor(
                     [
                         float(args["normalized_layer"]),
                         (row_start // self.config.block_rows) / max(row_blocks - 1, 1),
@@ -319,10 +329,13 @@ class NeuralBlockInterpreter:
                         math.log1p(rows) / 16.0,
                         math.log1p(cols) / 16.0,
                         float(base_block.mean().item()),
-                        float(base_block.std(unbiased=False).item()) if base_block.numel() > 1 else 0.0,
+                        float(base_block.std(unbiased=False).item())
+                        if base_block.numel() > 1
+                        else 0.0,
                     ],
                     dtype=torch.float32,
                 )
+                feature = append_base_block_features(metadata, base_block, self.config)
                 items.append((row_start, row_end, col_start, col_end, feature))
 
         batch_size = int(args.get("decode_batch_size", 256))
@@ -331,20 +344,55 @@ class NeuralBlockInterpreter:
             chunk = items[start : start + batch_size]
             features = torch.stack([item[4] for item in chunk]).to(self.device)
             count = len(chunk)
-            predictions = self.decoder(
-                global_code.unsqueeze(0).expand(count, -1),
-                layer_code.unsqueeze(0).expand(count, -1),
-                tensor_code.unsqueeze(0).expand(count, -1),
-                torch.full((count,), role_id, dtype=torch.long, device=self.device),
-                features,
-            ) * scale
+            predictions = (
+                self.decoder(
+                    global_code.unsqueeze(0).expand(count, -1),
+                    layer_code.unsqueeze(0).expand(count, -1),
+                    tensor_code.unsqueeze(0).expand(count, -1),
+                    torch.full((count,), role_id, dtype=torch.long, device=self.device),
+                    features,
+                )
+                * scale
+            )
             for prediction, (row_start, row_end, col_start, col_end, _) in zip(
                 predictions, chunk, strict=True
             ):
                 result[row_start:row_end, col_start:col_end] = prediction[
                     : row_end - row_start, : col_end - col_start
                 ]
-        return result
+        return result.reshape(original_shape)
+
+
+def tensor_matrix_shape(shape: Sequence[int]) -> tuple[int, int]:
+    dimensions = tuple(int(value) for value in shape)
+    if not dimensions:
+        return 1, 1
+    if len(dimensions) == 1:
+        return 1, dimensions[0]
+    return dimensions[0], math.prod(dimensions[1:])
+
+
+def tensor_matrix_view(tensor: torch.Tensor) -> torch.Tensor:
+    rows, cols = tensor_matrix_shape(tuple(tensor.shape))
+    return tensor.reshape(rows, cols)
+
+
+def append_base_block_features(
+    metadata: torch.Tensor,
+    block: torch.Tensor,
+    config: BlockDecoderConfig,
+) -> torch.Tensor:
+    if config.feature_dim == metadata.numel():
+        return metadata
+    expected = metadata.numel() + config.block_rows * config.block_cols
+    if config.feature_dim != expected:
+        raise ValueError(
+            f"feature_dim must be {metadata.numel()} or {expected}, got {config.feature_dim}"
+        )
+    padded = torch.zeros(config.block_rows, config.block_cols, dtype=torch.float32)
+    rows, cols = block.shape
+    padded[:rows, :cols] = block.detach().to(dtype=torch.float32, device="cpu")
+    return torch.cat([metadata, padded.flatten()])
 
 
 def save_interpreter(
@@ -354,6 +402,7 @@ def save_interpreter(
     layer_to_slot: Mapping[int | None, int],
     role_scales: Mapping[str, float],
     path: str | Path,
+    training_metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     destination = Path(path)
     if destination.exists():
@@ -362,7 +411,10 @@ def save_interpreter(
     try:
         decoder_file = temp / "decoder.safetensors"
         save_file(
-            {name: tensor.detach().contiguous().cpu() for name, tensor in decoder.state_dict().items()},
+            {
+                name: tensor.detach().contiguous().cpu()
+                for name, tensor in decoder.state_dict().items()
+            },
             str(decoder_file),
         )
         manifest = NeuralInterpreterManifest(
@@ -370,11 +422,15 @@ def save_interpreter(
             version="0.1.0",
             config=decoder.config.to_dict(),
             role_to_id={str(k): int(v) for k, v in role_to_id.items()},
-            layer_to_slot={"none" if k is None else str(k): int(v) for k, v in layer_to_slot.items()},
+            layer_to_slot={
+                "none" if k is None else str(k): int(v) for k, v in layer_to_slot.items()
+            },
             role_scales={str(k): float(v) for k, v in role_scales.items()},
             decoder_file="decoder.safetensors",
             decoder_sha256=sha256_file(decoder_file),
         ).to_dict()
+        if training_metadata is not None:
+            manifest["training_metadata"] = dict(training_metadata)
         manifest["manifest_content_sha256"] = sha256_json(manifest)
         write_json(temp / "manifest.json", manifest, canonical=True)
         replace_directory_atomic(temp, destination)
@@ -401,9 +457,7 @@ def _lower_sha256(value: object, *, field: str) -> str:
 
 def _string_int_mapping(value: object, *, field: str) -> dict[str, int]:
     if not isinstance(value, dict) or any(
-        not isinstance(key, str)
-        or isinstance(item, bool)
-        or not isinstance(item, int)
+        not isinstance(key, str) or isinstance(item, bool) or not isinstance(item, int)
         for key, item in value.items()
     ):
         raise TypeError(f"{field} must be an object mapping strings to integers")
@@ -418,9 +472,7 @@ def load_interpreter(
         raise ValueError(f"neural interpreter path is not a directory: {root}")
     manifest_path = resolve_artifact_member(root, "manifest.json", field="manifest_file")
     raw_manifest = read_json(manifest_path)
-    if not isinstance(raw_manifest, dict) or any(
-        not isinstance(key, str) for key in raw_manifest
-    ):
+    if not isinstance(raw_manifest, dict) or any(not isinstance(key, str) for key in raw_manifest):
         raise TypeError("neural interpreter manifest must be an object with string keys")
     manifest: dict[str, Any] = raw_manifest
     if manifest.get("format") != "GENOME_NEURAL_INTERPRETER":
@@ -428,9 +480,7 @@ def load_interpreter(
     if manifest.get("version") != "0.1.0":
         raise ValueError(f"unsupported neural interpreter version: {manifest.get('version')!r}")
 
-    decoder_file = resolve_artifact_member(
-        root, manifest.get("decoder_file"), field="decoder_file"
-    )
+    decoder_file = resolve_artifact_member(root, manifest.get("decoder_file"), field="decoder_file")
     if sha256_file(decoder_file) != _lower_sha256(
         manifest.get("decoder_sha256"), field="decoder_sha256"
     ):
@@ -450,9 +500,7 @@ def load_interpreter(
     role_to_id = _string_int_mapping(manifest.get("role_to_id"), field="role_to_id")
     if not role_to_id or sorted(role_to_id.values()) != list(range(len(role_to_id))):
         raise ValueError("role_to_id values must be contiguous from zero")
-    layer_to_slot = _string_int_mapping(
-        manifest.get("layer_to_slot"), field="layer_to_slot"
-    )
+    layer_to_slot = _string_int_mapping(manifest.get("layer_to_slot"), field="layer_to_slot")
     if (
         not layer_to_slot
         or len(set(layer_to_slot.values())) != len(layer_to_slot)

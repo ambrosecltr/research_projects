@@ -31,12 +31,14 @@ from .reporting import make_report
 from .sensitivity import delta_energy_by_role, singular_summaries
 from .specimen import freeze_specimen, load_specimen, verify_specimen_files
 from .state import aggregate_statistics_by_role, compute_delta, delta_statistics
+from .polypythia.cli import app as polypythia_app
 
 app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
     help="GENOME Track 2 research CLI",
 )
+app.add_typer(polypythia_app, name="polypythia")
 
 
 def _contract_metadata(specimen: Any, *, research_level: str = "G0") -> dict[str, Any]:
