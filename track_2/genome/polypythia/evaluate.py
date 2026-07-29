@@ -644,6 +644,125 @@ def evaluate_development_svd_frontier(
     return result
 
 
+def evaluate_development_quantized_frontier(
+    development_life: CanonicalModelLife,
+    *,
+    tensor_specs: Sequence[TensorSpec],
+    tied_groups: Sequence[Sequence[str]],
+    config_path: str | Path,
+    tokenizer_path: str | Path,
+    evaluation_texts_path: str | Path,
+    output_path: str | Path,
+    device: str = "cuda",
+    sequence_length: int = 512,
+    batch_size: int = 4,
+    anchors_per_batch: int = 8,
+) -> dict[str, Any]:
+    if development_life.split != "development":
+        raise ValueError("quantized frontier requires one development-split life")
+    destination = Path(output_path)
+    if destination.exists():
+        raise FileExistsError(destination)
+
+    base = development_life.load_base()
+    target = development_life.load_target()
+    delta = compute_delta(base, target, tensor_specs)
+    aliases = tied_owner_map(tied_groups)
+    texts = load_evaluation_texts(evaluation_texts_path)
+    batches = _token_batches(
+        texts,
+        tokenizer_path=tokenizer_path,
+        sequence_length=sequence_length,
+        batch_size=batch_size,
+        max_batches=None,
+    )
+    base_evaluation = _evaluate_state(
+        base,
+        config_path=config_path,
+        batches=batches,
+        device=device,
+        anchors_per_batch=anchors_per_batch,
+    )
+    target_evaluation = _evaluate_state(
+        target,
+        config_path=config_path,
+        batches=batches,
+        device=device,
+        anchors_per_batch=anchors_per_batch,
+    )
+
+    candidates = []
+    for mode, bits in (("fp16", 16), ("int8", 8), ("int4", 4)):
+        reconstructed_delta = {}
+        payload_bytes = 0
+        for spec in tensor_specs:
+            source = delta[spec.name]
+            if spec.name in aliases:
+                reconstructed_delta[spec.name] = torch.zeros_like(source)
+            elif bits == 16:
+                reconstructed_delta[spec.name] = source.to(torch.float16).to(torch.float32)
+                payload_bytes += source.numel() * 2
+            else:
+                qmax = 127 if bits == 8 else 7
+                absmax = float(source.abs().max().item()) if source.numel() else 0.0
+                scale = absmax / qmax if absmax > 0 else 1.0
+                quantized = torch.round(source / scale).clamp(-qmax, qmax)
+                reconstructed_delta[spec.name] = quantized * scale
+                payload_bytes += source.numel() if bits == 8 else (source.numel() + 1) // 2
+                payload_bytes += 4
+        candidate = apply_delta(
+            base,
+            reconstructed_delta,
+            tensor_specs,
+            tied_groups=tied_groups,
+        )
+        candidate_evaluation = _evaluate_state(
+            candidate,
+            config_path=config_path,
+            batches=batches,
+            device=device,
+            anchors_per_batch=anchors_per_batch,
+        )
+        comparison = _function_comparison(candidate_evaluation, target_evaluation)
+        candidate_evaluation.pop("anchors")
+        candidates.append(
+            {
+                "codec": mode,
+                "bits_per_delta_value": bits,
+                "payload_bytes_per_life": payload_bytes,
+                "parameter_metrics": parameter_metrics(candidate, target, tensor_specs),
+                "functional": {
+                    "candidate": candidate_evaluation,
+                    "candidate_vs_true": comparison,
+                },
+            }
+        )
+
+    base_evaluation.pop("anchors")
+    target_evaluation.pop("anchors")
+    result = {
+        "format": "GENOME_DEVELOPMENT_QUANTIZED_FRONTIER",
+        "version": "0.1.0",
+        "research_level": "G0",
+        "development_run_id": development_life.run_id,
+        "target_endpoint_seen": True,
+        "hidden_endpoints_seen": False,
+        "evaluation_corpus_sha256": sha256_file(evaluation_texts_path),
+        "evaluation": {
+            "sequence_length": sequence_length,
+            "batch_size": batch_size,
+            "batch_count": len(batches),
+            "anchors_per_batch": anchors_per_batch,
+            "W0": base_evaluation,
+            "true_WT": target_evaluation,
+        },
+        "candidates": candidates,
+    }
+    result["content_sha256"] = sha256_json(result)
+    write_json(destination, result, canonical=True)
+    return result
+
+
 def evaluate_shared_decoder_corpus(
     *,
     training_lives: Sequence[CanonicalModelLife],
