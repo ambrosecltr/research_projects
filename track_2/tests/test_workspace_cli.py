@@ -20,3 +20,4 @@ def test_cli_help_contains_only_forward_commands() -> None:
         assert forbidden not in result.stdout.lower()
     assert "train-compiler" in result.stdout
     assert "fit-compact-target" in result.stdout
+    assert "canonicalize-life" in result.stdout

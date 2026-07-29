@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, Mapping
 
 import torch
@@ -10,7 +11,9 @@ from .hashing import sha256_file
 from .io import atomic_write_json, load_json
 from .life import ArtifactRef, CheckpointRef, DatasetRef, ModelLife, TokenizerRef, TrainingStage
 from .sources import SourcePlan
-from .state import save_state
+from .state import save_state, state_id
+
+CANONICAL_PROBE_TOKEN_IDS = tuple(range(16))
 
 
 def _artifact(path: Path, *, revision: str, licence: str) -> ArtifactRef:
@@ -23,6 +26,109 @@ def _artifact(path: Path, *, revision: str, licence: str) -> ArtifactRef:
     )
 
 
+def _canonicalize_snapshot(
+    snapshot: Path,
+    *,
+    probe_token_ids: tuple[int, ...],
+) -> tuple[dict[str, torch.Tensor], dict[str, Any], dict[str, Any]]:
+    try:
+        from transformers import GPTNeoXForCausalLM
+    except ImportError as error:  # pragma: no cover
+        raise RuntimeError("transformers is required to canonicalize Pythia lives") from error
+    model = GPTNeoXForCausalLM.from_pretrained(
+        str(snapshot), local_files_only=True, torch_dtype=torch.float32
+    )
+    model.eval()
+    native = model.state_dict()
+    canonical = GPTNeoXAdapter.canonical_state(native)
+    roundtrip = GPTNeoXAdapter.native_state(canonical)
+    if set(roundtrip) != set(native) or any(
+        not torch.equal(roundtrip[name], native[name].cpu()) for name in native
+    ):
+        raise ValueError(f"native/canonical/native tensor round trip failed for {snapshot}")
+    probe = torch.tensor([probe_token_ids], dtype=torch.long)
+    with torch.inference_mode():
+        native_logits = model(input_ids=probe, use_cache=False).logits
+    restored = GPTNeoXForCausalLM(model.config)
+    restored.load_state_dict(roundtrip, strict=True)
+    restored.eval()
+    with torch.inference_mode():
+        restored_logits = restored(input_ids=probe, use_cache=False).logits
+    if not torch.isfinite(native_logits).all() or not torch.isfinite(restored_logits).all():
+        raise ValueError(f"round-trip probe produced non-finite logits for {snapshot}")
+    if not torch.equal(native_logits, restored_logits):
+        raise ValueError(f"round-trip logits changed for {snapshot}")
+    audit = {
+        "snapshot": str(snapshot),
+        "tensor_count": len(canonical),
+        "parameter_count": sum(tensor.numel() for tensor in canonical.values()),
+        "state_id": state_id(canonical),
+        "tensor_roundtrip_exact": True,
+        "logits_roundtrip_exact": True,
+        "maximum_logit_difference": 0.0,
+    }
+    config = model.config.to_dict()
+    config.pop("_name_or_path", None)
+    config.pop("transformers_version", None)
+    return canonical, config, audit
+
+
+def canonicalize_pythia_life(
+    *,
+    plan: SourcePlan,
+    run_id: str,
+    workspace: str | Path,
+    probe_token_ids: tuple[int, ...] = CANONICAL_PROBE_TOKEN_IDS,
+) -> dict[str, Any]:
+    """Canonicalize and functionally verify one materialized Pythia life."""
+    source = next((item for item in plan.lives if item.run_id == run_id), None)
+    if source is None:
+        raise KeyError(run_id)
+    root = Path(workspace)
+    source_root = root / "source" / "hf" / run_id
+    snapshots = [("w0", source_root / "w0")]
+    if source.split != "hidden":
+        snapshots.append(("wt", source_root / "wt"))
+    for _, snapshot in snapshots:
+        if not snapshot.is_dir():
+            raise FileNotFoundError(snapshot)
+    output = root / "canonical" / "lives" / run_id
+    if output.exists():
+        raise FileExistsError(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(prefix=f".{run_id}-", dir=output.parent) as staging_value:
+        staging = Path(staging_value)
+        audits: dict[str, dict[str, Any]] = {}
+        w0, config, audits["w0"] = _canonicalize_snapshot(
+            snapshots[0][1], probe_token_ids=probe_token_ids
+        )
+        save_state(staging / "w0.safetensors", w0)
+        graph = GPTNeoXAdapter.graph(w0, config)
+        atomic_write_json(staging / "architecture.json", graph.to_dict())
+        atomic_write_json(staging / "model_config.json", config)
+        if source.split != "hidden":
+            wt, wt_config, audits["wt"] = _canonicalize_snapshot(
+                snapshots[1][1], probe_token_ids=probe_token_ids
+            )
+            if set(wt) != set(w0):
+                raise ValueError("W0 and WT tensor names differ")
+            if wt_config != config:
+                raise ValueError("W0 and WT model configurations differ")
+            save_state(staging / "wt.safetensors", wt)
+        audit = {
+            "format": "GENOME_CANONICALIZATION_AUDIT",
+            "version": "1.0.0",
+            "run_id": run_id,
+            "split": source.split,
+            "probe_token_ids": list(probe_token_ids),
+            "snapshots": audits,
+            "verified": True,
+        }
+        atomic_write_json(staging / "canonicalization.json", audit)
+        staging.rename(output)
+    return audit
+
+
 def prepare_pythia_life(
     *,
     plan: SourcePlan,
@@ -31,9 +137,9 @@ def prepare_pythia_life(
     recipe_path: str | Path,
     evidence_directory: str | Path,
 ) -> ModelLife:
-    """Canonicalize one materialized Pythia life and write its strict manifest."""
+    """Finalize one canonical Pythia life after semantic evidence is available."""
     try:
-        from transformers import AutoTokenizer, GPTNeoXForCausalLM
+        from transformers import AutoTokenizer
     except ImportError as error:  # pragma: no cover
         raise RuntimeError("transformers is required to prepare Pythia lives") from error
     source = next((item for item in plan.lives if item.run_id == run_id), None)
@@ -49,32 +155,20 @@ def prepare_pythia_life(
         raise FileNotFoundError(wt_snapshot)
     recipe = load_json(recipe_path)
     output = root / "canonical" / "lives" / run_id
-    output.mkdir(parents=True, exist_ok=False)
-
-    w0_model = GPTNeoXForCausalLM.from_pretrained(
-        str(w0_snapshot), local_files_only=True, torch_dtype=torch.float32
-    )
-    w0 = GPTNeoXAdapter.canonical_state(w0_model.state_dict())
-    if not GPTNeoXAdapter.roundtrip_equal(w0):
-        raise ValueError("W0 native/canonical/native round trip failed")
     w0_path = output / "w0.safetensors"
-    save_state(w0_path, w0)
-    graph = GPTNeoXAdapter.graph(w0, w0_model.config.to_dict())
     graph_path = output / "architecture.json"
-    atomic_write_json(graph_path, graph.to_dict())
     config_path = output / "model_config.json"
-    atomic_write_json(config_path, w0_model.config.to_dict())
-
-    wt_path: Path | None = None
-    if source.split != "hidden":
-        wt_model = GPTNeoXForCausalLM.from_pretrained(
-            str(wt_snapshot), local_files_only=True, torch_dtype=torch.float32
-        )
-        wt = GPTNeoXAdapter.canonical_state(wt_model.state_dict())
-        if set(wt) != set(w0):
-            raise ValueError("W0 and WT tensor names differ")
-        wt_path = output / "wt.safetensors"
-        save_state(wt_path, wt)
+    audit_path = output / "canonicalization.json"
+    for path in (w0_path, graph_path, config_path, audit_path):
+        if not path.is_file():
+            raise FileNotFoundError(path)
+    audit = load_json(audit_path)
+    if audit.get("run_id") != run_id or audit.get("verified") is not True:
+        raise ValueError("canonicalization audit is missing or invalid")
+    wt_path = None if source.split == "hidden" else output / "wt.safetensors"
+    if wt_path is not None and not wt_path.is_file():
+        raise FileNotFoundError(wt_path)
+    model_config = load_json(config_path)
 
     tokenizer = AutoTokenizer.from_pretrained(str(w0_snapshot), local_files_only=True)
     tokenizer_files = []
@@ -119,7 +213,7 @@ def prepare_pythia_life(
         split=source.split,
         completeness="complete",
         architecture_family="gpt_neox",
-        architecture=w0_model.config.to_dict(),
+        architecture=model_config,
         tensor_inventory=_artifact(graph_path, revision=str(source.w0_commit), licence=source.licence),
         tokenizer=TokenizerRef(
             repository=plan.tokenizer_repository,

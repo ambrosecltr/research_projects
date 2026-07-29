@@ -57,6 +57,15 @@ genome materialize-sources \
   --workspace /workspace/genome_v1
 ```
 
+Canonicalize and verify each materialized life before building semantic evidence:
+
+```bash
+genome canonicalize-life \
+  --plan /workspace/genome_v1/control/pythia_v1.pinned.json \
+  --run-id pythia-14m-seed0 \
+  --workspace /workspace/genome_v1
+```
+
 ## Required setup outputs
 
 Before switching to GPU, produce:

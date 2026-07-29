@@ -23,7 +23,7 @@ from .mgp import ProgramPolicy, audit_program, execute_program, fit_low_rank_pro
 from .mgp.fit import FitConfig
 from .sources import SourcePlan, default_pythia_v1_plan, materialize_plan, resolve_plan, reveal_hidden_endpoint
 from .sampling import prepare_dataset_sample
-from .prepare import prepare_pythia_life
+from .prepare import canonicalize_pythia_life, prepare_pythia_life
 from .state import direct_fp16_delta_bytes, load_state, save_state, state_id
 from .workspace import initialize_workspace
 
@@ -119,6 +119,21 @@ def prepare_life_command(
         evidence_directory=evidence_directory,
     )
     _echo_json({"run_id": life.run_id, "manifest_id": life.manifest_id})
+
+
+@app.command("canonicalize-life")
+def canonicalize_life_command(
+    plan_path: Path = typer.Option(..., "--plan"),
+    run_id: str = typer.Option(...),
+    workspace: Path = typer.Option(...),
+) -> None:
+    _echo_json(
+        canonicalize_pythia_life(
+            plan=SourcePlan.load(plan_path),
+            run_id=run_id,
+            workspace=workspace,
+        )
+    )
 
 
 @app.command("validate-life")

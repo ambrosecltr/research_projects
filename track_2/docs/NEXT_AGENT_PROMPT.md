@@ -54,7 +54,7 @@ Follow the gates in `docs/EXPERIMENT_PLAN.md` exactly:
 3. inspect actual storage before downloading;
 4. materialize W0/WT pairs and receipts;
 5. build canonical lives and verify native/canonical round trips;
-6. build real corpus and W0-response evidence;
+6. build real corpus and W0-response evidence, then finalize life manifests;
 7. fit and functionally refine compact targets at the declared byte budgets;
 8. require both development lives to pass the 10% byte and 80% endpoint-progress gates;
 9. construct the compiler corpus;

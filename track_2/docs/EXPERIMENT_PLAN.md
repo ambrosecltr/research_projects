@@ -35,9 +35,11 @@ For every available life:
 4. Require exact tensor equality.
 5. Compare logits on fixed token sequences.
 6. Export architecture graph and tensor inventory.
-7. Create one complete `GENOME_MODEL_LIFE` manifest.
+7. Write a canonicalization audit for each life.
 
 No intermediate checkpoints are downloaded in v1.
+The complete `GENOME_MODEL_LIFE` manifest is finalized in Gate 3 after its real
+semantic evidence exists.
 
 ## Gate 3 — semantic evidence
 
@@ -70,6 +72,9 @@ Pass conditions:
 - no WT is read;
 - no hash bytes enter semantic tensors;
 - hidden evidence construction cannot open hidden WT paths.
+
+After these checks pass, finalize one complete `GENOME_MODEL_LIFE` manifest for
+each life from its canonical artifacts, semantic evidence and pinned recipe.
 
 ## Gate 4 — compact target frontier
 
