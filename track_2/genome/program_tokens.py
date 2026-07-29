@@ -7,7 +7,7 @@ from typing import Sequence
 import torch
 
 from .codecs.common import make_manifest, make_records
-from .mgp.opcodes import COPY_FROM_TIED, LOW_RANK
+from .mgp.opcodes import COPY_FROM_TIED, LOW_RANK, QUANTIZED_DELTA
 from .program_compiler import PROGRAM_TOKEN_TO_ID, ProgramTeacherBatch
 from .types import GenomeComponent, GenomeProgram, TensorSpec
 
@@ -98,7 +98,9 @@ class _SequenceReader:
         self.chunk_dim = chunk_dim
         self.cursor = 0
 
-    def _name(self) -> str:
+    def name(self) -> str:
+        if self.cursor >= self.sequence.token_ids.numel():
+            return "<end>"
         token_id = int(self.sequence.token_ids[self.cursor].item())
         for name, candidate in PROGRAM_TOKEN_TO_ID.items():
             if candidate == token_id:
@@ -106,8 +108,8 @@ class _SequenceReader:
         raise ValueError(f"unknown program token ID: {token_id}")
 
     def expect(self, name: str) -> None:
-        if self.cursor >= self.sequence.token_ids.numel() or self._name() != name:
-            actual = "<end>" if self.cursor >= self.sequence.token_ids.numel() else self._name()
+        actual = self.name()
+        if actual != name:
             raise ValueError(f"expected program token {name}, got {actual}")
         self.cursor += 1
 
@@ -135,17 +137,21 @@ class _SequenceReader:
         return self.cursor == self.sequence.token_ids.numel()
 
 
+def _meaningful_components(record_components: Sequence[GenomeComponent]) -> list[GenomeComponent]:
+    return [component for component in record_components if component.opcode != COPY_FROM_TIED]
+
+
 def program_to_sequence(
     program: GenomeProgram,
     inventory: Sequence[TensorSpec],
     *,
     config: ProgramTokenizationConfig | None = None,
 ) -> ProgramSequence:
-    """Encode canonical low-rank target programs for compiler teacher forcing.
+    """Encode canonical compact target programs for compiler teacher forcing.
 
-    This deliberately rejects dense, quantized-per-weight, neural-residual, and exact-residual
-    components. Expanding the compiler vocabulary requires a deterministic inverse implementation,
-    not an opaque fallback payload.
+    The first target language supports low-rank matrices and bounded int8 vectors. Dense matrix
+    deltas, neural residuals, and exact residuals are deliberately rejected. Every accepted token
+    sequence has a deterministic inverse.
     """
 
     config = config or ProgramTokenizationConfig()
@@ -157,18 +163,13 @@ def program_to_sequence(
     for spec in inventory:
         record = by_name[spec.name]
         writer.token("TENSOR_START")
-        meaningful = [
-            component for component in record.components if component.opcode != COPY_FROM_TIED
-        ]
+        meaningful = _meaningful_components(record.components)
         if not meaningful:
             writer.token("BASE_COPY")
-        else:
-            if len(meaningful) != 1 or meaningful[0].opcode != LOW_RANK:
-                raise ValueError(
-                    f"compiler tokenizer supports only canonical LOW_RANK targets; "
-                    f"{spec.name} uses {[item.opcode for item in meaningful]}"
-                )
+        elif len(meaningful) == 1 and meaningful[0].opcode == LOW_RANK:
             component = meaningful[0]
+            if len(spec.shape) != 2:
+                raise ValueError(f"LOW_RANK target cannot describe non-matrix tensor {spec.name}")
             if len(component.payload_keys) != 3:
                 raise ValueError("LOW_RANK target requires U, S, and Vh payloads")
             u = program.payload_tensors[component.payload_keys[0]]
@@ -185,6 +186,31 @@ def program_to_sequence(
             writer.coefficients(u)
             writer.coefficients(s)
             writer.coefficients(vh)
+        elif len(meaningful) == 1 and meaningful[0].opcode == QUANTIZED_DELTA:
+            component = meaningful[0]
+            if len(spec.shape) == 2:
+                raise ValueError("QUANTIZED_VECTOR cannot be used as a matrix fallback")
+            if component.arguments.get("bits") != 8 or component.arguments.get("small_vector") is not True:
+                raise ValueError("compiler vector targets must be explicitly bounded int8 vectors")
+            if len(component.payload_keys) != 2:
+                raise ValueError("QUANTIZED_VECTOR requires values and scale payloads")
+            values = program.payload_tensors[component.payload_keys[0]]
+            scale = program.payload_tensors[component.payload_keys[1]]
+            if values.dtype != torch.int8 or values.numel() != spec.numel:
+                raise ValueError(f"QUANTIZED_VECTOR values differ for {spec.name}")
+            if scale.numel() != 1 or not scale.is_floating_point():
+                raise ValueError(f"QUANTIZED_VECTOR scale differs for {spec.name}")
+            scale_value = float(scale.to(torch.float32).item())
+            if not math.isfinite(scale_value) or scale_value <= 0.0:
+                raise ValueError(f"QUANTIZED_VECTOR scale must be finite and positive for {spec.name}")
+            writer.token("QUANTIZED_VECTOR")
+            writer.coefficients(values)
+            writer.coefficients(scale)
+        else:
+            raise ValueError(
+                f"compiler tokenizer supports only canonical LOW_RANK or small QUANTIZED_DELTA "
+                f"targets; {spec.name} uses {[item.opcode for item in meaningful]}"
+            )
         writer.token("TENSOR_END")
     writer.token("EOS")
     return writer.finish()
@@ -214,41 +240,67 @@ def sequence_to_program(
             record.components.append(
                 GenomeComponent(COPY_FROM_TIED, arguments={"owner": aliases[spec.name]})
             )
-        else:
-            if reader._name() == "BASE_COPY":
-                reader.expect("BASE_COPY")
-            elif reader._name() == "LOW_RANK":
-                if len(spec.shape) != 2:
-                    raise ValueError(f"LOW_RANK token cannot target non-matrix tensor {spec.name}")
-                reader.expect("LOW_RANK")
-                rank = reader.integer()
-                maximum_rank = min(spec.shape)
-                if rank < 1 or rank > maximum_rank:
-                    raise ValueError(f"LOW_RANK rank is invalid for {spec.name}")
-                u_count = spec.shape[0] * rank
-                s_count = rank
-                vh_count = rank * spec.shape[1]
-                u = reader.coefficients(u_count).reshape(spec.shape[0], rank)
-                s = reader.coefficients(s_count)
-                vh = reader.coefficients(vh_count).reshape(rank, spec.shape[1])
-                prefix = f"t{record.canonical_index:05d}.low_rank"
-                keys = [f"{prefix}.u", f"{prefix}.s", f"{prefix}.vh"]
-                payload[keys[0]] = u.to(config.torch_factor_dtype).contiguous()
-                payload[keys[1]] = s.to(config.torch_factor_dtype).contiguous()
-                payload[keys[2]] = vh.to(config.torch_factor_dtype).contiguous()
-                record.components.append(
-                    GenomeComponent(
-                        LOW_RANK,
-                        payload_keys=keys,
-                        arguments={
-                            "rank": rank,
-                            "factor_dtype": config.factor_dtype,
-                            "canonical_sign": "max_abs_u_pivot_positive",
-                        },
-                    )
+        elif reader.name() == "BASE_COPY":
+            reader.expect("BASE_COPY")
+        elif reader.name() == "LOW_RANK":
+            if len(spec.shape) != 2:
+                raise ValueError(f"LOW_RANK token cannot target non-matrix tensor {spec.name}")
+            reader.expect("LOW_RANK")
+            rank = reader.integer()
+            maximum_rank = min(spec.shape)
+            if rank < 1 or rank > maximum_rank:
+                raise ValueError(f"LOW_RANK rank is invalid for {spec.name}")
+            u_count = spec.shape[0] * rank
+            s_count = rank
+            vh_count = rank * spec.shape[1]
+            u = reader.coefficients(u_count).reshape(spec.shape[0], rank)
+            s = reader.coefficients(s_count)
+            vh = reader.coefficients(vh_count).reshape(rank, spec.shape[1])
+            prefix = f"t{record.canonical_index:05d}.low_rank"
+            keys = [f"{prefix}.u", f"{prefix}.s", f"{prefix}.vh"]
+            payload[keys[0]] = u.to(config.torch_factor_dtype).contiguous()
+            payload[keys[1]] = s.to(config.torch_factor_dtype).contiguous()
+            payload[keys[2]] = vh.to(config.torch_factor_dtype).contiguous()
+            record.components.append(
+                GenomeComponent(
+                    LOW_RANK,
+                    payload_keys=keys,
+                    arguments={
+                        "rank": rank,
+                        "factor_dtype": config.factor_dtype,
+                        "canonical_sign": "max_abs_u_pivot_positive",
+                    },
                 )
-            else:
-                raise ValueError(f"unsupported tensor program token: {reader._name()}")
+            )
+        elif reader.name() == "QUANTIZED_VECTOR":
+            if len(spec.shape) == 2:
+                raise ValueError("QUANTIZED_VECTOR token cannot target a matrix")
+            reader.expect("QUANTIZED_VECTOR")
+            raw_values = reader.coefficients(spec.numel)
+            if not bool(torch.isfinite(raw_values).all().item()):
+                raise ValueError(f"QUANTIZED_VECTOR values are non-finite for {spec.name}")
+            rounded = torch.round(raw_values)
+            if bool(torch.any((raw_values - rounded).abs() > 1e-3).item()):
+                raise ValueError(f"QUANTIZED_VECTOR values are not integer-like for {spec.name}")
+            if bool(torch.any(rounded < -127).item()) or bool(torch.any(rounded > 127).item()):
+                raise ValueError(f"QUANTIZED_VECTOR value is outside int8 range for {spec.name}")
+            scale = reader.coefficients(1).reshape(())
+            scale_value = float(scale.item())
+            if not math.isfinite(scale_value) or scale_value <= 0.0:
+                raise ValueError(f"QUANTIZED_VECTOR scale must be finite and positive for {spec.name}")
+            prefix = f"t{record.canonical_index:05d}.vector_q8"
+            keys = [f"{prefix}.values", f"{prefix}.scale"]
+            payload[keys[0]] = rounded.to(torch.int8).reshape(spec.shape).contiguous()
+            payload[keys[1]] = scale.to(torch.float32).contiguous()
+            record.components.append(
+                GenomeComponent(
+                    QUANTIZED_DELTA,
+                    payload_keys=keys,
+                    arguments={"bits": 8, "shape": list(spec.shape), "small_vector": True},
+                )
+            )
+        else:
+            raise ValueError(f"unsupported tensor program token: {reader.name()}")
         reader.expect("TENSOR_END")
     reader.expect("EOS")
     if not reader.finished():
@@ -257,9 +309,10 @@ def sequence_to_program(
         candidate_id=candidate_id,
         codec="compiled_canonical_program_v2",
         metadata={
+            "created_unix": 0.0,
             "compiler_target": True,
             "contains_exact_residual": False,
-            "target_language": "canonical_low_rank",
+            "target_language": "canonical_low_rank_plus_small_int8_vectors",
         },
     )
     manifest["tokenization"] = {
