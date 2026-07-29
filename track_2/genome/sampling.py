@@ -76,10 +76,7 @@ def prepare_dataset_sample(
     start_sequence = random.Random(seed).randrange(available_sequences - examples + 1)
     byte_start = start_sequence * bytes_per_sequence
     byte_end = byte_start + examples * bytes_per_sequence - 1
-    url = (
-        f"https://huggingface.co/datasets/{repository}/resolve/"
-        f"{info.sha}/{filename}"
-    )
+    url = f"https://huggingface.co/datasets/{repository}/resolve/{info.sha}/{filename}"
     payload = _read_byte_range(
         url,
         start=byte_start,
@@ -99,9 +96,10 @@ def prepare_dataset_sample(
         range_path = staging / "source-range.bin"
         range_path.write_bytes(payload)
         maximum_token_id = 0
-        with raw_path.open("w", encoding="utf-8") as raw_handle, token_path.open(
-            "w", encoding="utf-8"
-        ) as token_handle:
+        with (
+            raw_path.open("w", encoding="utf-8") as raw_handle,
+            token_path.open("w", encoding="utf-8") as token_handle,
+        ):
             for sequence in sequences:
                 ids = sequence[:context_length].astype(np.int64).tolist()
                 maximum_token_id = max(maximum_token_id, max(ids))
@@ -111,9 +109,7 @@ def prepare_dataset_sample(
                     clean_up_tokenization_spaces=False,
                 )
                 raw_handle.write(json.dumps({"text": text}, ensure_ascii=False) + "\n")
-                token_handle.write(
-                    json.dumps({"input_ids": ids}, separators=(",", ":")) + "\n"
-                )
+                token_handle.write(json.dumps({"input_ids": ids}, separators=(",", ":")) + "\n")
         if maximum_token_id >= len(tokenizer):
             raise ValueError(
                 f"sample token ID {maximum_token_id} exceeds tokenizer size {len(tokenizer)}"
@@ -150,6 +146,78 @@ def prepare_dataset_sample(
                 "path": str(root / token_path.name),
                 "bytes": token_path.stat().st_size,
                 "sha256": sha256_file(token_path),
+            },
+        }
+        atomic_write_json(staging / "receipt.json", receipt)
+        staging.rename(root)
+    return receipt
+
+
+def partition_probe_sample(
+    *,
+    source_jsonl: str | Path,
+    output: str | Path,
+) -> dict[str, Any]:
+    """Split a token sample into deterministic, disjoint refinement and evaluation views."""
+    source = Path(source_jsonl)
+    if not source.is_file():
+        raise FileNotFoundError(source)
+    root = Path(output)
+    if root.exists():
+        raise FileExistsError(root)
+    root.parent.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(prefix=f".{root.name}-", dir=root.parent) as staging_value:
+        staging = Path(staging_value)
+        refinement_path = staging / "refinement.jsonl"
+        evaluation_path = staging / "evaluation.jsonl"
+        counts = {"refinement": 0, "evaluation": 0}
+        record_index = 0
+        with (
+            source.open("r", encoding="utf-8") as source_handle,
+            refinement_path.open("w", encoding="utf-8") as refinement_handle,
+            evaluation_path.open("w", encoding="utf-8") as evaluation_handle,
+        ):
+            for line_number, line in enumerate(source_handle, start=1):
+                if not line.strip():
+                    continue
+                value = json.loads(line)
+                input_ids = value.get("input_ids")
+                if (
+                    not isinstance(input_ids, list)
+                    or len(input_ids) < 2
+                    or any(not isinstance(item, int) for item in input_ids)
+                ):
+                    raise ValueError(
+                        f"input_ids must contain at least two integers at line {line_number}"
+                    )
+                split = "refinement" if record_index % 2 == 0 else "evaluation"
+                handle = refinement_handle if split == "refinement" else evaluation_handle
+                handle.write(line if line.endswith("\n") else line + "\n")
+                counts[split] += 1
+                record_index += 1
+        if not counts["refinement"] or not counts["evaluation"]:
+            raise ValueError("probe partition requires at least two records")
+        receipt = {
+            "format": "GENOME_PROBE_PARTITION",
+            "version": "1.0.0",
+            "rule": "zero-based-even-refinement-odd-evaluation",
+            "source": {
+                "path": str(source),
+                "bytes": source.stat().st_size,
+                "sha256": sha256_file(source),
+                "records": record_index,
+            },
+            "refinement": {
+                "path": str(root / refinement_path.name),
+                "bytes": refinement_path.stat().st_size,
+                "sha256": sha256_file(refinement_path),
+                "records": counts["refinement"],
+            },
+            "evaluation": {
+                "path": str(root / evaluation_path.name),
+                "bytes": evaluation_path.stat().st_size,
+                "sha256": sha256_file(evaluation_path),
+                "records": counts["evaluation"],
             },
         }
         atomic_write_json(staging / "receipt.json", receipt)

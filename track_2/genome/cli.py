@@ -40,7 +40,7 @@ from .mgp import (
 )
 from .mgp.fit import FitConfig
 from .prepare import canonicalize_pythia_life, prepare_pythia_life
-from .sampling import prepare_dataset_sample
+from .sampling import partition_probe_sample, prepare_dataset_sample
 from .sources import (
     SourcePlan,
     default_pythia_v1_plan,
@@ -123,6 +123,19 @@ def prepare_dataset_sample_command(
             examples=examples,
             context_length=context_length,
             seed=seed,
+        )
+    )
+
+
+@app.command("partition-probe-sample")
+def partition_probe_sample_command(
+    source_jsonl: Path = typer.Option(...),
+    output: Path = typer.Option(...),
+) -> None:
+    _echo_json(
+        partition_probe_sample(
+            source_jsonl=source_jsonl,
+            output=output,
         )
     )
 

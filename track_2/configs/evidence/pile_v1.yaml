@@ -1,12 +1,12 @@
-repository: EleutherAI/pile
+repository: EleutherAI/pile-standard-pythia-preshuffled
 revision: REPLACE_WITH_RESOLVED_COMMIT
-configuration: null
-split: train
-text_field: text
+filename: document-00000-of-00020.bin
 examples: 4096
 context_length: 2048
 seed: 20260729
-shuffle_buffer: 10000
+probe_partition:
+  refinement: zero-based even records
+  evaluation: zero-based odd records
 fingerprint:
   unigram_dim: 256
   bigram_dim: 512

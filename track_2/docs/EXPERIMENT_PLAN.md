@@ -59,6 +59,10 @@ Raw-byte evidence is computed from deterministic tokenizer decoding of the exact
 training tokens because the published Pythia binary contains tokens, not original
 raw text. Record this limitation in the sample receipt.
 
+Partition the pinned token sample by zero-based record parity. Even records are
+the functional-refinement probe. Odd records are the fixed evaluation sample.
+Record both hashes and counts. The two views must remain disjoint.
+
 W0 evidence:
 
 - fixed probe loss distribution;
@@ -92,7 +96,8 @@ For every training and development life fit candidates at:
 
 Start with globally budgeted randomized low rank plus bounded quantized vectors. Use CUDA SVD where useful. Functionally refine only compact coefficients through the Runtime.
 
-Evaluate every candidate on the identical fixed Pythia evaluation sample.
+Evaluate every candidate on the identical fixed odd-record Pythia evaluation
+sample. Functional refinement may read only the even-record probe.
 
 Save for each candidate:
 
