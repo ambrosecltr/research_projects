@@ -34,8 +34,8 @@ from .block_decoder import (
     BlockReference,
     NeuralBlockInterpreter,
     RoleConditionedBlockDecoder,
-    append_base_block_features,
     load_interpreter,
+    make_block_features,
     save_interpreter,
     tensor_matrix_shape,
     tensor_matrix_view,
@@ -155,6 +155,20 @@ class BlockBatch:
     role_ids: torch.Tensor
     features: torch.Tensor
     targets: torch.Tensor
+    valid_masks: torch.Tensor
+
+
+def masked_block_mse(
+    prediction: torch.Tensor,
+    target: torch.Tensor,
+    valid_mask: torch.Tensor,
+) -> torch.Tensor:
+    if prediction.shape != target.shape or target.shape != valid_mask.shape:
+        raise ValueError("prediction, target, and valid block mask shapes must match")
+    valid_count = valid_mask.sum()
+    if valid_count <= 0:
+        raise ValueError("block batch contains no valid target values")
+    return ((prediction - target).square() * valid_mask).sum() / valid_count
 
 
 class MultiLifeBlockSampler:
@@ -169,6 +183,7 @@ class MultiLifeBlockSampler:
         role_to_id: Mapping[str, int] | None = None,
         layer_to_slot: Mapping[int | None, int] | None = None,
         role_scales: Mapping[str, float] | None = None,
+        tensor_scales: Mapping[str, float] | None = None,
     ) -> None:
         if not base_states or len(base_states) != len(target_states):
             raise ValueError("base and target states must contain the same non-zero life count")
@@ -207,6 +222,16 @@ class MultiLifeBlockSampler:
         )
         if set(self.role_scales) != set(roles):
             raise ValueError("decoder role scales do not match tensor roles")
+        tensor_names = {spec.name for spec in tensor_specs if spec.name not in aliases}
+        self.tensor_scales = (
+            self._calculate_tensor_scales(aliases)
+            if tensor_scales is None
+            else {str(name): float(scale) for name, scale in tensor_scales.items()}
+        )
+        if set(self.tensor_scales) != tensor_names:
+            raise ValueError("decoder tensor scales do not match untied tensor inventory")
+        if any(not math.isfinite(scale) or scale <= 0 for scale in self.tensor_scales.values()):
+            raise ValueError("decoder tensor scales must be finite and positive")
         self.references: list[BlockReference] = []
         self.references_by_role: dict[str, list[int]] = {role: [] for role in roles}
         for spec in tensor_specs:
@@ -251,6 +276,19 @@ class MultiLifeBlockSampler:
                 counts[spec.role] = counts.get(spec.role, 0) + value.numel()
         return {role: max((sums[role] / counts[role]) ** 0.5, 1e-8) for role in sorted(sums)}
 
+    def _calculate_tensor_scales(self, aliases: Mapping[str, str]) -> dict[str, float]:
+        result = {}
+        for spec in self.tensor_specs:
+            if spec.name in aliases:
+                continue
+            squared_sum = sum(
+                float(delta[spec.name].to(torch.float32).square().sum().item())
+                for delta in self.delta_states
+            )
+            count = len(self.delta_states) * spec.numel
+            result[spec.name] = max((squared_sum / count) ** 0.5, 1e-8)
+        return result
+
     def _features(self, life_index: int, reference: BlockReference) -> torch.Tensor:
         base = tensor_matrix_view(
             self.base_states[life_index][reference.tensor_name].to(torch.float32)
@@ -282,7 +320,7 @@ class MultiLifeBlockSampler:
             ],
             dtype=torch.float32,
         )
-        return append_base_block_features(metadata, block, self.decoder_config)
+        return make_block_features(metadata, block, self.decoder_config)
 
     def make_batch(
         self,
@@ -327,6 +365,7 @@ class MultiLifeBlockSampler:
             dtype=torch.float32,
             device=device,
         )
+        valid_masks = torch.zeros_like(targets)
         for index, (life_index, reference) in enumerate(
             zip(life_indices.tolist(), references, strict=True)
         ):
@@ -335,12 +374,17 @@ class MultiLifeBlockSampler:
                 reference.row_start : reference.row_end,
                 reference.col_start : reference.col_end,
             ].to(device=device, dtype=torch.float32)
-            scale = self.role_scales[self.spec_by_name[reference.tensor_name].role]
+            scale = self.tensor_scales[reference.tensor_name]
             targets[
                 index,
                 : reference.row_end - reference.row_start,
                 : reference.col_end - reference.col_start,
             ] = block / scale
+            valid_masks[
+                index,
+                : reference.row_end - reference.row_start,
+                : reference.col_end - reference.col_start,
+            ] = 1.0
         return BlockBatch(
             life_indices=life_indices.to(device),
             layer_slots=torch.tensor(
@@ -360,6 +404,7 @@ class MultiLifeBlockSampler:
             ),
             features=features,
             targets=targets,
+            valid_masks=valid_masks,
         )
 
 
@@ -391,6 +436,7 @@ def genome_program_from_codes(
     role_to_id: Mapping[str, int],
     layer_to_slot: Mapping[int | None, int],
     role_scales: Mapping[str, float],
+    tensor_scales: Mapping[str, float],
     interpreter_info: Mapping[str, Any],
     candidate_id: str,
     manifest_metadata: Mapping[str, Any],
@@ -441,6 +487,7 @@ def genome_program_from_codes(
                     "layer_codes_key": "shared.layer_codes",
                     "block_rows": decoder_config.block_rows,
                     "block_cols": decoder_config.block_cols,
+                    "scale": float(tensor_scales[record.tensor_name]),
                 },
             )
         )
@@ -465,6 +512,7 @@ def genome_program_from_codes(
                     for key, value in layer_to_slot.items()
                 },
                 "role_scales": {str(key): float(value) for key, value in role_scales.items()},
+                "tensor_scales": {str(key): float(value) for key, value in tensor_scales.items()},
             },
         }
     )
@@ -498,11 +546,13 @@ def train_shared_decoder(
     destination = Path(output_path)
     if destination.exists():
         raise FileExistsError(destination)
-    expected_feature_dim = 7 + decoder_config.block_rows * decoder_config.block_cols
-    if decoder_config.feature_dim != expected_feature_dim:
-        raise ValueError(
-            f"shared decoder feature_dim must include the W0 block: {expected_feature_dim}"
-        )
+    feature_probe = make_block_features(
+        torch.zeros(7),
+        torch.zeros(decoder_config.block_rows, decoder_config.block_cols),
+        decoder_config,
+    )
+    if feature_probe.numel() != decoder_config.feature_dim:
+        raise ValueError("shared decoder feature construction does not match feature_dim")
     random.seed(training_config.seed)
     torch.manual_seed(training_config.seed)
     device = torch.device(training_config.device)
@@ -548,7 +598,11 @@ def train_shared_decoder(
             device=device,
         )
         predictions = decoder(**_decoder_inputs(codes, batch))
-        reconstruction = torch.nn.functional.mse_loss(predictions, batch.targets)
+        reconstruction = masked_block_mse(
+            predictions,
+            batch.targets,
+            batch.valid_masks,
+        )
         code_rms = torch.stack(
             [
                 codes.global_codes.square().mean(),
@@ -615,6 +669,7 @@ def train_shared_decoder(
                 role_to_id=sampler.role_to_id,
                 layer_to_slot=sampler.layer_to_slot,
                 role_scales=sampler.role_scales,
+                tensor_scales=sampler.tensor_scales,
                 interpreter_info=info,
                 candidate_id=f"{life.run_id}-fitted-genome",
                 manifest_metadata={
@@ -659,6 +714,7 @@ def train_shared_decoder(
                 for key, value in sampler.layer_to_slot.items()
             },
             "role_scales": sampler.role_scales,
+            "tensor_scales": sampler.tensor_scales,
             "interpreter": {
                 "path": "interpreter",
                 "manifest_sha256": info["manifest_sha256"],
@@ -730,6 +786,28 @@ def fitted_code_path(decoder_root: str | Path, run_id: str) -> Path:
     return path
 
 
+def decoder_tensor_scales(
+    decoder_manifest: Mapping[str, Any],
+    tensor_specs: Sequence[TensorSpec],
+    tied_groups: Sequence[Sequence[str]],
+    role_scales: Mapping[str, float],
+) -> dict[str, float]:
+    aliases = tied_owner_map(tied_groups)
+    untied_specs = [spec for spec in tensor_specs if spec.name not in aliases]
+    stored = decoder_manifest.get("tensor_scales")
+    if stored is None:
+        return {spec.name: float(role_scales[spec.role]) for spec in untied_specs}
+    if not isinstance(stored, Mapping):
+        raise TypeError("shared decoder tensor_scales must be an object")
+    result = {str(name): float(scale) for name, scale in stored.items()}
+    expected = {spec.name for spec in untied_specs}
+    if set(result) != expected:
+        raise ValueError("shared decoder tensor scales do not match untied tensor inventory")
+    if any(not math.isfinite(scale) or scale <= 0 for scale in result.values()):
+        raise ValueError("shared decoder tensor scales must be finite and positive")
+    return result
+
+
 def fit_genome_code_with_frozen_decoder(
     life: CanonicalModelLife,
     *,
@@ -749,6 +827,12 @@ def fit_genome_code_with_frozen_decoder(
     decoder = interpreter.decoder
     decoder.requires_grad_(False)
     device = torch.device(config.device)
+    tensor_scales = decoder_tensor_scales(
+        decoder_manifest,
+        tensor_specs,
+        tied_groups,
+        interpreter.role_scales,
+    )
     sampler = MultiLifeBlockSampler(
         base_states=[life.load_base()],
         target_states=[life.load_target()],
@@ -758,6 +842,7 @@ def fit_genome_code_with_frozen_decoder(
         role_to_id=interpreter.role_to_id,
         layer_to_slot=layer_to_slot,
         role_scales=interpreter.role_scales,
+        tensor_scales=tensor_scales,
     )
     random.seed(config.seed)
     torch.manual_seed(config.seed)
@@ -781,7 +866,11 @@ def fit_genome_code_with_frozen_decoder(
             device=device,
         )
         prediction = decoder(**_decoder_inputs(codes, batch))
-        loss = torch.nn.functional.mse_loss(prediction, batch.targets)
+        loss = masked_block_mse(
+            prediction,
+            batch.targets,
+            batch.valid_masks,
+        )
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(codes.parameters(), config.grad_clip_norm)
@@ -811,6 +900,7 @@ def fit_genome_code_with_frozen_decoder(
         role_to_id=interpreter.role_to_id,
         layer_to_slot=layer_to_slot,
         role_scales=interpreter.role_scales,
+        tensor_scales=tensor_scales,
         interpreter_info=info,
         candidate_id=f"{life.run_id}-frozen-decoder-fitted-genome",
         manifest_metadata={

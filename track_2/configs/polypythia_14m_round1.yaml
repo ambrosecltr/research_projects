@@ -169,6 +169,7 @@ decoder:
   layer_code_dim: 32
   tensor_code_dim: 32
   role_embedding_dim: 16
+  coordinate_frequencies: 12
   hidden_dim: 512
   depth: 4
   updates: 50000

@@ -111,14 +111,14 @@ def infer_role(name: str, tensor: torch.Tensor, *, is_buffer: bool = False) -> s
         if any(token in lower for token in ("post_attention", "ffn_norm", "mlp_norm", "ln_2")):
             return "mlp_norm"
         return "attention_norm"
+    if any(token in lower for token in ("qkv", "c_attn")):
+        return "qkv_proj"
     if any(token in lower for token in ("q_proj", "query")):
         return "q_proj"
     if any(token in lower for token in ("k_proj", "key")):
         return "k_proj"
     if any(token in lower for token in ("v_proj", "value")):
         return "v_proj"
-    if any(token in lower for token in ("qkv", "c_attn")):
-        return "qkv_proj"
     if any(token in lower for token in ("o_proj", "out_proj", "c_proj")) and any(
         token in lower for token in ("attn", "attention")
     ):

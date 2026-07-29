@@ -28,9 +28,11 @@ from .compiler import GenomeCodeLayout, GenomeCompiler
 from .multilife_decoder import (
     BlockBatch,
     MultiLifeBlockSampler,
+    decoder_tensor_scales,
     genome_program_from_codes,
     interpreter_artifact_info,
     load_shared_decoder,
+    masked_block_mse,
 )
 
 
@@ -187,7 +189,7 @@ def _development_loss(
             device=device,
         )
         prediction = decoder(**_predicted_decoder_inputs(codes, batch))
-        losses.append(float(torch.nn.functional.mse_loss(prediction, batch.targets).item()))
+        losses.append(float(masked_block_mse(prediction, batch.targets, batch.valid_masks).item()))
     model.train()
     return sum(losses) / len(losses)
 
@@ -219,6 +221,12 @@ def train_predictive_compiler(
     decoder = interpreter.decoder
     decoder.requires_grad_(False)
     decoder.eval()
+    tensor_scales = decoder_tensor_scales(
+        decoder_manifest,
+        tensor_specs,
+        tied_groups,
+        interpreter.role_scales,
+    )
     layout = GenomeCodeLayout(
         global_code_dim=interpreter.config.global_code_dim,
         n_layers=len(layer_to_slot),
@@ -239,6 +247,7 @@ def train_predictive_compiler(
         role_to_id=interpreter.role_to_id,
         layer_to_slot=layer_to_slot,
         role_scales=interpreter.role_scales,
+        tensor_scales=tensor_scales,
     )
     development_sampler = MultiLifeBlockSampler(
         base_states=[development_life.load_base()],
@@ -249,6 +258,7 @@ def train_predictive_compiler(
         role_to_id=interpreter.role_to_id,
         layer_to_slot=layer_to_slot,
         role_scales=interpreter.role_scales,
+        tensor_scales=tensor_scales,
     )
     model = GenomeCompiler(
         architecture_dim=train_evidence.dimensions["architecture"],
@@ -280,7 +290,11 @@ def train_predictive_compiler(
             device=device,
         )
         prediction = decoder(**_predicted_decoder_inputs(codes, batch))
-        endpoint_loss = torch.nn.functional.mse_loss(prediction, batch.targets)
+        endpoint_loss = masked_block_mse(
+            prediction,
+            batch.targets,
+            batch.valid_masks,
+        )
         rate = distribution.rate_proxy() / (len(training_lives) * layout.total_dim)
         loss = endpoint_loss + config.rate_weight * rate
         optimizer.zero_grad(set_to_none=True)
@@ -437,6 +451,12 @@ def predict_hidden_genome(
     )
     info = interpreter_artifact_info(interpreter_path)
     compiler_root = Path(compiler_path).expanduser().resolve(strict=True)
+    tensor_scales = decoder_tensor_scales(
+        decoder_manifest,
+        tensor_specs,
+        tied_groups,
+        interpreter.role_scales,
+    )
     program = genome_program_from_codes(
         codes=predicted,
         tensor_specs=tensor_specs,
@@ -445,6 +465,7 @@ def predict_hidden_genome(
         role_to_id=interpreter.role_to_id,
         layer_to_slot=layer_to_slot,
         role_scales=interpreter.role_scales,
+        tensor_scales=tensor_scales,
         interpreter_info=info,
         candidate_id=f"{hidden_life.run_id}-one-shot-predicted-genome",
         manifest_metadata={

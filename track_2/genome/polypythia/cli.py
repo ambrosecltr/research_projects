@@ -136,6 +136,9 @@ def _decoder_configs(
     section = _section(value, "decoder")
     block_rows = int(section["block_rows"])
     block_cols = int(section["block_cols"])
+    coordinate_frequencies = int(section["coordinate_frequencies"])
+    if coordinate_frequencies < 0:
+        raise typer.BadParameter("decoder.coordinate_frequencies must be non-negative")
     decoder = BlockDecoderConfig(
         block_rows=block_rows,
         block_cols=block_cols,
@@ -143,7 +146,7 @@ def _decoder_configs(
         layer_code_dim=int(section["layer_code_dim"]),
         tensor_code_dim=int(section["tensor_code_dim"]),
         role_embedding_dim=int(section["role_embedding_dim"]),
-        feature_dim=7 + block_rows * block_cols,
+        feature_dim=7 + 4 * coordinate_frequencies + block_rows * block_cols,
         hidden_dim=int(section["hidden_dim"]),
         depth=int(section["depth"]),
     )

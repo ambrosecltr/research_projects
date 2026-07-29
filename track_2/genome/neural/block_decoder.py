@@ -215,7 +215,7 @@ class LazyDeltaBlockDataset:
             ],
             dtype=torch.float32,
         )
-        return append_base_block_features(metadata, block, self.config)
+        return make_block_features(metadata, block, self.config)
 
     def make_batch(
         self,
@@ -335,11 +335,13 @@ class NeuralBlockInterpreter:
                     ],
                     dtype=torch.float32,
                 )
-                feature = append_base_block_features(metadata, base_block, self.config)
+                feature = make_block_features(metadata, base_block, self.config)
                 items.append((row_start, row_end, col_start, col_end, feature))
 
         batch_size = int(args.get("decode_batch_size", 256))
-        scale = self.role_scales[role]
+        scale = float(args.get("scale", self.role_scales[role]))
+        if not math.isfinite(scale) or scale <= 0:
+            raise ValueError(f"invalid neural block scale for {record_name}")
         for start in range(0, len(items), batch_size):
             chunk = items[start : start + batch_size]
             features = torch.stack([item[4] for item in chunk]).to(self.device)
@@ -393,6 +395,49 @@ def append_base_block_features(
     rows, cols = block.shape
     padded[:rows, :cols] = block.detach().to(dtype=torch.float32, device="cpu")
     return torch.cat([metadata, padded.flatten()])
+
+
+def make_block_features(
+    metadata: torch.Tensor,
+    block: torch.Tensor,
+    config: BlockDecoderConfig,
+) -> torch.Tensor:
+    if metadata.numel() != 7:
+        raise ValueError(f"block metadata must contain seven values, got {metadata.numel()}")
+    block_values = config.block_rows * config.block_cols
+    if config.feature_dim in {7, 7 + block_values}:
+        return append_base_block_features(metadata, block, config)
+    include_base_block = config.feature_dim > 7 + block_values
+    fixed_values = 7 + (block_values if include_base_block else 0)
+    coordinate_values = config.feature_dim - fixed_values
+    if coordinate_values < 4 or coordinate_values % 4:
+        raise ValueError("feature_dim must add four Fourier values per coordinate frequency")
+    frequency_count = coordinate_values // 4
+    row_coordinate = float(metadata[1].item())
+    column_coordinate = float(metadata[2].item())
+    fourier = []
+    for index in range(frequency_count):
+        frequency = math.pi * (2**index)
+        fourier.extend(
+            [
+                math.sin(frequency * row_coordinate),
+                math.cos(frequency * row_coordinate),
+                math.sin(frequency * column_coordinate),
+                math.cos(frequency * column_coordinate),
+            ]
+        )
+    expanded = torch.cat(
+        [
+            metadata,
+            torch.tensor(fourier, dtype=torch.float32),
+        ]
+    )
+    if not include_base_block:
+        return expanded
+    padded = torch.zeros(config.block_rows, config.block_cols, dtype=torch.float32)
+    rows, cols = block.shape
+    padded[:rows, :cols] = block.detach().to(dtype=torch.float32, device="cpu")
+    return torch.cat([expanded, padded.flatten()])
 
 
 def save_interpreter(

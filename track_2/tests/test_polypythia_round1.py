@@ -33,7 +33,8 @@ from genome.neural import (
     train_predictive_compiler,
     train_shared_decoder,
 )
-from genome.neural.multilife_decoder import MultiLifeBlockSampler
+from genome.neural.block_decoder import make_block_features
+from genome.neural.multilife_decoder import MultiLifeBlockSampler, masked_block_mse
 from genome.polypythia.catalog import load_round_one_catalog
 from genome.polypythia.evaluate import (
     evaluate_shared_decoder_corpus,
@@ -100,6 +101,10 @@ def test_gpt_neox_native_canonical_roundtrip_is_exact():
     assert "layers.0.attention.qkv_proj.weight" in canonical
     assert "layers.0.mlp.up_proj.weight" in canonical
     assert set(nativeize_gpt_neox_state(canonical)) == set(state)
+    inventory, _ = build_tensor_inventory_from_state(canonical)
+    roles = {spec.name: spec.role for spec in inventory}
+    assert roles["layers.0.attention.qkv_proj.weight"] == "qkv_proj"
+    assert roles["layers.0.attention.qkv_proj.bias"] == "qkv_proj"
 
 
 def test_gpt_neox_canonical_state_excludes_regenerated_attention_buffers():
@@ -435,6 +440,74 @@ def test_multi_life_sampler_uses_independent_life_indices():
     )
     assert set(batch.life_indices.tolist()) == {0, 1}
     assert batch.features.shape == (64, 23)
+    assert batch.valid_masks.shape == batch.targets.shape
+    assert torch.equal(batch.valid_masks, torch.ones_like(batch.valid_masks))
+
+
+def test_masked_block_mse_ignores_vector_padding():
+    base = {"layers.0.attention.qkv_proj.bias": torch.zeros(4)}
+    target = {"layers.0.attention.qkv_proj.bias": torch.ones(4)}
+    inventory, ties = build_tensor_inventory_from_state(base)
+    sampler = MultiLifeBlockSampler(
+        base_states=[base],
+        target_states=[target],
+        tensor_specs=inventory,
+        tied_groups=ties,
+        decoder_config=BlockDecoderConfig(
+            block_rows=4,
+            block_cols=4,
+            feature_dim=23,
+        ),
+    )
+    batch = sampler.make_batch(
+        batch_size=1,
+        generator=torch.Generator().manual_seed(7),
+        device=torch.device("cpu"),
+    )
+    assert batch.valid_masks.sum().item() == 4
+    prediction = batch.targets.clone()
+    prediction[batch.valid_masks == 0] = 100.0
+    assert masked_block_mse(prediction, batch.targets, batch.valid_masks).item() == 0.0
+
+
+def test_multi_life_sampler_uses_per_tensor_scales():
+    base = {
+        "layers.0.attention.qkv_proj.weight": torch.zeros(4, 4),
+        "layers.0.attention.qkv_proj.bias": torch.zeros(4),
+    }
+    target = {
+        "layers.0.attention.qkv_proj.weight": torch.full((4, 4), 0.1),
+        "layers.0.attention.qkv_proj.bias": torch.full((4,), 10.0),
+    }
+    inventory, ties = build_tensor_inventory_from_state(base)
+    sampler = MultiLifeBlockSampler(
+        base_states=[base],
+        target_states=[target],
+        tensor_specs=inventory,
+        tied_groups=ties,
+        decoder_config=BlockDecoderConfig(
+            block_rows=4,
+            block_cols=4,
+            feature_dim=23,
+        ),
+    )
+    assert sampler.tensor_scales["layers.0.attention.qkv_proj.weight"] == pytest.approx(0.1)
+    assert sampler.tensor_scales["layers.0.attention.qkv_proj.bias"] == pytest.approx(10.0)
+
+
+def test_fourier_block_features_are_deterministic():
+    config = BlockDecoderConfig(
+        block_rows=4,
+        block_cols=4,
+        feature_dim=31,
+    )
+    metadata = torch.tensor([0.0, 0.25, 0.75, 0.1, 0.1, 0.0, 0.0])
+    block = torch.arange(16, dtype=torch.float32).reshape(4, 4)
+    first = make_block_features(metadata, block, config)
+    second = make_block_features(metadata, block, config)
+    assert first.shape == (31,)
+    assert torch.equal(first, second)
+    assert torch.equal(first[-16:], block.flatten())
 
 
 def _write_synthetic_life(
@@ -536,7 +609,7 @@ def test_complete_learned_round_one_path_runs_without_hidden_endpoint(tmp_path):
         layer_code_dim=4,
         tensor_code_dim=4,
         role_embedding_dim=4,
-        feature_dim=23,
+        feature_dim=31,
         hidden_dim=32,
         depth=1,
     )
