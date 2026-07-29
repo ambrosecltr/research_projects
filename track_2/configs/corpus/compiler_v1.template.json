@@ -1,6 +1,11 @@
 {
   "format": "GENOME_COMPILER_CORPUS",
   "version": "1.0.0",
+  "expected_records": {
+    "training": 17,
+    "development": 2,
+    "total": 19
+  },
   "records": [
     {
       "run_id": "pythia-14m-seed0",

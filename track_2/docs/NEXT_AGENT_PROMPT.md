@@ -36,14 +36,16 @@ Create a new 100 GB RunPod network volume named `genome-pythia-v1` or a close da
 Use only:
 
 ```text
-Pythia 14M seeds0–7 training
+Pythia 14M seeds0–7 and seed9 training
 Pythia 14M seed8 development
 Pythia 31M seeds0–7 training
 Pythia 31M seed8 development
 Pythia 31M seed9 fresh hidden
 ```
 
-Pythia 14M seed9 is excluded and must not be downloaded.
+Pythia 14M seed9 is a training life. Materialize its W0 and WT, fit its compact
+target, and include its endpoint-free input and accepted fitted target in compiler
+training. Never describe it as a hidden evaluation.
 
 Follow the gates in `docs/EXPERIMENT_PLAN.md` exactly:
 

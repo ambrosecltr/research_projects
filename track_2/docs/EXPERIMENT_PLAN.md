@@ -18,10 +18,10 @@ Resolve all W0 refs and all training/development WT refs to immutable Hugging Fa
 
 Pass conditions:
 
-- 16 training lives;
+- 17 training lives, including Pythia 14M seed9;
 - two development lives;
 - one hidden life;
-- 14M seed9 absent;
+- Pythia 14M seed9 W0 and WT resolved for training-data preparation;
 - every materialized file has SHA-256 and byte receipt;
 - source directory is made read-only after materialization.
 
@@ -108,6 +108,8 @@ Both 14M seed8 and 31M seed8 must pass. Otherwise stop and improve the determini
 ## Gate 5 — compiler corpus
 
 Create `GENOME_COMPILER_CORPUS` from accepted training and development programs only.
+The expected complete corpus has 19 records: 17 training and two development.
+Pythia 14M seed9 contributes an endpoint-free compiler input and an accepted fitted target.
 
 Each record contains:
 

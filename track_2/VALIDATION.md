@@ -18,7 +18,7 @@ PYTHONPATH=. python -m genome --help
 Result:
 
 ```text
-17 passed
+18 passed
 4 informational PyTorch Transformer nested-tensor warnings
 0 failures
 0 skips
@@ -28,7 +28,7 @@ The suite covers:
 
 - whole-life and hidden split rules;
 - undeclared and non-monotonic checkpoints;
-- clean Pythia source split;
+- clean 17-training, two-development, one-hidden Pythia source split;
 - hidden WT non-materialization;
 - semantic fingerprint determinism;
 - forbidden MGP primitives;

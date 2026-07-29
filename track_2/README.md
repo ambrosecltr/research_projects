@@ -41,13 +41,15 @@ Only the standard non-deduplicated Pythia/PolyPythia family is used initially.
 
 | Lives | Assignment |
 |---|---|
-| Pythia 14M seeds 0–7 | training |
+| Pythia 14M seeds 0–7 and 9 | training |
 | Pythia 14M seed 8 | development |
 | Pythia 31M seeds 0–7 | training |
 | Pythia 31M seed 8 | development |
 | Pythia 31M seed 9 | fresh hidden evaluation |
 
 The split unit is one complete model life. A checkpoint is not an independent example.
+Pythia 14M seed9 is a normal training life. Its W0 and WT are available during
+training-data preparation, and its accepted compact target may supervise the compiler.
 
 ## Program and functional gates
 

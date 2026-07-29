@@ -18,7 +18,7 @@ W0 + architecture + semantic data/W0 evidence + recipe -> compact MGP -> determi
 6. A target MGP is not supervision until the decoded real model passes both the byte and functional gates.
 7. Weight MSE is diagnostic only. The model must execute and beat W0.
 8. Split by complete model life. Checkpoints from one life inherit its split.
-9. The v1 split contains Pythia 14M seeds0–8 only. Do not add another 14M life.
+9. Pythia 14M seed9 is a training life. Its W0 and WT may be used to fit a compact target and train the compiler.
 10. Pythia 31M seed9 WT remains unresolved and unavailable until a prediction and Runtime output are sealed.
 11. Cryptographic hashes are provenance, not semantic model inputs.
 12. Do not add more model families or sizes before the fresh 31M hidden gate.

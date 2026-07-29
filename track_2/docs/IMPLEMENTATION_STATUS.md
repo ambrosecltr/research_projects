@@ -3,8 +3,8 @@
 ## Ready
 
 - clean Pythia-only source plan;
-- 19-life whole-life split;
-- 14M seed9 completely absent;
+- 20-life whole-life split;
+- 14M seed9 included as the seventeenth training life;
 - sealed 31M seed9 endpoint;
 - immutable ref resolution and file receipts;
 - complete multi-stage model-life schema;

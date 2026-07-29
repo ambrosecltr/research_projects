@@ -47,6 +47,7 @@ genome resolve-source-plan \
 ```
 
 Inspect the pinned plan and source metadata before downloading. Hidden 31M seed9 WT must still have no resolved commit.
+Pythia 14M seed9 is a training life, so its W0 and WT must both be resolved and materialized.
 
 Materialize approved W0/WT snapshots:
 
@@ -76,6 +77,7 @@ Mark `source/hf` read-only after receipts are verified.
 Attach the same new network volume to a GPU pod. Start with a single A40, L40S, RTX 4090, or comparable GPU; Pythia 14M/31M do not justify a premium multi-GPU pod for setup.
 
 The GPU agent must follow `docs/EXPERIMENT_PLAN.md` in order. It must not launch compiler training before both development sizes have accepted compact target programs.
+The complete compiler corpus is expected to contain 17 training records and two development records.
 
 ## Production compiler configuration
 

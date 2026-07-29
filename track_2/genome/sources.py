@@ -68,8 +68,13 @@ class SourcePlan:
         assignments = {life.split for life in self.lives}
         if assignments != {"training", "development", "hidden"}:
             raise ValueError("source plan requires training, development and hidden lives")
-        if any(life.size == "14m" and life.seed == 9 for life in self.lives):
-            raise ValueError("the v1 source contract contains Pythia 14M seeds0–8 only")
+        seed9_14m = [
+            life
+            for life in self.lives
+            if life.size == "14m" and life.seed == 9 and life.split == "training"
+        ]
+        if len(seed9_14m) != 1:
+            raise ValueError("v1 requires Pythia 14M seed9 as a training life")
         hidden = [life for life in self.lives if life.split == "hidden"]
         if len(hidden) != 1 or hidden[0].size != "31m" or hidden[0].seed != 9:
             raise ValueError("v1 requires exactly Pythia 31M seed9 as the fresh hidden life")
@@ -131,9 +136,9 @@ def default_pythia_v1_plan() -> SourcePlan:
     lives: list[PythiaLifeSource] = []
     for size in ("14m", "31m"):
         for seed in range(10):
-            if size == "14m" and seed == 9:
-                continue
-            split: SourceSplit = "training" if seed <= 7 else "development"
+            split: SourceSplit = (
+                "training" if seed <= 7 or (size == "14m" and seed == 9) else "development"
+            )
             if size == "31m" and seed == 9:
                 split = "hidden"
             lives.append(

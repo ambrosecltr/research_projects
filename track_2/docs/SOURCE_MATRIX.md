@@ -19,21 +19,24 @@ The RunPod source-resolution command converts these refs into immutable commit S
 |---|---:|---:|---|---|
 | 14M | 0–7 | 8 | training | available |
 | 14M | 8 | 1 | development | available |
-| 14M | 9 | 0 | excluded | never used |
+| 14M | 9 | 1 | training | available |
 | 31M | 0–7 | 8 | training | available |
 | 31M | 8 | 1 | development | available |
 | 31M | 9 | 1 | hidden | unavailable |
 
-Total initial lives: 19.
+Total initial lives: 20.
 
 ## Initial download set
 
 Download only:
 
-- W0 and WT for 16 training lives;
+- W0 and WT for 17 training lives, including Pythia 14M seed9;
 - W0 and WT for two development lives;
 - W0 only for one hidden life;
 - tokenizer/config files required to load each snapshot.
+
+Pythia 14M seed9 is never a hidden evaluation. Its endpoint-free input and fitted
+compact target may be included in the compiler corpus.
 
 Do not download 154 checkpoints per life. Intermediate checkpoints are not part of the first compiler dataset.
 
