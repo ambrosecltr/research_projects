@@ -83,8 +83,8 @@ bbe67ea9414702d7c7d2a9beb00c07c35ddda020ccfc9d6fbe50ae027aeb0375  ./genome/neura
 20fbf3b38337f7be43a9cc875b0a3fea6558b4db93f0f11e968605ca0b0e4163  ./genome/neural/predictive_compiler.py
 253d9f22fe40f6e166433766a5e4ba781087acc065f741211bc5253c081da7a2  ./genome/polypythia/__init__.py
 59e0577393cecf42712601bb6d84bdf333a8cdce00eb0eac5e678871c2901d6e  ./genome/polypythia/catalog.py
-9371e1ab708cc813f2c1e2129a0658b8572286c3fe83d10bf6a08990edb76793  ./genome/polypythia/cli.py
-e0510903b9bc1a6372eae2d15d724f3ebb5c7defc9752f2599b847c09847e400  ./genome/polypythia/evaluate.py
+fb7f66230cb2372512a287d6a41c455acd5e4853710fbe00b29c580592c5e81f  ./genome/polypythia/cli.py
+d01f539d99a6e1f7c529bbc797c45c53d218499cd97d097a8ed882d183fe2a87  ./genome/polypythia/evaluate.py
 ffc963375af86db97c5e15a189672cb092c78c9b3a1b58d3470bc1ef2279957c  ./genome/polypythia/evidence.py
 810c72f900a068a9c43e0c65142c912d76c6c3dd5c11e57ffaa60470f2053571  ./genome/polypythia/hub.py
 5e584bce7a980643e58703e170a2501658fa56803779950b65d0ee0adbd263b9  ./genome/polypythia/lives.py

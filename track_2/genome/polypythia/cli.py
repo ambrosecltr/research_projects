@@ -22,6 +22,7 @@ from ..neural import (
 )
 from .catalog import load_round_one_catalog
 from .evaluate import (
+    evaluate_development_svd_frontier,
     evaluate_lm_harness_revealed_prediction,
     evaluate_revealed_prediction,
     evaluate_shared_decoder_corpus,
@@ -304,6 +305,40 @@ def evaluate_decoder_command(
         sequence_length=sequence_length,
         batch_size=batch_size,
         max_batches=max_batches,
+    )
+    typer.echo(json.dumps(result, indent=2))
+
+
+@app.command("evaluate-svd-frontier")
+def evaluate_svd_frontier_command(
+    corpus: Path = typer.Option(..., exists=True, file_okay=False),
+    model_config: Path = typer.Option(..., exists=True, readable=True),
+    tokenizer: Path = typer.Option(..., exists=True, file_okay=False),
+    evaluation_texts: Path = typer.Option(..., exists=True, readable=True),
+    output: Path = typer.Option(...),
+    ranks: str = typer.Option("0,8,16,32,48,64,80,96,112,128"),
+    device: str = typer.Option("cuda"),
+    sequence_length: int = typer.Option(512, min=8),
+    batch_size: int = typer.Option(4, min=1),
+) -> None:
+    """Evaluate the matched fp16 SVD representation frontier on seed8."""
+    canonical = load_canonical_life_corpus(corpus)
+    development = canonical.for_split("development")
+    if len(development) != 1:
+        raise typer.BadParameter("canonical corpus must contain one development life")
+    parsed_ranks = tuple(int(item.strip()) for item in ranks.split(",") if item.strip())
+    result = evaluate_development_svd_frontier(
+        development[0],
+        tensor_specs=canonical.inventory,
+        tied_groups=canonical.tied_groups,
+        ranks=parsed_ranks,
+        config_path=model_config,
+        tokenizer_path=tokenizer,
+        evaluation_texts_path=evaluation_texts,
+        output_path=output,
+        device=device,
+        sequence_length=sequence_length,
+        batch_size=batch_size,
     )
     typer.echo(json.dumps(result, indent=2))
 

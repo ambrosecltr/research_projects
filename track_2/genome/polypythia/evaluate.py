@@ -29,6 +29,8 @@ from ..metrics import logits_kl, parameter_metrics, topk_agreement
 from ..mgp.interpreter import decode_program
 from ..mgp.serializer import load_program
 from ..neural.multilife_decoder import load_shared_decoder
+from ..state import apply_delta, compute_delta
+from ..tensor_inventory import tied_owner_map
 from ..types import TensorSpec
 from .lives import CanonicalModelLife
 
@@ -480,6 +482,166 @@ def _matched_state_evaluation(
         "true_WT": target_eval,
         "decoded_vs_true": comparison,
     }
+
+
+def evaluate_development_svd_frontier(
+    development_life: CanonicalModelLife,
+    *,
+    tensor_specs: Sequence[TensorSpec],
+    tied_groups: Sequence[Sequence[str]],
+    ranks: Sequence[int],
+    config_path: str | Path,
+    tokenizer_path: str | Path,
+    evaluation_texts_path: str | Path,
+    output_path: str | Path,
+    device: str = "cuda",
+    sequence_length: int = 512,
+    batch_size: int = 4,
+    anchors_per_batch: int = 8,
+) -> dict[str, Any]:
+    if development_life.split != "development":
+        raise ValueError("SVD frontier requires one development-split life")
+    checked_ranks = tuple(sorted(set(ranks)))
+    if not checked_ranks or any(
+        isinstance(rank, bool) or not isinstance(rank, int) or rank < 0
+        for rank in checked_ranks
+    ):
+        raise ValueError("SVD frontier ranks must be non-negative integers")
+    destination = Path(output_path)
+    if destination.exists():
+        raise FileExistsError(destination)
+
+    base = development_life.load_base()
+    target = development_life.load_target()
+    delta = compute_delta(base, target, tensor_specs)
+    aliases = tied_owner_map(tied_groups)
+    unique_specs = [spec for spec in tensor_specs if spec.name not in aliases]
+    matrix_specs = [spec for spec in unique_specs if len(spec.shape) == 2]
+    maximum_rank = max(min(spec.shape) for spec in matrix_specs)
+    if checked_ranks[-1] > maximum_rank:
+        raise ValueError("SVD frontier rank exceeds the largest matrix rank")
+
+    active_device = torch.device(device)
+    factors: dict[str, tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = {}
+    with torch.inference_mode():
+        for spec in matrix_specs:
+            u, singular, vh = torch.linalg.svd(
+                delta[spec.name].to(device=active_device, dtype=torch.float32),
+                full_matrices=False,
+            )
+            factors[spec.name] = (
+                u.to(dtype=torch.float16, device="cpu"),
+                singular.to(dtype=torch.float16, device="cpu"),
+                vh.to(dtype=torch.float16, device="cpu"),
+            )
+
+    texts = load_evaluation_texts(evaluation_texts_path)
+    batches = _token_batches(
+        texts,
+        tokenizer_path=tokenizer_path,
+        sequence_length=sequence_length,
+        batch_size=batch_size,
+        max_batches=None,
+    )
+    base_evaluation = _evaluate_state(
+        base,
+        config_path=config_path,
+        batches=batches,
+        device=device,
+        anchors_per_batch=anchors_per_batch,
+    )
+    target_evaluation = _evaluate_state(
+        target,
+        config_path=config_path,
+        batches=batches,
+        device=device,
+        anchors_per_batch=anchors_per_batch,
+    )
+
+    candidates = []
+    for rank in checked_ranks:
+        reconstructed_delta = {}
+        payload_values = 0
+        with torch.inference_mode():
+            for spec in tensor_specs:
+                if spec.name in aliases:
+                    reconstructed_delta[spec.name] = torch.zeros_like(delta[spec.name])
+                elif len(spec.shape) == 2:
+                    u, singular, vh = factors[spec.name]
+                    active_rank = min(rank, singular.numel())
+                    if active_rank == 0:
+                        value = torch.zeros_like(delta[spec.name])
+                    else:
+                        left = u[:, :active_rank].to(device=active_device, dtype=torch.float32)
+                        scale = singular[:active_rank].to(
+                            device=active_device,
+                            dtype=torch.float32,
+                        )
+                        right = vh[:active_rank].to(
+                            device=active_device,
+                            dtype=torch.float32,
+                        )
+                        value = ((left * scale) @ right).cpu()
+                    reconstructed_delta[spec.name] = value
+                    payload_values += active_rank * (spec.shape[0] + spec.shape[1] + 1)
+                else:
+                    reconstructed_delta[spec.name] = (
+                        delta[spec.name].to(torch.float16).to(torch.float32)
+                    )
+                    payload_values += spec.numel
+        candidate = apply_delta(
+            base,
+            reconstructed_delta,
+            tensor_specs,
+            tied_groups=tied_groups,
+        )
+        candidate_evaluation = _evaluate_state(
+            candidate,
+            config_path=config_path,
+            batches=batches,
+            device=device,
+            anchors_per_batch=anchors_per_batch,
+        )
+        comparison = _function_comparison(candidate_evaluation, target_evaluation)
+        candidate_evaluation.pop("anchors")
+        candidates.append(
+            {
+                "rank_per_matrix": rank,
+                "factor_dtype": "float16",
+                "payload_bytes_per_life": payload_values * 2,
+                "parameter_metrics": parameter_metrics(candidate, target, tensor_specs),
+                "functional": {
+                    "candidate": candidate_evaluation,
+                    "candidate_vs_true": comparison,
+                },
+            }
+        )
+
+    base_evaluation.pop("anchors")
+    target_evaluation.pop("anchors")
+    result = {
+        "format": "GENOME_DEVELOPMENT_SVD_FRONTIER",
+        "version": "0.1.0",
+        "research_level": "G0",
+        "development_run_id": development_life.run_id,
+        "target_endpoint_seen": True,
+        "hidden_endpoints_seen": False,
+        "factor_dtype": "float16",
+        "ranks": list(checked_ranks),
+        "evaluation_corpus_sha256": sha256_file(evaluation_texts_path),
+        "evaluation": {
+            "sequence_length": sequence_length,
+            "batch_size": batch_size,
+            "batch_count": len(batches),
+            "anchors_per_batch": anchors_per_batch,
+            "W0": base_evaluation,
+            "true_WT": target_evaluation,
+        },
+        "candidates": candidates,
+    }
+    result["content_sha256"] = sha256_json(result)
+    write_json(destination, result, canonical=True)
+    return result
 
 
 def evaluate_shared_decoder_corpus(
