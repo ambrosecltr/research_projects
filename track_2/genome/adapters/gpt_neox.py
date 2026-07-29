@@ -60,7 +60,7 @@ class GPTNeoXAdapter:
         revision: str,
         cache_dir: str | Path,
         local_files_only: bool = False,
-        torch_dtype: torch.dtype = torch.float32,
+        dtype: torch.dtype = torch.float32,
     ) -> tuple[Any, Any]:
         try:
             from transformers import AutoTokenizer, GPTNeoXForCausalLM
@@ -71,7 +71,7 @@ class GPTNeoXAdapter:
             revision=revision,
             cache_dir=str(cache_dir),
             local_files_only=local_files_only,
-            torch_dtype=torch_dtype,
+            dtype=dtype,
         )
         tokenizer = AutoTokenizer.from_pretrained(
             repo_id,

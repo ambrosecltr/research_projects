@@ -180,7 +180,9 @@ def fingerprint_w0(
         from transformers import GPTNeoXForCausalLM
     except ImportError as error:
         raise typer.BadParameter("transformers is required") from error
-    model = GPTNeoXForCausalLM.from_pretrained(str(snapshot), local_files_only=True, torch_dtype=torch.float32)
+    model = GPTNeoXForCausalLM.from_pretrained(
+        str(snapshot), local_files_only=True, dtype=torch.float32
+    )
     graph = GPTNeoXAdapter.graph(model.state_dict(), model.config.to_dict())
     roles = {node.name: node.role for node in graph.tensors}
     bundle = w0_response_fingerprint(
@@ -246,13 +248,13 @@ def refine_compact_target(
     except ImportError as error:
         raise typer.BadParameter("transformers is required") from error
     model = GPTNeoXForCausalLM.from_pretrained(
-        str(w0_snapshot), local_files_only=True, torch_dtype=torch.float32
+        str(w0_snapshot), local_files_only=True, dtype=torch.float32
     )
     base_state = GPTNeoXAdapter.canonical_state(model.state_dict())
     teacher = None
     if teacher_snapshot is not None:
         teacher = GPTNeoXForCausalLM.from_pretrained(
-            str(teacher_snapshot), local_files_only=True, torch_dtype=torch.float32
+            str(teacher_snapshot), local_files_only=True, dtype=torch.float32
         )
     program, payloads, _ = load_program(program_path)
     refined = refine_program_functionally(
@@ -333,11 +335,15 @@ def evaluate_program_command(
         from transformers import GPTNeoXConfig, GPTNeoXForCausalLM
     except ImportError as error:
         raise typer.BadParameter("transformers is required") from error
-    w0_model = GPTNeoXForCausalLM.from_pretrained(str(w0_snapshot), local_files_only=True, torch_dtype=torch.float32)
+    w0_model = GPTNeoXForCausalLM.from_pretrained(
+        str(w0_snapshot), local_files_only=True, dtype=torch.float32
+    )
     w0 = GPTNeoXAdapter.canonical_state(w0_model.state_dict())
     endpoint_state = None
     if wt_snapshot is not None:
-        wt_model = GPTNeoXForCausalLM.from_pretrained(str(wt_snapshot), local_files_only=True, torch_dtype=torch.float32)
+        wt_model = GPTNeoXForCausalLM.from_pretrained(
+            str(wt_snapshot), local_files_only=True, dtype=torch.float32
+        )
         endpoint_state = GPTNeoXAdapter.canonical_state(wt_model.state_dict())
     config = GPTNeoXConfig.from_pretrained(str(w0_snapshot), local_files_only=True)
     program, payloads, _ = load_program(program_path)

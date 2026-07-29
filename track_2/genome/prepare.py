@@ -36,7 +36,7 @@ def _canonicalize_snapshot(
     except ImportError as error:  # pragma: no cover
         raise RuntimeError("transformers is required to canonicalize Pythia lives") from error
     model = GPTNeoXForCausalLM.from_pretrained(
-        str(snapshot), local_files_only=True, torch_dtype=torch.float32
+        str(snapshot), local_files_only=True, dtype=torch.float32
     )
     model.eval()
     native = model.state_dict()
