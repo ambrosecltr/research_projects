@@ -1,0 +1,67 @@
+name: Track 2 diagnostic
+
+on:
+  pull_request:
+    paths:
+      - "track_2/**"
+      - ".github/workflows/track2-diagnostic.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout pull request without marketplace actions
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote remove origin 2>/dev/null || true
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth 1 origin "${PR_HEAD_SHA}"
+          git checkout --detach FETCH_HEAD
+
+      - name: Compile, test, and post exact result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set +e
+          {
+            python3 --version
+            cd track_2
+            python3 -m venv .ci-venv
+            .ci-venv/bin/python -m pip install --upgrade pip
+            .ci-venv/bin/python -m pip install -e '.[dev,evaluation]'
+            .ci-venv/bin/python -m compileall -q genome tests
+            .ci-venv/bin/python -m pytest -q
+          } 2>&1 | tee /tmp/track2-diagnostic.log
+          status=${PIPESTATUS[0]}
+          set -e
+
+          if [ "${status}" -eq 0 ]; then
+            result="PASS"
+          else
+            result="FAIL (${status})"
+          fi
+          {
+            echo "### Track 2 diagnostic: ${result}"
+            echo
+            echo "Commit: \`${GITHUB_SHA}\`"
+            echo
+            echo '```text'
+            tail -n 300 /tmp/track2-diagnostic.log
+            echo '```'
+          } > /tmp/track2-comment.md
+
+          if [ -n "${PR_NUMBER}" ]; then
+            gh pr comment "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" --body-file /tmp/track2-comment.md
+          fi
+          exit "${status}"
