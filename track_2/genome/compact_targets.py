@@ -239,6 +239,9 @@ def fit_compact_svd_target(
     metadata = dict(manifest_metadata or {})
     metadata.update(
         {
+            # Target labels must have a stable serialized identity. make_manifest permits
+            # metadata to override its wall-clock field, so compiler labels pin it to zero.
+            "created_unix": 0.0,
             "compiler_target": True,
             "contains_exact_residual": False,
             "contains_dense_matrix_delta": False,
