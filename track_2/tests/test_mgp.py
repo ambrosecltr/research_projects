@@ -6,8 +6,19 @@ import pytest
 import torch
 
 from genome.architecture import graph_from_state
-from genome.mgp import Component, FitConfig, ModelGenomeProgram, TensorProgram, audit_program, execute_program, fit_low_rank_program, load_program, save_program
+from genome.mgp import (
+    Component,
+    FitConfig,
+    ModelGenomeProgram,
+    TensorProgram,
+    audit_program,
+    execute_program,
+    fit_low_rank_program,
+    load_program,
+    save_program,
+)
 from genome.mgp.policy import ProgramPolicy
+from genome.mgp.serialize import serialized_program_bytes
 from genome.state import direct_fp16_delta_bytes
 
 
@@ -36,7 +47,9 @@ def test_only_compact_primitives_exist() -> None:
 def test_fit_serialize_execute_and_audit(tmp_path: Path) -> None:
     w0, wt = states()
     graph = graph_from_state(w0, family="toy", config={})
-    program, payloads = fit_low_rank_program(w0, wt, graph, config=FitConfig(budget_fraction=0.5, max_rank=4))
+    program, payloads = fit_low_rank_program(
+        w0, wt, graph, config=FitConfig(budget_fraction=0.5, max_rank=4)
+    )
     accounting = save_program(tmp_path / "program", program, payloads)
     loaded, loaded_payloads, manifest = load_program(tmp_path / "program")
     candidate = execute_program(w0, loaded, loaded_payloads)
@@ -54,6 +67,31 @@ def test_fit_serialize_execute_and_audit(tmp_path: Path) -> None:
     assert manifest["program_id"] == accounting["program_id"]
 
 
+def test_fit_can_account_for_complete_serialized_size(tmp_path: Path) -> None:
+    torch.manual_seed(11)
+    w0 = {"weight": torch.randn(256, 256)}
+    wt = {"weight": w0["weight"] + torch.randn(256, 8) @ torch.randn(8, 256)}
+    graph = graph_from_state(w0, family="toy", config={})
+    budget_fraction = 0.10
+    program, payloads = fit_low_rank_program(
+        w0,
+        wt,
+        graph,
+        config=FitConfig(
+            budget_fraction=budget_fraction,
+            max_rank=8,
+            account_for_serialization=True,
+        ),
+    )
+
+    direct_bytes = direct_fp16_delta_bytes(wt)
+    estimated_bytes = serialized_program_bytes(program, payloads)
+    accounting = save_program(tmp_path / "program", program, payloads)
+
+    assert estimated_bytes == accounting["total_bytes"]
+    assert accounting["total_bytes"] <= direct_bytes * budget_fraction
+
+
 def test_policy_rejects_noncompact_low_rank() -> None:
     program = ModelGenomeProgram(
         architecture_id="a",
@@ -64,7 +102,9 @@ def test_policy_rejects_noncompact_low_rank() -> None:
                 shape=(4, 4),
                 components=(
                     Component("BASE_COPY"),
-                    Component("LOW_RANK", payload={"left": "l", "right": "r"}, arguments={"rank": 4}),
+                    Component(
+                        "LOW_RANK", payload={"left": "l", "right": "r"}, arguments={"rank": 4}
+                    ),
                 ),
             ),
         ),

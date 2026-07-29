@@ -1,8 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Iterable, Mapping
 
 import torch
 import torch.nn.functional as F
@@ -13,6 +12,7 @@ from ..hashing import stable_u64
 from ..state import state_id
 from .runtime import execute_program
 from .schema import Component, ModelGenomeProgram, TensorProgram
+from .serialize import serialized_program_bytes
 
 
 @dataclass(frozen=True)
@@ -20,6 +20,7 @@ class FitConfig:
     budget_fraction: float = 0.10
     max_rank: int = 32
     vector_quantization: bool = True
+    account_for_serialization: bool = False
     svd_method: str = "randomized"
     oversample: int = 8
     power_iterations: int = 4
@@ -27,8 +28,9 @@ class FitConfig:
     device: str = "cpu"
 
 
-
-def _canonicalize_svd_signs(left: torch.Tensor, right: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+def _canonicalize_svd_signs(
+    left: torch.Tensor, right: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
     left = left.clone()
     right = right.clone()
     for column in range(left.shape[1]):
@@ -47,9 +49,12 @@ def _quantize_vector(delta: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     return values, scale.reshape(1)
 
 
-
-def _truncated_svd(delta: torch.Tensor, name: str, config: FitConfig) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    device = torch.device(config.device if config.device != "cuda" or torch.cuda.is_available() else "cpu")
+def _truncated_svd(
+    delta: torch.Tensor, name: str, config: FitConfig
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    device = torch.device(
+        config.device if config.device != "cuda" or torch.cuda.is_available() else "cpu"
+    )
     values = delta.to(device)
     limit = min(config.max_rank, min(values.shape))
     if limit <= 0:
@@ -65,6 +70,7 @@ def _truncated_svd(delta: torch.Tensor, name: str, config: FitConfig) -> tuple[t
         torch.manual_seed(config.seed + int(stable_u64(name) % 1_000_000))
         u, s, v = torch.svd_lowrank(values, q=q, niter=config.power_iterations)
     return u[:, :limit].cpu(), s[:limit].cpu(), v[:, :limit].transpose(0, 1).cpu()
+
 
 def fit_low_rank_program(
     base_state: Mapping[str, torch.Tensor],
@@ -117,61 +123,101 @@ def fit_low_rank_program(
             energy = float(s[index].square())
             score = energy / max(1, bytes_for_component)
             candidates.append((score, bytes_for_component, name, index, u, s, vh))
-    remaining = max(0, budget - vector_cost)
-    selected: dict[str, int] = {}
-    for _, cost, name, index, *_ in sorted(candidates, key=lambda item: item[0], reverse=True):
-        if cost > remaining:
-            continue
-        if index != selected.get(name, 0):
-            # Components must be prefixes of the ordered SVD for deterministic rank semantics.
-            continue
-        selected[name] = index + 1
-        remaining -= cost
-    programs: list[TensorProgram] = []
     svd_cache: dict[str, tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = {}
     for item in candidates:
         name = item[2]
         svd_cache.setdefault(name, (item[4], item[5], item[6]))
-    for node in graph.tensors:
-        if node.tied_to is not None:
+
+    def assemble(
+        allocation_budget: int,
+    ) -> tuple[
+        ModelGenomeProgram,
+        dict[str, torch.Tensor],
+        int,
+    ]:
+        remaining = max(0, allocation_budget - vector_cost)
+        selected: dict[str, int] = {}
+        selected_cost = 0
+        for _, cost, name, index, *_ in sorted(candidates, key=lambda item: item[0], reverse=True):
+            if cost > remaining:
+                continue
+            if index != selected.get(name, 0):
+                # Components must be prefixes of the ordered SVD.
+                continue
+            selected[name] = index + 1
+            remaining -= cost
+            selected_cost += cost
+        selected_payloads = dict(payloads)
+        programs: list[TensorProgram] = []
+        for node in graph.tensors:
+            if node.tied_to is not None:
+                programs.append(
+                    TensorProgram(
+                        name=node.name,
+                        shape=node.shape,
+                        tied_to=node.tied_to,
+                        components=(
+                            Component(
+                                "COPY_FROM_TIED",
+                                arguments={"owner": node.tied_to},
+                            ),
+                        ),
+                    )
+                )
+                continue
+            components: list[Component] = [Component("BASE_COPY")]
+            rank = selected.get(node.name, 0)
+            if rank:
+                u, s, vh = svd_cache[node.name]
+                root = s[:rank].sqrt()
+                left = u[:, :rank] * root.unsqueeze(0)
+                right = vh[:rank, :].transpose(0, 1) * root.unsqueeze(0)
+                left, right = _canonicalize_svd_signs(left, right)
+                prefix = f"tensor.{node.index}.low_rank"
+                selected_payloads[f"{prefix}.left"] = left.to(torch.float16)
+                selected_payloads[f"{prefix}.right"] = right.to(torch.float16)
+                components.append(
+                    Component(
+                        primitive="LOW_RANK",
+                        payload={
+                            "left": f"{prefix}.left",
+                            "right": f"{prefix}.right",
+                        },
+                        arguments={"rank": rank},
+                    )
+                )
+            elif node.name in vector_components:
+                components.append(vector_components[node.name])
             programs.append(
                 TensorProgram(
                     name=node.name,
                     shape=node.shape,
-                    tied_to=node.tied_to,
-                    components=(Component("COPY_FROM_TIED", arguments={"owner": node.tied_to}),),
+                    components=tuple(components),
                 )
             )
-            continue
-        components: list[Component] = [Component("BASE_COPY")]
-        rank = selected.get(node.name, 0)
-        if rank:
-            u, s, vh = svd_cache[node.name]
-            root = s[:rank].sqrt()
-            left = u[:, :rank] * root.unsqueeze(0)
-            right = vh[:rank, :].transpose(0, 1) * root.unsqueeze(0)
-            left, right = _canonicalize_svd_signs(left, right)
-            prefix = f"tensor.{node.index}.low_rank"
-            payloads[f"{prefix}.left"] = left.to(torch.float16)
-            payloads[f"{prefix}.right"] = right.to(torch.float16)
-            components.append(
-                Component(
-                    primitive="LOW_RANK",
-                    payload={"left": f"{prefix}.left", "right": f"{prefix}.right"},
-                    arguments={"rank": rank},
-                )
-            )
-        elif node.name in vector_components:
-            components.append(vector_components[node.name])
-        programs.append(TensorProgram(name=node.name, shape=node.shape, components=tuple(components)))
-    return (
-        ModelGenomeProgram(
+        program = ModelGenomeProgram(
             architecture_id=graph.graph_id,
             base_state_id=state_id(base_state),
             tensors=tuple(programs),
-        ),
-        payloads,
-    )
+        )
+        used = vector_cost + selected_cost
+        return program, selected_payloads, used
+
+    allocation_budget = budget
+    while True:
+        program, selected_payloads, used = assemble(allocation_budget)
+        if not config.account_for_serialization:
+            return program, selected_payloads
+        serialized_bytes = serialized_program_bytes(program, selected_payloads)
+        if serialized_bytes <= budget:
+            return program, selected_payloads
+        if used <= vector_cost:
+            raise ValueError("serialized program metadata and quantized vectors exceed the budget")
+        overshoot = serialized_bytes - budget
+        allocation_budget = min(
+            allocation_budget - overshoot,
+            used - 1,
+        )
 
 
 class TrainableProgram(torch.nn.Module):
@@ -195,7 +241,9 @@ class TrainableProgram(torch.nn.Module):
         return result
 
     def materialize(self, base_state: Mapping[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        return execute_program(base_state, self.program, self.payloads(), output_dtype=torch.float32)
+        return execute_program(
+            base_state, self.program, self.payloads(), output_dtype=torch.float32
+        )
 
 
 def refine_program_functionally(
@@ -222,7 +270,9 @@ def refine_program_functionally(
     for step in range(steps):
         batch = {key: value.to(device) for key, value in cached[step % len(cached)].items()}
         optimizer.zero_grad(set_to_none=True)
-        state = {name: tensor.to(device) for name, tensor in trainable.materialize(base_state).items()}
+        state = {
+            name: tensor.to(device) for name, tensor in trainable.materialize(base_state).items()
+        }
         outputs = functional_call(model, state, (), batch)
         loss = outputs.loss
         if loss is None:

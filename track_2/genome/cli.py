@@ -7,27 +7,53 @@ from typing import Optional
 
 import torch
 import typer
-from safetensors.torch import load_file, save_file
 
 from .acceptance import accept_target_program
 from .adapters import GPTNeoXAdapter
 from .architecture import ArchitectureGraph
-from .compiler import CompilerConfig, CompilerCorpus, GenomeCompiler, TrainingConfig, build_compiler_example, train_compiler
+from .compiler import (
+    CompilerConfig,
+    CompilerCorpus,
+    GenomeCompiler,
+    TrainingConfig,
+    build_compiler_example,
+    train_compiler,
+)
 from .data import causal_batches_from_jsonl, raw_texts_from_jsonl, token_sequences_from_jsonl
 from .evaluation import FunctionalGate, evaluate_program
-from .fingerprint import FingerprintBundle, corpus_fingerprint, merge_fingerprints, w0_response_fingerprint
+from .fingerprint import (
+    FingerprintBundle,
+    corpus_fingerprint,
+    merge_fingerprints,
+    w0_response_fingerprint,
+)
 from .hidden import build_prediction_seal
 from .io import atomic_write_json, load_json, load_yaml
 from .life import ModelLife
-from .mgp import ProgramPolicy, audit_program, execute_program, fit_low_rank_program, load_program, refine_program_functionally, save_program
+from .mgp import (
+    audit_program,
+    execute_program,
+    fit_low_rank_program,
+    load_program,
+    refine_program_functionally,
+    save_program,
+)
 from .mgp.fit import FitConfig
-from .sources import SourcePlan, default_pythia_v1_plan, materialize_plan, resolve_plan, reveal_hidden_endpoint
-from .sampling import prepare_dataset_sample
 from .prepare import canonicalize_pythia_life, prepare_pythia_life
+from .sampling import prepare_dataset_sample
+from .sources import (
+    SourcePlan,
+    default_pythia_v1_plan,
+    materialize_plan,
+    resolve_plan,
+    reveal_hidden_endpoint,
+)
 from .state import direct_fp16_delta_bytes, load_state, save_state, state_id
 from .workspace import initialize_workspace
 
-app = typer.Typer(no_args_is_help=True, help="GENOME: compile model lives into compact executable model programs.")
+app = typer.Typer(
+    no_args_is_help=True, help="GENOME: compile model lives into compact executable model programs."
+)
 
 
 def _echo_json(value) -> None:
@@ -35,7 +61,9 @@ def _echo_json(value) -> None:
 
 
 @app.command("init-workspace")
-def init_workspace(root: Path = typer.Option(..., help="Fresh RunPod network-volume workspace root.")) -> None:
+def init_workspace(
+    root: Path = typer.Option(..., help="Fresh RunPod network-volume workspace root."),
+) -> None:
     _echo_json(initialize_workspace(root))
 
 
@@ -135,7 +163,9 @@ def canonicalize_life_command(
 @app.command("validate-life")
 def validate_life(path: Path) -> None:
     life = ModelLife.load(path)
-    _echo_json({"run_id": life.run_id, "split": life.split, "manifest_id": life.manifest_id, "valid": True})
+    _echo_json(
+        {"run_id": life.run_id, "split": life.split, "manifest_id": life.manifest_id, "valid": True}
+    )
 
 
 @app.command("export-graph")
@@ -215,7 +245,18 @@ def fit_compact_target(
     w0 = load_state(w0_path)
     wt = load_state(wt_path)
     graph = ArchitectureGraph.from_dict(load_json(graph_path))
-    program, payloads = fit_low_rank_program(w0, wt, graph, config=FitConfig(budget_fraction=budget_fraction, max_rank=max_rank, svd_method=svd_method, device=device))
+    program, payloads = fit_low_rank_program(
+        w0,
+        wt,
+        graph,
+        config=FitConfig(
+            budget_fraction=budget_fraction,
+            max_rank=max_rank,
+            account_for_serialization=True,
+            svd_method=svd_method,
+            device=device,
+        ),
+    )
     accounting = save_program(output, program, payloads)
     audit = audit_program(
         program,
@@ -408,7 +449,9 @@ def compile_program(
     )
     compiler = GenomeCompiler(config)
     compiler.load_state_dict(load_safe(str(compiler_path), device="cpu"), strict=True)
-    program, payloads = compiler.generate_program(example, direct_fp16_delta_bytes=direct_fp16_delta_bytes(w0))
+    program, payloads = compiler.generate_program(
+        example, direct_fp16_delta_bytes=direct_fp16_delta_bytes(w0)
+    )
     accounting = save_program(output, program, payloads)
     decoded = execute_program(w0, program, payloads)
     save_state(output / "candidate.safetensors", decoded)
