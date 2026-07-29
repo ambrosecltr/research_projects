@@ -25,8 +25,8 @@ Commands:
 Result:
 
 ```text
-38 passed
-5 informational PyTorch nested-tensor warnings
+39 passed
+6 informational PyTorch nested-tensor warnings
 0 failures
 0 skips
 ```
@@ -45,8 +45,8 @@ RTX 4090
 Result:
 
 ```text
-38 passed
-5 informational PyTorch nested-tensor warnings
+39 passed
+6 informational PyTorch nested-tensor warnings
 0 failures
 ```
 
@@ -61,6 +61,8 @@ The suite covers:
 - compact-program fitting, serialization, Runtime, and audit;
 - matrix scales, low-rank factors, and direct vectors;
 - compiler byte limits;
+- shared compiler vocabulary payloads;
+- primitive and matrix-rank metrics;
 - complete compiler-corpus construction;
 - compiler training and checkpoint resume;
 - workspace and command boundaries.

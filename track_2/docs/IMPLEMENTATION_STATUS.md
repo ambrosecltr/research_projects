@@ -19,6 +19,9 @@
 - functional compact-coefficient refinement;
 - compiler output for matrix scaling, low-rank factors, and direct vectors;
 - compiler byte accounting for those instructions;
+- one shared compiler vocabulary factor;
+- primitive and matrix-rank accuracy metrics;
+- matrix-only rank supervision;
 - automatic 19-record compiler-corpus construction;
 - compiler training, checkpointing, and resume;
 - prediction sealing.
@@ -34,8 +37,9 @@
 
 ## RunPod active
 
-Gate 4 is applying the fixed formula to all training lives. Pythia 14M seed1 is
-the current job.
+Gate 4 is applying the fixed formula to all training lives. Pythia 14M seeds0,
+seed1, and seed2 are accepted. Pythia 14M seed3 is the current job. Safe queues
+will continue through Pythia 14M seed9 and Pythia 31M training seeds0–7.
 
 ## RunPod remaining
 

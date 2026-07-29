@@ -32,16 +32,16 @@ The local branch is:
 track_2/pythia-seed9-training
 ```
 
-The local repository commit at this handoff is:
+The latest synced local implementation commit at this handoff is:
 
 ```text
-93be185af603fb09e284990c60d3f9ef0ee66071
+02facf6408146329ad82880bd5ea7197943cda19
 ```
 
-The matching RunPod tree has the same changes. Its commit is:
+The matching RunPod implementation commit is:
 
 ```text
-a9b480893579ce8225cd8490986e850d4f05e018
+92e6fa1e4a0d5461c3cb54b5db6d5b6de73ea6a0
 ```
 
 The hashes differ because the commits were copied with `git am`. The file content
@@ -60,8 +60,8 @@ Transformers 4.57.6
 The current RunPod test result is:
 
 ```text
-38 passed
-5 informational PyTorch nested-tensor warnings
+39 passed
+6 informational PyTorch nested-tensor warnings
 0 failures
 ```
 
@@ -101,52 +101,67 @@ The selected formula uses:
 - teacher KL weight 1.0;
 - no payload anchor.
 
+The compiler now emits the same active instruction family. It also reuses one
+generated vocabulary factor, counts all serialized payload terms, reports
+primitive and matrix-rank accuracy, and masks rank loss for tensors that do not
+have a rank.
+
 ## Work in progress
 
 Gate 4 is applying the fixed formula to every training life.
 
-At the time of this handoff, Pythia 14M seed1 is running in the background.
+Accepted training results so far:
+
+| Life | Endpoint progress |
+|---|---:|
+| Pythia 14M seed0 | 83.8524% |
+| Pythia 14M seed1 | 81.8775% |
+| Pythia 14M seed2 | 81.4617% |
+
+Pythia 14M seed3 is the active target.
 
 ```text
-PID: 19629
-Log: /workspace/genome_v1/logs/target-pythia-14m-seed1-formula-v2.log
+14M queue PID:        21116
+14M queue log:        /workspace/genome_v1/logs/target-pythia-14m-remaining-formula-v2.log
+31M queue PID:        21144
+31M queue log:        /workspace/genome_v1/logs/target-pythia-31m-training-formula-v2.log
+Corpus watcher PID:   21242
+Corpus watcher log:   /workspace/genome_v1/logs/build-compiler-corpus.log
 ```
 
-Check it with:
+Check the queues with:
 
 ```bash
-ps -p 19629 -o pid=,etime=,stat=
-tail -50 /workspace/genome_v1/logs/target-pythia-14m-seed1-formula-v2.log
+ps -p 21116,21144,21242 -o pid=,etime=,stat=
+tail -50 /workspace/genome_v1/logs/target-pythia-14m-remaining-formula-v2.log
 ```
+
+The 14M queue runs seeds3–7 and seed9 one at a time. The 31M queue cannot start
+until every required 14M life is accepted. It then runs training seeds0–7. The
+corpus watcher cannot write the corpus until all 19 training and development
+programs are accepted. Each queue stops on the first failed command.
 
 If a target does not pass the declared 80% gate, stop the target queue. Do not
 train the compiler with a rejected target.
 
 ## Next gates
 
-After all 17 training targets and both development targets have accepted programs:
+After all 17 training targets and both development targets have accepted programs,
+the active corpus watcher will build:
 
-1. Put each accepted program at
-   `/workspace/genome_v1/programs/accepted/<run-id>`.
-2. Build the 19-record corpus:
-
-```bash
-cd /workspace/genome_v1/repo/track_2
-python3 -m genome.cli build-compiler-corpus \
-  --plan /workspace/genome_v1/control/pythia_v1.pinned.json \
-  --workspace /workspace/genome_v1 \
-  --program-root /workspace/genome_v1/programs/accepted \
-  --probe-jsonl /workspace/genome_v1/evidence/corpus/probes/refinement.jsonl \
-  --output /workspace/genome_v1/compiler/corpus/pythia_v1.json
+```text
+/workspace/genome_v1/compiler/corpus/pythia_v1.json
 ```
 
-3. Check that the command reports 17 training, two development, and 19 total.
-4. Run the tiny compiler smoke and checkpoint-resume test.
-5. Start production compiler training only after the smoke gates pass.
-6. Select the compiler checkpoint with the two development lives only.
-7. Compile one Pythia 31M seed9 candidate.
-8. Seal all required hashes.
-9. Reveal hidden WT only after the seal.
-10. Report the one-shot hidden result before any repair.
+Then:
+
+1. Check that the corpus reports 17 training, two development, and 19 total.
+2. Run the tiny compiler smoke and checkpoint-resume test.
+3. Start production compiler training only after the smoke gates pass.
+4. Select the compiler checkpoint with the two development lives only.
+5. Compile one Pythia 31M seed9 candidate.
+6. Seal all required hashes.
+7. Reveal hidden WT only after the seal.
+8. Report the one-shot hidden result before any repair.
 
 Do not push. Commit local changes only.
