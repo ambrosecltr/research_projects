@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from .evaluation import ComparisonResult, EvaluationResult, FunctionalGate
 from .hashing import sha256_file
@@ -21,6 +22,12 @@ def _comparison(value: Mapping[str, Any]) -> ComparisonResult:
         w0=_evaluation(value["w0"]),
         candidate=_evaluation(value["candidate"]),
         endpoint=None if value.get("endpoint") is None else _evaluation(value["endpoint"]),
+        decode_seconds=float(value["decode_seconds"]),
+        parameter_distortion=(
+            None
+            if value.get("parameter_distortion") is None
+            else float(value["parameter_distortion"])
+        ),
         endpoint_progress=value.get("endpoint_progress"),
         candidate_beats_w0=bool(value["candidate_beats_w0"]),
         logit_kl_to_endpoint=value.get("logit_kl_to_endpoint"),
