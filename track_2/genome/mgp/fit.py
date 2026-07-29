@@ -27,6 +27,7 @@ class FitConfig:
     matrix_scaling: bool = False
     shared_vocabulary_factors: bool = False
     scaling_iterations: int = 8
+    direct_vectors: bool = False
     vector_quantization: bool = True
     account_for_serialization: bool = False
     svd_method: str = "randomized"
@@ -147,18 +148,26 @@ def fit_low_rank_program(
         delta = target_state[name].detach().cpu().float() - base_state[name].detach().cpu().float()
         if node.tied_to is not None:
             continue
-        if delta.ndim == 1 and config.vector_quantization:
-            values, scale = _quantize_vector(delta)
-            cost = values.numel() + 4
-            if values.numel() <= 4096:
-                prefix = f"tensor.{node.index}.vector"
+        if delta.ndim == 1:
+            if delta.numel() > 4096:
+                continue
+            prefix = f"tensor.{node.index}.vector"
+            if config.direct_vectors:
+                payloads[f"{prefix}.values"] = delta.to(torch.float16)
+                vector_components[name] = Component(
+                    primitive="DIRECT_VECTOR",
+                    payload={"values": f"{prefix}.values"},
+                )
+                vector_cost += 2 * delta.numel()
+            elif config.vector_quantization:
+                values, scale = _quantize_vector(delta)
                 payloads[f"{prefix}.values"] = values
                 payloads[f"{prefix}.scale"] = scale
                 vector_components[name] = Component(
                     primitive="QUANTIZED_VECTOR",
                     payload={"values": f"{prefix}.values", "scale": f"{prefix}.scale"},
                 )
-                vector_cost += cost
+                vector_cost += values.numel() + 4
             continue
         if delta.ndim != 2:
             continue

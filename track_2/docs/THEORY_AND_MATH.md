@@ -123,6 +123,11 @@ V_m=s_m q_m,
 
 Direct vector storage is bounded. It is never permitted for a matrix.
 
+A bounded vector may instead store its values directly in fp16 when every
+vector value must remain trainable during functional refinement. The same
+4,096-value limit applies. Direct vector storage is never permitted for a
+matrix.
+
 ### Sparse patch
 
 \[

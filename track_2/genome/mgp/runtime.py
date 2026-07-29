@@ -101,6 +101,21 @@ def execute_program(
                     raise ValueError(f"invalid Hadamard scaling payload for {tensor_program.name}")
                 scale = row.float().unsqueeze(1) + column.float().unsqueeze(0)
                 delta = delta + base_value * scale
+            elif primitive == "DIRECT_VECTOR":
+                if len(tensor_program.shape) != 1:
+                    raise ValueError("DIRECT_VECTOR is permitted only for vectors")
+                values = _payload(
+                    payloads,
+                    component.payload["values"],
+                    name=tensor_program.name,
+                ).to(device)
+                if (
+                    not values.is_floating_point()
+                    or values.ndim != 1
+                    or values.numel() != base.numel()
+                ):
+                    raise ValueError(f"invalid direct vector payload for {tensor_program.name}")
+                delta = delta + values.float()
             elif primitive == "QUANTIZED_VECTOR":
                 if len(tensor_program.shape) != 1:
                     raise ValueError("QUANTIZED_VECTOR is permitted only for vectors")

@@ -110,6 +110,9 @@ separate per-tensor right factors.
 If equal group ranks spend most target bytes on the vocabulary factor, evaluate
 an internal-first allocation that reserves the minimum rank, fills transformer
 matrices, then allocates remaining bytes to the shared vocabulary factor.
+If frozen int8 vector codes force matrix factors to compensate during
+refinement, evaluate bounded direct fp16 vectors under the same serialized byte
+gate.
 If functional refinement produces large payload drift and development
 overfitting, evaluate a global relative anchor to the fitted compact payload.
 

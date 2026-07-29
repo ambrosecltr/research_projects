@@ -256,6 +256,7 @@ def fit_compact_target(
     allocation_strategy: str = typer.Option("energy"),
     matrix_scaling: bool = typer.Option(False),
     shared_vocabulary_factors: bool = typer.Option(False),
+    direct_vectors: bool = typer.Option(False),
     svd_method: str = typer.Option("randomized"),
     device: str = typer.Option("cpu"),
 ) -> None:
@@ -273,6 +274,7 @@ def fit_compact_target(
             allocation_strategy=allocation_strategy,
             matrix_scaling=matrix_scaling,
             shared_vocabulary_factors=shared_vocabulary_factors,
+            direct_vectors=direct_vectors,
             account_for_serialization=True,
             svd_method=svd_method,
             device=device,

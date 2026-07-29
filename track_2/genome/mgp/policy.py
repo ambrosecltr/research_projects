@@ -54,6 +54,20 @@ def audit_program(
                     reasons.append(f"dense_matrix_disguised_as_vector:{tensor.name}")
                 if tensor.shape[0] > policy.max_vector_values:
                     reasons.append(f"vector_too_large:{tensor.name}")
+            if component.primitive == "DIRECT_VECTOR":
+                values = payloads.get(component.payload.get("values", ""))
+                if len(tensor.shape) != 1:
+                    reasons.append(f"direct_vector_on_non_vector:{tensor.name}")
+                elif tensor.shape[0] > policy.max_vector_values:
+                    reasons.append(f"vector_too_large:{tensor.name}")
+                elif values is None:
+                    reasons.append(f"missing_direct_vector_payload:{tensor.name}")
+                elif (
+                    values.dtype != torch.float16
+                    or values.ndim != 1
+                    or values.numel() != tensor.shape[0]
+                ):
+                    reasons.append(f"invalid_direct_vector_payload:{tensor.name}")
             if component.primitive == "SPARSE_PATCH":
                 key = component.payload.get("indices")
                 if key in payloads:

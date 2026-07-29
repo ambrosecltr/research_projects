@@ -185,6 +185,69 @@ def test_hadamard_scale_runtime_uses_one_value_per_row_and_column() -> None:
     assert audit.accepted_structure
 
 
+def test_direct_vector_runtime_keeps_every_value_trainable() -> None:
+    base = {"bias": torch.zeros(4)}
+    program = ModelGenomeProgram(
+        architecture_id="a",
+        base_state_id="b",
+        tensors=(
+            TensorProgram(
+                name="bias",
+                shape=(4,),
+                components=(
+                    Component("BASE_COPY"),
+                    Component(
+                        "DIRECT_VECTOR",
+                        payload={"values": "bias.values"},
+                    ),
+                ),
+            ),
+        ),
+    )
+    payloads = {"bias.values": torch.tensor([0.1, -0.2, 0.3, -0.4], dtype=torch.float16)}
+
+    candidate = execute_program(base, program, payloads)
+    trainable = TrainableProgram(program, payloads)
+    audit = audit_program(
+        program,
+        payloads,
+        direct_fp16_delta_bytes=80,
+    )
+
+    assert torch.allclose(candidate["bias"], payloads["bias.values"].float())
+    assert set(trainable.parameters_by_key) == {"bias__values"}
+    assert audit.accepted_structure
+
+
+def test_policy_rejects_direct_vector_on_matrix() -> None:
+    program = ModelGenomeProgram(
+        architecture_id="a",
+        base_state_id="b",
+        tensors=(
+            TensorProgram(
+                name="matrix",
+                shape=(2, 2),
+                components=(
+                    Component("BASE_COPY"),
+                    Component(
+                        "DIRECT_VECTOR",
+                        payload={"values": "matrix.values"},
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    audit = audit_program(
+        program,
+        {"matrix.values": torch.zeros(4, dtype=torch.float16)},
+        direct_fp16_delta_bytes=80,
+    )
+
+    assert not audit.accepted_structure
+    assert "direct_vector_on_non_vector:matrix" in audit.reasons
+
+
 def test_fit_hadamard_scale_removes_base_relative_matrix_change() -> None:
     torch.manual_seed(14)
     base_matrix = torch.randn(32, 24)
@@ -214,6 +277,34 @@ def test_fit_hadamard_scale_removes_base_relative_matrix_change() -> None:
         component.primitive == "HADAMARD_SCALE" for component in program.tensors[0].components
     )
     assert relative_error < 1e-4
+
+
+def test_fit_can_use_direct_vectors() -> None:
+    w0, wt = states()
+    graph = graph_from_state(w0, family="toy", config={})
+
+    program, payloads = fit_low_rank_program(
+        w0,
+        wt,
+        graph,
+        config=FitConfig(
+            budget_fraction=0.50,
+            max_rank=2,
+            direct_vectors=True,
+        ),
+    )
+    direct_components = [
+        component
+        for tensor in program.tensors
+        for component in tensor.components
+        if component.primitive == "DIRECT_VECTOR"
+    ]
+
+    assert len(direct_components) == 2
+    assert all(
+        payloads[component.payload["values"]].dtype == torch.float16
+        for component in direct_components
+    )
 
 
 def test_fit_can_share_one_vocabulary_factor_between_embeddings() -> None:
