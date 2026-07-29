@@ -7,10 +7,13 @@ locked_from:
   endpoint_progress: 0.8385243328254446
   git_commit: ee662b3
 
-development_confirmation:
-  run_id: pythia-14m-seed8
-  program_id: 3cb0c5d63ca2ed50918fa1f6d5da0bae50a4fd799ad4285bf037cdf915bce164
-  endpoint_progress: 0.832047876783571
+development_confirmations:
+  - run_id: pythia-14m-seed8
+    program_id: 3cb0c5d63ca2ed50918fa1f6d5da0bae50a4fd799ad4285bf037cdf915bce164
+    endpoint_progress: 0.832047876783571
+  - run_id: pythia-31m-seed8
+    program_id: 996a887114d50602bd71b3f7d9f47ed4861b5a23d677a1ab39ca382e267024cd
+    endpoint_progress: 0.8012902043466249
 
 fit:
   budget_fraction: 0.10
