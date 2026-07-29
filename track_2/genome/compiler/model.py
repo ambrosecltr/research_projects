@@ -42,6 +42,7 @@ class CompilerConfig:
     target_fraction: float = 0.10
     max_vector_values: int = 4096
     manifest_reserve_bytes: int = 65536
+    shared_vocabulary_factors: bool = True
 
 
 @dataclass
@@ -72,6 +73,22 @@ class CompilerPrediction:
     contexts: torch.Tensor
     primitive_logits: torch.Tensor
     rank_logits: torch.Tensor
+
+
+def _vocabulary_pair(example: CompilerExample) -> tuple[int, int] | None:
+    indices = [
+        index
+        for index, evidence in enumerate(example.tensors)
+        if evidence.role in {"embedding", "lm_head"} and evidence.tied_to is None
+    ]
+    if len(indices) != 2:
+        return None
+    left, right = indices
+    left_shape = example.tensors[left].shape
+    right_shape = example.tensors[right].shape
+    if len(left_shape) != 2 or len(right_shape) != 2 or left_shape[0] != right_shape[0]:
+        return None
+    return left, right
 
 
 class MessageBlock(torch.nn.Module):
@@ -231,6 +248,46 @@ class GenomeCompiler(torch.nn.Module):
         )
         return left, right
 
+    def shared_vocabulary_factor(
+        self,
+        contexts: torch.Tensor,
+        evidence: Sequence[TensorEvidence],
+        rank: int,
+    ) -> torch.Tensor:
+        if len(evidence) != 2 or any(len(item.shape) != 2 for item in evidence):
+            raise ValueError("shared vocabulary factors require two matrices")
+        rows = {item.shape[0] for item in evidence}
+        if len(rows) != 1:
+            raise ValueError("shared vocabulary matrices require the same row count")
+        row_features = None
+        if all(item.row_features is not None for item in evidence):
+            row_features = torch.stack(
+                [item.row_features for item in evidence if item.row_features is not None]
+            ).mean(dim=0)
+        return self.left_head(
+            contexts.mean(dim=0),
+            size=next(iter(rows)),
+            rank=rank,
+            side=0.0,
+            local_features=row_features,
+        )
+
+    def right_factor(
+        self,
+        context: torch.Tensor,
+        evidence: TensorEvidence,
+        rank: int,
+    ) -> torch.Tensor:
+        if len(evidence.shape) != 2:
+            raise ValueError("low-rank right factors require a matrix")
+        return self.right_head(
+            context,
+            size=evidence.shape[1],
+            rank=rank,
+            side=1.0,
+            local_features=evidence.col_features,
+        )
+
     def vector(self, context: torch.Tensor, evidence: TensorEvidence) -> torch.Tensor:
         if len(evidence.shape) != 1:
             raise ValueError("vector head requires a vector")
@@ -274,7 +331,13 @@ class GenomeCompiler(torch.nn.Module):
         ranks = torch.arange(self.config.max_rank + 1, device=rank_prob.device).float()
         expected_rank = (rank_prob * ranks).sum(dim=-1)
         costs = []
+        vocabulary_pair = (
+            _vocabulary_pair(example) if self.config.shared_vocabulary_factors else None
+        )
+        vocabulary_indices = set(vocabulary_pair or ())
         for index, evidence in enumerate(example.tensors):
+            if index in vocabulary_indices:
+                continue
             if len(evidence.shape) == 2:
                 dimensions = evidence.shape[0] + evidence.shape[1]
                 low_rank = 2.0 * dimensions * (expected_rank[index] + 1.0)
@@ -283,6 +346,22 @@ class GenomeCompiler(torch.nn.Module):
                 costs.append(primitive_prob[index, 2] * float(2 * evidence.shape[0]))
             else:
                 costs.append(torch.zeros((), device=rank_prob.device))
+        if vocabulary_pair is not None:
+            left, right = vocabulary_pair
+            left_evidence = example.tensors[left]
+            right_evidence = example.tensors[right]
+            primitive = primitive_prob[list(vocabulary_pair), 1].mean()
+            rank = expected_rank[list(vocabulary_pair)].mean()
+            factor_dimensions = (
+                left_evidence.shape[0] + left_evidence.shape[1] + right_evidence.shape[1]
+            )
+            scale_dimensions = (
+                left_evidence.shape[0]
+                + left_evidence.shape[1]
+                + right_evidence.shape[0]
+                + right_evidence.shape[1]
+            )
+            costs.append(primitive * 2.0 * (factor_dimensions * rank + scale_dimensions))
         return torch.stack(costs).sum()
 
     def generate_program(
@@ -311,8 +390,14 @@ class GenomeCompiler(torch.nn.Module):
             # (-score, tensor index, component number, maximum rank, component cost)
             used = 0
             rank_probabilities: dict[int, torch.Tensor] = {}
+            vocabulary_pair = (
+                _vocabulary_pair(example) if self.config.shared_vocabulary_factors else None
+            )
+            vocabulary_indices = set(vocabulary_pair or ())
             for index, evidence in enumerate(example.tensors):
                 if evidence.tied_to is not None:
+                    continue
+                if index in vocabulary_indices:
                     continue
                 if len(evidence.shape) == 1 and desired_primitive[index] == 2:
                     cost = 2 * evidence.shape[0]
@@ -328,25 +413,67 @@ class GenomeCompiler(torch.nn.Module):
                     cost = 4 * (evidence.shape[0] + evidence.shape[1])
                     marginal = float(probabilities[1 : maximum + 1].sum())
                     heapq.heappush(heap, (-marginal / max(1, cost), index, 1, maximum, cost))
+            rank_component_cost: dict[int, int] = {}
+            rank_members: dict[int, tuple[int, ...]] = {}
+            if vocabulary_pair is not None and all(
+                desired_primitive[index] == 1 for index in vocabulary_pair
+            ):
+                owner = vocabulary_pair[0]
+                members = tuple(vocabulary_pair)
+                maximum = min(
+                    *(desired_rank[index] for index in members),
+                    self.config.max_rank,
+                    *(min(example.tensors[index].shape) for index in members),
+                )
+                if maximum > 0:
+                    probabilities = torch.stack(
+                        [prediction.rank_logits[index].softmax(dim=-1) for index in members]
+                    ).mean(dim=0)
+                    rank_probabilities[owner] = probabilities
+                    rank_members[owner] = members
+                    first = example.tensors[members[0]]
+                    second = example.tensors[members[1]]
+                    component_cost = 2 * (first.shape[0] + first.shape[1] + second.shape[1])
+                    scale_cost = 2 * (
+                        first.shape[0] + first.shape[1] + second.shape[0] + second.shape[1]
+                    )
+                    rank_component_cost[owner] = component_cost
+                    first_cost = component_cost + scale_cost
+                    marginal = float(probabilities[1 : maximum + 1].sum())
+                    heapq.heappush(
+                        heap,
+                        (-marginal / max(1, first_cost), owner, 1, maximum, first_cost),
+                    )
             while heap:
                 _, index, component, maximum, cost = heapq.heappop(heap)
                 if used + cost > budget:
                     continue
                 if component != ranks[index] + 1:
                     continue
-                ranks[index] = component
+                for member in rank_members.get(index, (index,)):
+                    ranks[member] = component
                 used += cost
                 next_component = component + 1
                 if next_component <= maximum:
                     probabilities = rank_probabilities[index]
                     marginal = float(probabilities[next_component : maximum + 1].sum())
-                    cost = 2 * (example.tensors[index].shape[0] + example.tensors[index].shape[1])
+                    cost = rank_component_cost.get(
+                        index,
+                        2 * (example.tensors[index].shape[0] + example.tensors[index].shape[1]),
+                    )
                     heapq.heappush(
                         heap,
                         (-marginal / max(1, cost), index, next_component, maximum, cost),
                     )
             payloads: dict[str, torch.Tensor] = {}
             tensor_programs: list[TensorProgram] = []
+            shared_vocabulary_left = None
+            if vocabulary_pair is not None and ranks[vocabulary_pair[0]] > 0:
+                shared_vocabulary_left = self.shared_vocabulary_factor(
+                    prediction.contexts[list(vocabulary_pair)],
+                    [example.tensors[index] for index in vocabulary_pair],
+                    ranks[vocabulary_pair[0]],
+                )
             for index, evidence in enumerate(example.tensors):
                 if evidence.tied_to is not None:
                     tensor_programs.append(
@@ -376,8 +503,17 @@ class GenomeCompiler(torch.nn.Module):
                             payload={"row": row_scale_key, "column": column_scale_key},
                         )
                     )
-                    left, right = self.factors(prediction.contexts[index], evidence, ranks[index])
-                    left_key = f"tensor.{index}.low_rank.left"
+                    if index in vocabulary_indices and shared_vocabulary_left is not None:
+                        left = shared_vocabulary_left
+                        right = self.right_factor(
+                            prediction.contexts[index], evidence, ranks[index]
+                        )
+                        left_key = "shared.vocabulary.low_rank.left"
+                    else:
+                        left, right = self.factors(
+                            prediction.contexts[index], evidence, ranks[index]
+                        )
+                        left_key = f"tensor.{index}.low_rank.left"
                     right_key = f"tensor.{index}.low_rank.right"
                     payloads[left_key] = left.cpu().to(torch.float16)
                     payloads[right_key] = right.cpu().to(torch.float16)
@@ -426,13 +562,35 @@ def decode_teacher_forced(
     primitives = target_primitives.to(device)
     ranks = target_ranks.to(device)
     decoded: dict[str, torch.Tensor] = {}
+    vocabulary_pair = (
+        _vocabulary_pair(example) if compiler.config.shared_vocabulary_factors else None
+    )
+    shared_vocabulary_left = None
+    if (
+        vocabulary_pair is not None
+        and all(int(primitives[index]) == 1 for index in vocabulary_pair)
+        and int(ranks[vocabulary_pair[0]]) > 0
+        and int(ranks[vocabulary_pair[0]]) == int(ranks[vocabulary_pair[1]])
+    ):
+        shared_vocabulary_left = compiler.shared_vocabulary_factor(
+            prediction.contexts[list(vocabulary_pair)],
+            [example.tensors[index] for index in vocabulary_pair],
+            int(ranks[vocabulary_pair[0]]),
+        )
     for index, evidence in enumerate(example.tensors):
         primitive = int(primitives[index])
         rank = int(ranks[index])
         if evidence.tied_to is not None:
             decoded[evidence.name] = decoded[evidence.tied_to]
         elif primitive == 1 and rank > 0 and len(evidence.shape) == 2:
-            left, right = compiler.factors(prediction.contexts[index], evidence, rank)
+            if vocabulary_pair is not None and index in vocabulary_pair:
+                left = shared_vocabulary_left
+                if left is None:
+                    left, right = compiler.factors(prediction.contexts[index], evidence, rank)
+                else:
+                    right = compiler.right_factor(prediction.contexts[index], evidence, rank)
+            else:
+                left, right = compiler.factors(prediction.contexts[index], evidence, rank)
             row_scale, column_scale = compiler.scales(prediction.contexts[index], evidence)
             base = w0_state[evidence.name].to(device).float()
             decoded[evidence.name] = left @ right.transpose(0, 1) + base * (

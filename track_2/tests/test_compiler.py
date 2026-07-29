@@ -131,6 +131,67 @@ def test_output_packet_count_is_bounded_by_program_budget() -> None:
     assert payload_bytes <= int(direct_fp16_delta_bytes(w0) * config.target_fraction)
 
 
+def test_compiler_reuses_one_vocabulary_left_factor() -> None:
+    torch.manual_seed(23)
+    w0 = {
+        "embed_out.weight": torch.randn(20, 4),
+        "gpt_neox.embed_in.weight": torch.randn(20, 4),
+    }
+    graph = graph_from_state(w0, family="toy", config={"hidden": 4})
+    fingerprint = corpus_fingerprint([[1, 2, 3]])
+    config = CompilerConfig(
+        global_feature_dim=16,
+        tensor_feature_dim=12,
+        coordinate_feature_dim=4,
+        d_model=16,
+        n_heads=4,
+        transformer_layers=1,
+        message_layers=1,
+        max_rank=2,
+        target_fraction=0.8,
+        manifest_reserve_bytes=0,
+        shared_vocabulary_factors=True,
+    )
+    example = build_compiler_example(
+        graph,
+        w0,
+        fingerprint,
+        {"tokens": 100},
+        global_feature_dim=config.global_feature_dim,
+        tensor_feature_dim=config.tensor_feature_dim,
+        base_state_id=state_id(w0),
+    )
+    compiler = GenomeCompiler(config)
+    with torch.no_grad():
+        compiler.primitive_head.weight.zero_()
+        compiler.primitive_head.bias.copy_(torch.tensor([0.0, 2.0, 1.0]))
+        compiler.rank_head.weight.zero_()
+        compiler.rank_head.bias.copy_(torch.tensor([0.0, 0.0, 2.0]))
+    program, payloads = compiler.generate_program(
+        example,
+        direct_fp16_delta_bytes=direct_fp16_delta_bytes(w0),
+    )
+    left_payloads = {
+        component.payload["left"]
+        for tensor in program.tensors
+        for component in tensor.components
+        if component.primitive == "LOW_RANK"
+    }
+    assert left_payloads == {"shared.vocabulary.low_rank.left"}
+    payload_bytes = sum(item.numel() * item.element_size() for item in payloads.values())
+    assert payload_bytes <= int(direct_fp16_delta_bytes(w0) * config.target_fraction)
+    loss, _ = compiler_loss(
+        compiler,
+        example,
+        target_primitives=torch.tensor([1, 1]),
+        target_ranks=torch.tensor([2, 2]),
+        target_deltas={name: torch.randn_like(value) * 0.01 for name, value in w0.items()},
+        w0_state=w0,
+    )
+    loss.backward()
+    assert compiler.left_head.network[0].weight.grad is not None
+
+
 def test_recipe_vector_excludes_provenance_but_keeps_data_order_seed() -> None:
     recipe = {
         "dataset": {

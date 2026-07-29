@@ -11,6 +11,7 @@ compiler:
   target_fraction: 0.10
   max_vector_values: 4096
   manifest_reserve_bytes: 65536
+  shared_vocabulary_factors: true
 
 training:
   epochs: 200
