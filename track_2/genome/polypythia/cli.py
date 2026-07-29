@@ -13,6 +13,7 @@ from ..neural import (
     LatentCodeFitConfig,
     PredictiveCompilerTrainingConfig,
     SharedDecoderTrainingConfig,
+    analyze_block_rate_distortion,
     fit_genome_code_with_frozen_decoder,
     predict_hidden_genome,
     train_predictive_compiler,
@@ -182,6 +183,32 @@ def train_decoder_command(
         output_path=output,
         decoder_config=decoder_config,
         training_config=training_config,
+    )
+    typer.echo(json.dumps(result, indent=2))
+
+
+@app.command("analyze-block-rate")
+def analyze_block_rate_command(
+    config: Path = typer.Option(..., exists=True, readable=True),
+    corpus: Path = typer.Option(..., exists=True, file_okay=False),
+    output: Path = typer.Option(...),
+    widths: str = typer.Option("0,8,16,32,64,96,128,160,192,224,256"),
+    batch_size: int = typer.Option(1024, min=1),
+    device: str = typer.Option("cuda"),
+) -> None:
+    """Measure exact role-conditioned linear block rate-distortion on training lives."""
+    parsed_widths = tuple(int(item.strip()) for item in widths.split(",") if item.strip())
+    canonical = load_canonical_life_corpus(corpus)
+    decoder_config, _ = _decoder_configs(_config(config), device=device)
+    result = analyze_block_rate_distortion(
+        canonical.for_split("training"),
+        tensor_specs=canonical.inventory,
+        tied_groups=canonical.tied_groups,
+        decoder_config=decoder_config,
+        widths=parsed_widths,
+        batch_size=batch_size,
+        device=device,
+        output_path=output,
     )
     typer.echo(json.dumps(result, indent=2))
 
