@@ -1,3 +1,5 @@
+"""Archived fixed-family blockwise compiler for historical reproduction only."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping

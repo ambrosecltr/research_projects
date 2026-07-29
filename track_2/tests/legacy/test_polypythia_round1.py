@@ -20,26 +20,31 @@ from genome.adapters.gpt_neox import (
 from genome.hashing import sha256_file, sha256_json, sha256_state_dict
 from genome.io import load_tensor_file, save_tensor_file, write_json
 from genome.mgp.interpreter import _apply_component, decode_program
-from genome.neural import (
-    AutodecoderTrainingConfig,
+from genome.neural.autodecoder import AutodecoderTrainingConfig, fit_autodecoder
+from genome.neural.block_decoder import (
     BlockDecoderConfig,
-    LatentCodeFitConfig,
-    PredictiveCompilerTrainingConfig,
-    SharedDecoderTrainingConfig,
-    fit_autodecoder,
-    fit_genome_code_with_frozen_decoder,
+    RoleConditionedBlockDecoder,
     load_interpreter,
-    predict_hidden_genome,
-    train_predictive_compiler,
+    make_block_features,
+)
+from genome.neural.multilife_decoder import (
+    LatentCodeFitConfig,
+    MultiLifeBlockSampler,
+    SharedDecoderTrainingConfig,
+    fit_genome_code_with_frozen_decoder,
+    masked_block_mse,
     train_shared_decoder,
 )
-from genome.neural.block_decoder import RoleConditionedBlockDecoder, make_block_features
-from genome.neural.multilife_decoder import MultiLifeBlockSampler, masked_block_mse
-from genome.polypythia.catalog import load_round_one_catalog
-from genome.polypythia.evaluate import (
+from genome.neural.predictive_compiler import (
+    PredictiveCompilerTrainingConfig,
+    predict_hidden_genome,
+    train_predictive_compiler,
+)
+from genome.legacy.polypythia_v4.evaluate import (
     evaluate_shared_decoder_corpus,
     execute_hidden_prediction,
 )
+from genome.polypythia.catalog import load_round_one_catalog
 from genome.polypythia.evidence import EvidenceConfig, build_compiler_evidence
 from genome.polypythia.hub import (
     CheckpointSource,
@@ -58,9 +63,11 @@ from genome.polypythia.lives import CanonicalModelLife
 from genome.tensor_inventory import build_tensor_inventory_from_state
 from genome.types import GenomeComponent
 
+pytestmark = pytest.mark.legacy
+
 
 def _round_one_config() -> Path:
-    return Path(__file__).parents[1] / "configs" / "polypythia_14m_round1.yaml"
+    return Path(__file__).parents[2] / "configs" / "polypythia_14m_round1.yaml"
 
 
 def test_round_one_catalog_seals_ten_complete_lives():

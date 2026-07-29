@@ -1,0 +1,19 @@
+COMMAND: /usr/bin/time -p .venv/bin/python -m pytest -q tests/test_life_schema_v2.py tests/test_semantic_fingerprint.py tests/test_compact_targets.py tests/test_structured_mgp.py tests/test_program_tokens.py tests/test_program_grammar.py tests/test_program_compiler.py tests/legacy/test_polypythia_round1.py::test_gpt_neox_native_canonical_roundtrip_is_exact tests/legacy/test_polypythia_round1.py::test_real_transformers_gpt_neox_roundtrip_preserves_logits tests/legacy/test_polypythia_round1.py::test_hidden_source_plan_exposes_only_step_zero_before_prediction tests/legacy/test_polypythia_round1.py::test_hidden_reveal_requires_pre_reveal_runtime_execution tests/legacy/test_polypythia_round1.py::test_compiler_evidence_contains_w0_but_no_endpoint_data
+EXIT CODE: 0
+
+OUTPUT:
+...................................                                      [100%]
+=============================== warnings summary ===============================
+tests/test_program_grammar.py::test_random_untrained_compiler_still_emits_parseable_grammar
+tests/test_program_grammar.py::test_tied_alias_is_forced_to_base_copy
+tests/test_program_compiler.py::test_compiler_handles_variable_stage_and_tensor_counts
+tests/test_program_compiler.py::test_teacher_forcing_forward_and_loss_are_finite
+tests/test_program_compiler.py::test_compiler_exposes_only_grammar_constrained_generation
+  /Users/ambrosecoulter/research_projects/track_2/.venv/lib/python3.11/site-packages/torch/nn/modules/transformer.py:307: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+    warnings.warn(f"enable_nested_tensor is True, but self.use_nested_tensor is False because {why_not_sparsity_fast_path}")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+35 passed, 5 warnings in 1.07s
+real 2.29
+user 4.47
+sys 1.58

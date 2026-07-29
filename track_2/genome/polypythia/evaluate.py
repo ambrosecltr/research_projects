@@ -7,7 +7,7 @@ import time
 from collections.abc import Mapping, Sequence
 from importlib.metadata import version as package_version
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import torch
 
@@ -28,11 +28,19 @@ from ..io import (
 from ..metrics import logits_kl, parameter_metrics, topk_agreement
 from ..mgp.interpreter import decode_program
 from ..mgp.serializer import load_program
-from ..neural.multilife_decoder import load_shared_decoder
 from ..state import apply_delta, compute_delta
 from ..tensor_inventory import tied_owner_map
 from ..types import TensorSpec
 from .lives import CanonicalModelLife
+
+
+class SharedDecoderLoader(Protocol):
+    def __call__(
+        self,
+        path: str | Path,
+        *,
+        device: str | torch.device = "cpu",
+    ) -> tuple[Any, dict[str, Any], dict[int | None, int]]: ...
 
 
 def _validated_prediction(path: str | Path, hidden_run_id: str) -> dict[str, Any]:
@@ -167,6 +175,7 @@ def execute_hidden_prediction(
     prediction_path: str | Path,
     config_path: str | Path,
     output_path: str | Path,
+    shared_decoder_loader: SharedDecoderLoader,
     device: str = "cuda",
 ) -> dict[str, Any]:
     if hidden_life.split != "hidden":
@@ -176,7 +185,7 @@ def execute_hidden_prediction(
         raise ValueError("hidden endpoint must remain unavailable during runtime execution")
     prediction_root = Path(prediction_path).expanduser().resolve(strict=True)
     prediction = _validated_prediction(prediction_root, hidden_life.run_id)
-    interpreter, decoder_manifest, _ = load_shared_decoder(
+    interpreter, decoder_manifest, _ = shared_decoder_loader(
         shared_decoder_path,
         device=device,
     )
@@ -775,6 +784,7 @@ def evaluate_shared_decoder_corpus(
     tokenizer_path: str | Path,
     evaluation_texts_path: str | Path,
     output_path: str | Path,
+    shared_decoder_loader: SharedDecoderLoader,
     device: str = "cuda",
     sequence_length: int = 512,
     batch_size: int = 4,
@@ -792,7 +802,7 @@ def evaluate_shared_decoder_corpus(
     if destination.exists():
         raise FileExistsError(destination)
     decoder_root = Path(shared_decoder_path).expanduser().resolve(strict=True)
-    interpreter, decoder_manifest, _ = load_shared_decoder(
+    interpreter, decoder_manifest, _ = shared_decoder_loader(
         decoder_root,
         device=device,
     )

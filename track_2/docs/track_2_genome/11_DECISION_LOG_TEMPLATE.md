@@ -1,5 +1,8 @@
 # GENOME experiment decision log
 
+> **Archived pre-recovery template.** Learned-interpreter fields are legacy. Active reports count
+> deterministic Runtime code, all MGP bytes, patches, indices, scales, and shared assets.
+
 Copy this file into every experiment run directory as `decision_log.md` and complete it before looking at hidden Gate results.
 
 ---

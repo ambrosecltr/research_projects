@@ -10,13 +10,11 @@ from genome.hashing import sha256_json
 from genome.metrics import parameter_metrics
 from genome.mgp.interpreter import decode_program
 from genome.mgp.serializer import load_program, save_program
-from genome.neural import (
-    AutodecoderTrainingConfig,
-    BlockDecoderConfig,
-    fit_autodecoder,
-    load_interpreter,
-)
+from genome.neural.autodecoder import AutodecoderTrainingConfig, fit_autodecoder
+from genome.neural.block_decoder import BlockDecoderConfig, load_interpreter
 from genome.types import TensorSpec
+
+pytestmark = pytest.mark.legacy
 
 
 def test_neural_block_field_can_overfit_one_tensor(tmp_path):

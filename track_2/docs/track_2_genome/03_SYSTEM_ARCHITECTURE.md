@@ -1,5 +1,8 @@
 # GENOME system architecture
 
+> **Archived pre-recovery note.** The learned-interpreter architecture in this file is not active.
+> Use `../../RECOVERY.md` and `00_README.md`.
+
 ## 1. End-to-end pipeline
 
 ```text

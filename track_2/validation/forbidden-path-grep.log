@@ -1,0 +1,24 @@
+Active command names
+====================
+COMMAND: rg -n 'fit-neural|refine-latent|train-decoder|fit-development-code|train-compiler|predict-hidden|--neural' genome/cli.py genome/polypythia/cli.py
+EXIT CODE: 1
+OUTPUT:
+
+Active imports of archived code
+===============================
+COMMAND: rg -n 'from .*neural|import .*neural|from .*legacy|import .*legacy' genome --glob '!genome/neural/**' --glob '!genome/legacy/**'
+EXIT CODE: 1
+OUTPUT:
+
+Per-weight and residual terms in active code
+============================================
+COMMAND: rg -n 'block_code_dim|block_code_mode.*residual|dense endpoint payload|exact residual|one code per coordinate|fixed output head per block' genome --glob '!genome/neural/**' --glob '!genome/legacy/**'
+EXIT CODE: 0
+OUTPUT:
+genome/program_tokens.py:153:    deltas, neural residuals, and exact residuals are deliberately rejected. Every accepted token
+genome/compact_targets.py:22:    The fitter never emits dense matrix deltas or exact residuals. Matrix information is carried by
+genome/mgp/policy.py:144:            if nested_decoder.get("block_code_mode") == "residual":
+genome/mgp/policy.py:148:            block_code_dim = nested_decoder.get("block_code_dim")
+genome/mgp/policy.py:154:                and isinstance(block_code_dim, int)
+genome/mgp/policy.py:155:                and not isinstance(block_code_dim, bool)
+genome/mgp/policy.py:158:                and block_code_dim == block_rows * block_cols

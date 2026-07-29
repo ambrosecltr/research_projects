@@ -88,7 +88,9 @@ No learned interpreter is required for these formulas.
 
 ### Canonical compact labels
 
-`genome.compact_targets` fits a transparent first compiler language using globally budgeted canonical low-rank factors. It has no dense matrix residual. A fitted target becomes compiler supervision only after it passes both the byte policy and functional Genome Gate.
+`genome.compact_targets` fits a transparent first compiler language using globally budgeted
+canonical low-rank factors. It has no dense matrix residual. A fit is only a candidate. It becomes
+compiler supervision after post-serialization byte audit and the functional Genome Gate.
 
 ### Variable program compiler
 
@@ -102,6 +104,10 @@ No learned interpreter is required for these formulas.
 
 `genome.program_tokens` provides deterministic target tokenization and inverse reconstruction. The first vertical slice handles canonical low-rank MGPs. New primitives require a deterministic inverse and tests; there is no dense fallback token.
 
+The current flat coefficient-token format is not production-scalable. At the 5% median-budget
+case, analytic estimates are 44,268 tokens for Pythia 14M and 95,602 for Pythia 31M. A
+hierarchical skeleton plus bounded coefficient packets is required before production training.
+
 ## Preserved infrastructure
 
 The following remain useful:
@@ -114,7 +120,8 @@ The following remain useful:
 - Wikitext and LM Evaluation Harness evaluation;
 - transparent SVD, quantization and spectral diagnostics.
 
-The old V4 decoder/compiler modules remain only to reproduce the failed experiment until they are moved into an archive namespace.
+The old V4 decoder/compiler modules have no active package exports or normal CLI commands. They
+remain only for reproduction through `scripts/legacy_polypythia_v4.py`.
 
 ## Install and test
 
@@ -123,6 +130,7 @@ cd track_2
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e '.[dev,evaluation]'
+python -m pip check
 python -m compileall -q genome tests
 python -m pytest -q
 ```
@@ -142,7 +150,9 @@ python -m pytest -q
 11. Attempt size, dataset, recipe and architecture transfer in that order.
 12. Evaluate the Track 1 poetry model last.
 
-No production training or large download begins before the source matrix, split commitment, compact target frontier, leakage model, smoke test, storage estimate and hidden acceptance protocol are committed.
+No production training or large download begins before the source matrix, split commitment,
+compact target frontier, leakage model, hierarchical program representation, smoke test, storage
+estimate, and hidden acceptance protocol are committed.
 
 ## Scientific claims
 

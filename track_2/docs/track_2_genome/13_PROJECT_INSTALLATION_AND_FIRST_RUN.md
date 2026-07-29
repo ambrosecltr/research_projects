@@ -1,5 +1,8 @@
 # Installing GENOME into the Track 1 project
 
+> **Archived pre-recovery installation note.** Track 1 is no longer the first compiler-training
+> target. Use `../../README.md` and the active recovery gates.
+
 ## 1. Recommended placement
 
 Place this complete documentation directory inside the existing Track 1 repository:

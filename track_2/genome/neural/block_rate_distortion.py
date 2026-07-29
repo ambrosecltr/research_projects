@@ -1,3 +1,5 @@
+"""Archived PolyPythia block-rate diagnostics for historical reproduction only."""
+
 from __future__ import annotations
 
 from collections.abc import Sequence

@@ -14,6 +14,8 @@ from genome.hashing import sha256_file
 from genome.specimen import freeze_specimen
 from genome.tensor_inventory import infer_role
 
+pytestmark = pytest.mark.track1_evaluation
+
 
 def _write_fake_track1(root: Path) -> None:
     package = root / "src/poetry50m"

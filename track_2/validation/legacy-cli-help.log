@@ -1,0 +1,50 @@
+COMMAND: /usr/bin/time -p .venv/bin/python scripts/legacy_polypythia_v4.py --help
+EXIT CODE: 0
+
+OUTPUT:
+
+ Usage: legacy_polypythia_v4.py [OPTIONS] COMMAND [ARGS]...
+
+ ARCHIVED failed PolyPythia Round One V4 reproduction
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ plan                         Pin all ten lives, 154 checkpoints per life,    │
+│                              data-order maps, and tokenizer files.           │
+│ download                     Download required W0/WT endpoints while         │
+│                              enforcing the hidden-endpoint seal.             │
+│ prepare                      Convert downloaded GPT-NeoX endpoints into      │
+│                              strict canonical model-life artifacts.          │
+│ train-decoder                Train one shared Neural Genome Decoder and one  │
+│                              fitted code per training life.                  │
+│ analyze-block-rate           Measure exact role-conditioned linear block     │
+│                              rate-distortion on training lives.              │
+│ analyze-tensor-rate          Measure exact whole-tensor SVD rate-distortion  │
+│                              on training lives.                              │
+│ fit-development-code         Fit only a development genome code while the    │
+│                              shared decoder stays frozen.                    │
+│ evaluate-decoder             Audit shared-decoder reconstruction on all      │
+│                              training lives and the development life.        │
+│ evaluate-svd-frontier        Evaluate the matched fp16 SVD representation    │
+│                              frontier on seed8.                              │
+│ evaluate-quantized-frontier  Evaluate matched direct fp16, int8, and int4    │
+│                              Delta-T on seed8.                               │
+│ train-compiler               Train the GENOME Compiler through the frozen    │
+│                              decoder against endpoint Delta-T.               │
+│ predict-hidden               Compile the hidden seed in one shot without WT  │
+│                              or an early trajectory.                         │
+│ execute-hidden               Decode and run the sealed hidden prediction     │
+│                              before revealing WT.                            │
+│ prepare-evaluation-texts     Materialize the exact pinned Wikitext test      │
+│                              corpus used for functional comparison.          │
+│ evaluate-hidden              Compare W0, predicted WT, and revealed WT under │
+│                              the matched hidden protocol.                    │
+│ evaluate-lm-harness          Run the pinned zero-shot task suite on W0,      │
+│                              predicted WT, and true WT.                      │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+real 1.03
+user 2.37
+sys 0.64

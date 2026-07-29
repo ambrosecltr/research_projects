@@ -1,0 +1,53 @@
+COMMAND: /usr/bin/time -p .venv/bin/python -m genome --help
+EXIT CODE: 0
+
+OUTPUT:
+
+ Usage: python -m genome [OPTIONS] COMMAND [ARGS]...
+
+ GENOME Track 2 research CLI
+
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help          Show this message and exit.                                  │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ───────────────────────────────────────────────────────────────────╮
+│ validate-life             Validate a complete model-life record and its      │
+│                           endpoint-free compiler view.                       │
+│ audit-source              Validate a public source audit, split plan, and    │
+│                           labelled storage estimates.                        │
+│ track1-preflight          Check legacy G0 or future evaluation-only Track 1  │
+│                           integration.                                       │
+│ freeze                    Freeze an evaluation specimen; this does not add   │
+│                           it to compiler training.                           │
+│ verify                    Verify specimen integrity and reproduce W0/WT      │
+│                           functional metrics.                                │
+│ analyze                   Compute Delta-T statistics, role energy, and       │
+│                           matrix spectral summaries.                         │
+│ encode                    Fit a transparent G0 codec and write a frozen MGP  │
+│                           artifact.                                          │
+│ fit-compact-target        Fit, serialize, and byte-audit a transparent       │
+│                           compact target candidate.                          │
+│ audit-program-tokens      Tokenize and parse a compact program with the      │
+│                           deterministic inverse.                             │
+│ decode                    Decode an MGP with the deterministic Runtime.      │
+│ evaluate                  Run a deterministic MGP through the configured     │
+│                           Genome Gate evaluator.                             │
+│ export-track1-checkpoint  Export a deterministic candidate for legacy G0 or  │
+│                           future Track 1 evaluation.                         │
+│ architecture-graph        Export the tensor-role architecture graph used by  │
+│                           future compilers.                                  │
+│ fingerprint               Build a model-native dataset fingerprint from      │
+│                           projected W0 gradients.                            │
+│ rate-distortion           Run the transparent G0 rate-distortion frontier    │
+│                           under one evaluator.                               │
+│ report                    Build Markdown/CSV/JSON summaries from immutable   │
+│                           evaluation reports.                                │
+│ demo                      Run the deterministic Runtime and codec pipeline   │
+│                           on a tiny test fixture.                            │
+│ polypythia                Pythia source pinning and deterministic            │
+│                           evaluation; no V4 training                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+real 0.98
+user 1.84
+sys 1.25

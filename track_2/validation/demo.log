@@ -1,0 +1,8 @@
+COMMAND: /usr/bin/time -p .venv/bin/python -m genome demo --output /tmp/genome-validation-demo --force
+EXIT CODE: 0
+
+OUTPUT:
+Demo complete: /tmp/genome-validation-demo/SUMMARY.md
+real 1.63
+user 4.77
+sys 2.10

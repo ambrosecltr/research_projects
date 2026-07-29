@@ -2,9 +2,9 @@
 
 ## Current rule
 
-The new local 8M Track 1 model is not PolyPythia Round One training data.
+The local Track 1 model is legacy G0 and future evaluation-only.
 
-Round One trains only on the sealed PolyPythia split. This keeps the local model available for later integration or transfer evaluation.
+It is not part of the active public-life compiler-training split.
 
 ## Required full-life record
 
@@ -50,7 +50,7 @@ When the Track 1 agent finishes the exact 8M handoff, create a new multi-stage l
 
 ## Later use
 
-After PolyPythia Round One:
+After hidden same-family public-life compilation passes:
 
 1. verify the 8M native-to-canonical-to-native conversion;
 2. verify MGP encode/decode, tensor shapes, tensor ties, and model execution;

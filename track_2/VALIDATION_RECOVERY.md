@@ -1,6 +1,7 @@
 # GENOME recovery validation
 
-The recovery branch is validated independently of the historical PolyPythia claims.
+This file is superseded by `VALIDATION_REPORT.md`. The recovery branch is validated independently
+of the historical PolyPythia claims.
 
 ## Required checks
 
@@ -9,7 +10,7 @@ python -m compileall -q genome tests
 python -m pytest -q
 ```
 
-The repository-level `Track 2` workflow runs the normal suite. The temporary `Track 2 diagnostic` workflow checks out the pull-request head without marketplace checkout/setup actions and posts the exact final log to the draft PR.
+GitHub Actions are not used for this validation. All required checks run locally with Python 3.11.
 
 The recovery PR must remain draft until:
 

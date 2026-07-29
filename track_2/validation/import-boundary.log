@@ -1,0 +1,61 @@
+COMMAND: .venv/bin/python - <<'PY'
+import ast
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+root = Path("genome")
+edges = []
+active_modules = []
+for path in sorted(root.rglob("*.py")):
+    relative = path.relative_to(root)
+    if relative.parts[0] in {"legacy", "neural"}:
+        continue
+    module_parts = ["genome", *relative.with_suffix("").parts]
+    if module_parts[-1] == "__init__":
+        module_parts.pop()
+    module = ".".join(module_parts)
+    package = module if path.name == "__init__.py" else module.rpartition(".")[0]
+    active_modules.append(module)
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            edges.extend((module, alias.name) for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                name = "." * node.level + (node.module or "")
+                target = importlib.util.resolve_name(name, package)
+            else:
+                target = node.module or ""
+            edges.append((module, target))
+
+forbidden = sorted(
+    (source, target)
+    for source, target in edges
+    if target == "genome.neural"
+    or target.startswith("genome.neural.")
+    or target == "genome.legacy"
+    or target.startswith("genome.legacy.")
+)
+import genome.cli
+loaded = sorted(
+    name
+    for name in sys.modules
+    if name == "genome.neural"
+    or name.startswith("genome.neural.")
+    or name == "genome.legacy"
+    or name.startswith("genome.legacy.")
+)
+print(f"active_modules={len(active_modules)}")
+print(f"import_edges={len(edges)}")
+print("forbidden_static_edges=" + json.dumps(forbidden))
+print("forbidden_runtime_modules_after_import_genome_cli=" + json.dumps(loaded))
+PY
+EXIT CODE: 0
+
+OUTPUT:
+active_modules=59
+import_edges=492
+forbidden_static_edges=[]
+forbidden_runtime_modules_after_import_genome_cli=[]

@@ -1,5 +1,8 @@
 # GENOME evaluation protocol and acceptance gates
 
+> **Archived pre-recovery note.** Keep the functional metrics and leakage rules, but ignore
+> learned-interpreter and decoder-training instructions. The active Runtime is deterministic.
+
 ## 1. Purpose
 
 GENOME can appear to work while merely memorizing WT, ignoring decoder cost, exploiting the verifier, or producing low-MSE but nonfunctional weights. The evaluation protocol exists to prevent those false positives.

@@ -1,3 +1,5 @@
+# ARCHIVED: immutable failed PolyPythia Round One V4 configuration.
+# Do not use this file as the next GENOME experiment plan.
 experiment:
   id: polypythia-14m-round1
   research_level: G2

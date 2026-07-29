@@ -1,5 +1,8 @@
 # GENOME implementation blueprint
 
+> **Archived pre-recovery note.** Do not implement the auto-decoder or learned-interpreter plan in
+> this file. Use the active code map and recovery plan.
+
 ## 1. Suggested repository layout
 
 Place the documentation pack at the project root or under `docs/track_2_genome/`. Suggested code layout:

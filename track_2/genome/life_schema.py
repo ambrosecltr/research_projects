@@ -385,7 +385,7 @@ class ModelLifeManifest:
         if self.endpoint is None:
             raise ValueError("complete life requires an endpoint declaration")
         if self.split == "hidden" and self.endpoint.access != "sealed":
-            raise ValueError("hidden complete life endpoint must be sealed")
+            raise ValueError("hidden complete life must not expose WT; endpoint must be sealed")
         if self.stages[0].start_checkpoint_id != self.initialization.checkpoint_id:
             raise ValueError("first stage must begin at the true initialization checkpoint")
         for previous, current in zip(self.stages, self.stages[1:], strict=False):

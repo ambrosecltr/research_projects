@@ -10,8 +10,9 @@
 | `genome/semantic_fingerprint.py` | Content-derived corpus statistics plus W0 gradient/activation evidence; no hash-derived semantic vectors. |
 | `genome/mgp/` | Deterministic MGP schema, serializer, compact-target policy, validation and Runtime. |
 | `genome/mgp/policy.py` | Rejects dense/full residual/per-weight target labels and enforces byte budgets. |
-| `genome/compact_targets.py` | Canonical low-rank compact target fitting and global component allocation. |
+| `genome/compact_targets.py` | Canonical low-rank candidate fitting plus required post-serialization byte audit. |
 | `genome/program_tokens.py` | Deterministic compact MGP target tokenization and inverse reconstruction. |
+| `genome/program_scalability.py` | Pythia-scale flat-token capacity estimates and blocker evidence. |
 | `genome/program_compiler.py` | Variable-stage/tensor graph compiler that emits MGP tokens and coefficient chunks. |
 | `genome/evaluator.py` | Functional Genome Gate and matched-model evaluation. |
 | `genome/adapters/` | Reversible source-specific native/canonical mappings. |
@@ -47,6 +48,10 @@ The following remain only for reproduction and will be moved under an archive na
 | `genome/neural/predictive_compiler.py` | Failed hidden seed9 compiler path. |
 | `configs/polypythia_14m_round1.yaml` | Frozen historical experiment configuration. |
 | `POLYPYTHIA_ROUND1.md` | Historical execution runbook, not the next-step plan. |
-| `tests/test_polypythia_round1.py` | Reproduction/leakage regression tests for the historical branch. |
+| `tests/legacy/test_polypythia_round1.py` | Explicit legacy reproduction/leakage regression tests. |
+| `genome/legacy/polypythia_v4/cli.py` | Archived V4 command application. |
+| `scripts/legacy_polypythia_v4.py` | Standalone entry point for historical reproduction. |
 
-No active code should import the legacy decoder/compiler path for new production experiments.
+`genome.neural` has no public exports. The files remain in place because moving the full V4
+dependency graph would add risk without improving the active boundary. Active CLI import does not
+load them.

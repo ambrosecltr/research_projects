@@ -1,0 +1,7 @@
+COMMAND: /usr/bin/time -p .venv/bin/python -m compileall -q genome tests
+EXIT CODE: 0
+
+OUTPUT:
+real 0.05
+user 0.02
+sys 0.01

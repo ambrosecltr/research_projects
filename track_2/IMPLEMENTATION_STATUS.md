@@ -134,6 +134,10 @@ A fitted MGP is not accepted until the functional Genome Gate executes it and co
 
 `genome/program_tokens.py` provides deterministic tokenization and inverse reconstruction for the first canonical low-rank target language. It rejects dense fallback payloads.
 
+The flat coefficient-token representation is a production blocker. Analytic 5% budget estimates
+are 44,268 tokens for Pythia 14M and 95,602 for Pythia 31M, compared with the current 4,096-token
+limit. Production work needs a hierarchical skeleton plus bounded coefficient packets.
+
 ### Regression coverage added
 
 New tests cover:
@@ -149,7 +153,9 @@ New tests cover:
 
 ## Validation state
 
-A repository-level Python 3.11 Track 2 workflow is installed on `main`. The recovery PR remains draft until the complete existing and new test suite is green. No production training or large download has been launched from the recovery branch.
+Validation runs locally with Python 3.11 because GitHub Actions are unavailable. The active CLI
+does not import or expose V1-V4 commands. The full result is in `VALIDATION_REPORT.md`. No
+production training or large download has been launched from the recovery branch.
 
 ## Next implementation gates
 
@@ -169,7 +175,7 @@ Commit the exact source matrix before downloading:
 - architecture and sizes;
 - true W0 and WT status;
 - checkpoint count;
-- dataset/tokenizer/recipe access;
+- dataset/tokenizer/exact-order/recipe/provenance access;
 - complete/partial/endpoint-only role;
 - storage estimates;
 - frozen whole-life split.
@@ -185,6 +191,10 @@ For development lives, evaluate actual serialized MGP bytes against:
 - decode time.
 
 Do not train the compiler until multiple development lives pass both byte and functional gates.
+
+The current raw-SVD fitter has no Pythia functional proof. Its sign convention also does not make
+repeated singular subspaces unique. Use Runtime or function loss, or add a verified deterministic
+subspace rule before coefficient-supervised training.
 
 ### R3 — tiny compiler smoke
 

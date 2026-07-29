@@ -1,5 +1,8 @@
 # GENOME research references
 
+> **Pre-recovery reference list.** This list is background only. It does not define the active
+> architecture or experiment order.
+
 **Checked through:** 27 July 2026
 
 This list prioritizes primary papers and official project pages. A cited result is evidence only for the setting actually studied. Vision, small-network, adapter, implicit-neural-representation, and controlled-program results are useful mechanism evidence, not proof that a 50M poetry language-model endpoint can already be generated.

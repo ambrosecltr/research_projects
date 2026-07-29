@@ -1,5 +1,8 @@
 # GENOME documentation pack manifest
 
+> **Archived pack manifest.** The recovery files supersede this original design pack. The old
+> checksum list has been retired because it was stale and was not enforced by code.
+
 **Pack name:** GENOME Track 2 Research and Implementation Pack  
 **Generated:** 27 July 2026  
 **Working project expansion:** Generative Endpoint Neural Operator for Model Emission
@@ -34,4 +37,5 @@
 
 ## Integrity
 
-A `SHA256SUMS.txt` file at the pack root records hashes for every Markdown file. Recalculate hashes after intentionally editing the pack; do not expect the distributed checksum list to remain valid after integration changes.
+The old `SHA256SUMS.txt` file was retired during recovery validation. It covered a changing source
+tree, was stale, and no code enforced it. Immutable experiment artifacts retain their own hashes.

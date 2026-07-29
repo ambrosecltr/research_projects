@@ -109,11 +109,8 @@ def test_teacher_forcing_forward_and_loss_are_finite() -> None:
     assert torch.isfinite(losses.total)
     losses.total.backward()
     assert any(parameter.grad is not None for parameter in model.parameters())
+    assert not hasattr(losses, "rate")
 
 
-def test_greedy_generation_is_bounded_by_program_budget() -> None:
-    model = VariableProgramCompiler(config()).eval()
-    tokens, numeric = model.generate(conditioning(), max_tokens=7)
-    assert tokens.shape[0] == 2
-    assert tokens.shape[1] <= 7
-    assert numeric.shape == (2, tokens.shape[1], 4)
+def test_compiler_exposes_only_grammar_constrained_generation() -> None:
+    assert not hasattr(VariableProgramCompiler(config()), "generate")

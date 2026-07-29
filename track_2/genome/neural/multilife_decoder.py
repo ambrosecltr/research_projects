@@ -1,3 +1,5 @@
+"""Archived PolyPythia V1-V4 shared decoder for historical reproduction only."""
+
 from __future__ import annotations
 
 import math

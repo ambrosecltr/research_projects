@@ -175,7 +175,6 @@ class ProgramCompilerLoss(NamedTuple):
     total: torch.Tensor
     token: torch.Tensor
     numeric: torch.Tensor
-    rate: torch.Tensor
 
 
 class GraphMessageBlock(nn.Module):
@@ -382,13 +381,12 @@ class VariableProgramCompiler(nn.Module):
         targets: ProgramTeacherBatch,
         *,
         numeric_weight: float = 1.0,
-        rate_weight: float = 1e-4,
     ) -> ProgramCompilerLoss:
         targets.validate(self.config)
         if output.token_logits.shape[:2] != targets.token_ids.shape:
             raise ValueError("compiler output and target sequence shapes differ")
-        if numeric_weight < 0.0 or rate_weight < 0.0:
-            raise ValueError("loss weights must be non-negative")
+        if numeric_weight < 0.0:
+            raise ValueError("numeric_weight must be non-negative")
         token_loss = F.cross_entropy(
             output.token_logits.reshape(-1, output.token_logits.shape[-1]),
             targets.token_ids.reshape(-1),
@@ -399,62 +397,5 @@ class VariableProgramCompiler(nn.Module):
             numeric_loss = numeric_error[targets.numeric_mask].mean()
         else:
             numeric_loss = output.numeric_values.sum() * 0.0
-        rate = targets.token_mask.to(torch.float32).sum(dim=1).mean() / self.config.max_program_tokens
-        total = token_loss + numeric_weight * numeric_loss + rate_weight * rate
-        return ProgramCompilerLoss(total=total, token=token_loss, numeric=numeric_loss, rate=rate)
-
-    @torch.no_grad()
-    def generate(
-        self,
-        conditioning: CompilerConditioning,
-        *,
-        max_tokens: int | None = None,
-        temperature: float = 0.0,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        if temperature < 0.0:
-            raise ValueError("temperature must be non-negative")
-        conditioning.validate(self.config)
-        limit = min(max_tokens or self.config.max_program_tokens, self.config.max_program_tokens)
-        batch = conditioning.global_features.shape[0]
-        device = conditioning.global_features.device
-        tokens = torch.full(
-            (batch, 1),
-            PROGRAM_TOKEN_TO_ID["BOS"],
-            dtype=torch.long,
-            device=device,
-        )
-        numeric = torch.zeros(
-            batch,
-            1,
-            self.config.coefficient_chunk_dim,
-            dtype=conditioning.global_features.dtype,
-            device=device,
-        )
-        finished = torch.zeros(batch, dtype=torch.bool, device=device)
-        for _ in range(limit - 1):
-            output = self(conditioning, tokens, numeric)
-            logits = output.token_logits[:, -1]
-            if temperature == 0.0:
-                next_token = logits.argmax(dim=-1)
-            else:
-                next_token = torch.multinomial(
-                    torch.softmax(logits / temperature, dim=-1),
-                    num_samples=1,
-                ).squeeze(1)
-            next_numeric = output.numeric_values[:, -1]
-            next_token = torch.where(
-                finished,
-                torch.full_like(next_token, PROGRAM_TOKEN_TO_ID["PAD"]),
-                next_token,
-            )
-            next_numeric = torch.where(
-                finished.unsqueeze(1),
-                torch.zeros_like(next_numeric),
-                next_numeric,
-            )
-            tokens = torch.cat([tokens, next_token.unsqueeze(1)], dim=1)
-            numeric = torch.cat([numeric, next_numeric.unsqueeze(1)], dim=1)
-            finished |= next_token.eq(PROGRAM_TOKEN_TO_ID["EOS"])
-            if bool(finished.all().item()):
-                break
-        return tokens, numeric
+        total = token_loss + numeric_weight * numeric_loss
+        return ProgramCompilerLoss(total=total, token=token_loss, numeric=numeric_loss)

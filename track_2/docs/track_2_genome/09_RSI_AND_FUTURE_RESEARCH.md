@@ -1,5 +1,8 @@
 # GENOME recursive self-improvement and boundary-pushing research
 
+> **Archived future-research note.** This file is outside the active recovery plan and cannot
+> authorize learned-interpreter work or paid compute.
+
 ## 1. RSI target
 
 The motivating idea is to remove the natural-language-and-code middle layer from model improvement.

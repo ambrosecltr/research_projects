@@ -60,6 +60,8 @@ class CompilerTargetPolicy:
 @dataclass(frozen=True)
 class CompilerTargetAudit:
     accepted: bool
+    serialized_policy_ready: bool
+    byte_accounting: str
     target_specific_bytes: int
     shared_bytes: int
     fp16_delta_bytes: int
@@ -138,8 +140,24 @@ def audit_compiler_target(
     decoder_config = program.manifest.get("codec_config", {})
     if isinstance(decoder_config, dict):
         nested_decoder = decoder_config.get("decoder", decoder_config)
-        if isinstance(nested_decoder, dict) and nested_decoder.get("block_code_mode") == "residual":
-            failures.append("full_residual_block_mode")
+        if isinstance(nested_decoder, dict):
+            if nested_decoder.get("block_code_mode") == "residual":
+                failures.append("full_residual_block_mode")
+            block_rows = nested_decoder.get("block_rows")
+            block_cols = nested_decoder.get("block_cols")
+            block_code_dim = nested_decoder.get("block_code_dim")
+            if (
+                isinstance(block_rows, int)
+                and not isinstance(block_rows, bool)
+                and isinstance(block_cols, int)
+                and not isinstance(block_cols, bool)
+                and isinstance(block_code_dim, int)
+                and not isinstance(block_code_dim, bool)
+                and block_rows > 0
+                and block_cols > 0
+                and block_code_dim == block_rows * block_cols
+            ):
+                failures.append("per_weight_block_code_width")
 
     if program.manifest.get("exact_residual") or program.manifest.get("contains_exact_residual"):
         failures.append("exact_residual_declared")
@@ -186,6 +204,8 @@ def audit_compiler_target(
 
     return CompilerTargetAudit(
         accepted=not failures,
+        serialized_policy_ready=not failures and actual_mgp_bytes is not None,
+        byte_accounting="serialized" if actual_mgp_bytes is not None else "estimate",
         target_specific_bytes=target_specific_bytes,
         shared_bytes=shared_bytes,
         fp16_delta_bytes=fp16_delta_bytes,

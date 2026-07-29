@@ -12,26 +12,27 @@ from .adapters.loader import load_adapter
 from .architecture_graph import build_architecture_graph
 from .bit_accounting import account_mgp
 from .codecs import DenseDeltaCodec, LowRankSparseCodec, QuantizedDeltaCodec, SVDCodec
+from .compact_targets import (
+    CompactTargetConfig,
+    fit_compact_svd_target,
+    serialize_and_audit_compiler_target,
+)
 from .config import load_config, require, resolve_config_path
 from .evaluator import GenomeGate, evaluate_model_state
 from .fingerprint import GradientFingerprintConfig, build_gradient_fingerprint
 from .hashing import sha256_file
-from .io import ensure_dir, save_tensor_file, write_json
+from .io import ensure_dir, read_json, save_tensor_file, write_json
+from .life_schema import ModelLifeManifest
 from .mgp.interpreter import decode_program
 from .mgp.serializer import load_program, save_program
-from .neural import (
-    AutodecoderTrainingConfig,
-    BlockDecoderConfig,
-    fit_autodecoder,
-    load_interpreter,
-)
+from .polypythia.cli import app as polypythia_app
+from .program_tokens import ProgramTokenizationConfig, program_to_sequence, sequence_to_program
 from .rate_distortion import RateDistortionPoint, run_rate_distortion
-from .repair import LatentRefinementConfig, refine_neural_genome_codes
 from .reporting import make_report
+from .source_audit import SourceAuditManifest
 from .sensitivity import delta_energy_by_role, singular_summaries
 from .specimen import freeze_specimen, load_specimen, verify_specimen_files
 from .state import aggregate_statistics_by_role, compute_delta, delta_statistics
-from .polypythia.cli import app as polypythia_app
 
 app = typer.Typer(
     add_completion=False,
@@ -39,6 +40,54 @@ app = typer.Typer(
     help="GENOME Track 2 research CLI",
 )
 app.add_typer(polypythia_app, name="polypythia")
+
+
+@app.command("validate-life")
+def validate_life_command(
+    manifest: Path = typer.Option(..., exists=True, readable=True),
+) -> None:
+    """Validate a complete model-life record and its endpoint-free compiler view."""
+    value = read_json(manifest)
+    if not isinstance(value, dict):
+        raise typer.BadParameter("model-life manifest must be a JSON object")
+    life = ModelLifeManifest.from_dict(value)
+    typer.echo(
+        json.dumps(
+            {
+                "valid": True,
+                "run_id": life.run_id,
+                "split": life.split,
+                "completeness": life.completeness,
+                "content_sha256": life.content_sha256,
+                "compiler_view": life.compiler_view(),
+            },
+            indent=2,
+        )
+    )
+
+
+@app.command("audit-source")
+def audit_source_command(
+    manifest: Path = typer.Option(..., exists=True, readable=True),
+) -> None:
+    """Validate a public source audit, split plan, and labelled storage estimates."""
+    value = read_json(manifest)
+    if not isinstance(value, dict):
+        raise typer.BadParameter("source-audit manifest must be a JSON object")
+    audit = SourceAuditManifest.from_dict(value)
+    typer.echo(
+        json.dumps(
+            {
+                "valid": True,
+                "content_sha256": audit.content_sha256,
+                "estimated_active_endpoint_pair_bytes": (
+                    audit.estimated_approved_endpoint_pair_bytes()
+                ),
+                "estimated_maximum_catalog_bytes": audit.estimated_maximum_catalog_bytes(),
+            },
+            indent=2,
+        )
+    )
 
 
 def _contract_metadata(specimen: Any, *, research_level: str = "G0") -> dict[str, Any]:
@@ -81,7 +130,7 @@ def track1_preflight_command(
         help="Exit non-zero unless every R0 freeze contract passes",
     ),
 ) -> None:
-    """Check exact Track 1 integration and report whether R0 is ready to freeze."""
+    """Check legacy G0 or future evaluation-only Track 1 integration."""
     value = load_config(config)
     adapter = load_adapter(value)
     preflight = getattr(adapter, "preflight", None)
@@ -108,7 +157,7 @@ def track1_preflight_command(
 
 @app.command("freeze")
 def freeze_command(config: Path = typer.Option(..., exists=True, readable=True)) -> None:
-    """Freeze W0/WT and all Track 1 contracts into an immutable R0 specimen."""
+    """Freeze an evaluation specimen; this does not add it to compiler training."""
     value = load_config(config)
     adapter = load_adapter(value)
     specimen_config = require(value, "specimen")
@@ -239,46 +288,66 @@ def encode_command(
     typer.echo(json.dumps(result, indent=2))
 
 
-@app.command("fit-neural")
-def fit_neural_command(
+@app.command("fit-compact-target")
+def fit_compact_target_command(
     specimen: Path = typer.Option(..., exists=True, file_okay=False),
-    output: Path = typer.Option(..., help="Output MGP directory"),
-    interpreter_output: Path = typer.Option(..., help="Shared interpreter artifact directory"),
-    updates: int = typer.Option(2000, min=1),
-    batch_size: int = typer.Option(128, min=1),
-    learning_rate: float = typer.Option(3e-4, min=1e-8),
-    block_size: int = typer.Option(16, min=1),
-    hidden_dim: int = typer.Option(256, min=8),
-    device: str = typer.Option("cpu"),
+    output: Path = typer.Option(...),
+    target_fraction: float = typer.Option(0.10, min=0.0001, max=0.10),
+    max_rank: int = typer.Option(64, min=0),
 ) -> None:
-    """Fit a G0 role-conditioned neural block genome directly to R0."""
-    if output.exists():
-        raise typer.BadParameter(f"output already exists: {output}")
-    if interpreter_output.exists():
-        raise typer.BadParameter(f"interpreter output already exists: {interpreter_output}")
+    """Fit, serialize, and byte-audit a transparent compact target candidate."""
     frozen = load_specimen(specimen)
-    result = fit_autodecoder(
+    result = fit_compact_svd_target(
         frozen.load_base(),
         frozen.load_target(),
         frozen.inventory,
         tied_groups=frozen.tied_groups,
-        interpreter_path=interpreter_output,
+        config=CompactTargetConfig(
+            target_fraction_of_fp16_delta=target_fraction,
+            max_rank=max_rank,
+        ),
         candidate_id=output.name.removesuffix(".mgp"),
-        decoder_config=BlockDecoderConfig(
-            block_rows=block_size, block_cols=block_size, hidden_dim=hidden_dim
-        ),
-        training_config=AutodecoderTrainingConfig(
-            updates=updates,
-            batch_size=batch_size,
-            learning_rate=learning_rate,
-            device=device,
-            log_every=max(1, updates // 20),
-        ),
         manifest_metadata=_contract_metadata(frozen),
     )
-    artifact = save_program(result.program, output)
-    write_json(output / "training_metrics.json", result.metrics)
-    typer.echo(json.dumps({"mgp": artifact, "interpreter": result.interpreter_info}, indent=2))
+    serialized = serialize_and_audit_compiler_target(
+        result,
+        frozen.inventory,
+        output,
+    )
+    typer.echo(json.dumps(serialized.audit.to_dict(), indent=2))
+    if not serialized.audit.serialized_policy_ready:
+        raise typer.Exit(code=2)
+
+
+@app.command("audit-program-tokens")
+def audit_program_tokens_command(
+    specimen: Path = typer.Option(..., exists=True, file_okay=False),
+    mgp: Path = typer.Option(..., exists=True, file_okay=False),
+    coefficient_chunk_dim: int = typer.Option(16, min=1),
+) -> None:
+    """Tokenize and parse a compact program with the deterministic inverse."""
+    frozen = load_specimen(specimen)
+    program = load_program(mgp)
+    config = ProgramTokenizationConfig(coefficient_chunk_dim=coefficient_chunk_dim)
+    sequence = program_to_sequence(program, frozen.inventory, config=config)
+    restored = sequence_to_program(
+        sequence,
+        frozen.inventory,
+        tied_groups=frozen.tied_groups,
+        config=config,
+        candidate_id="token-roundtrip-audit",
+    )
+    typer.echo(
+        json.dumps(
+            {
+                "valid": True,
+                "token_count": int(sequence.token_ids.numel()),
+                "numeric_token_count": int(sequence.numeric_mask.sum().item()),
+                "restored_payload_tensors": sorted(restored.payload_tensors),
+            },
+            indent=2,
+        )
+    )
 
 
 @app.command("decode")
@@ -286,18 +355,15 @@ def decode_command(
     specimen: Path = typer.Option(..., exists=True, file_okay=False),
     mgp: Path = typer.Option(..., exists=True, file_okay=False),
     output: Path = typer.Option(...),
-    interpreter: Path | None = typer.Option(None, exists=True, file_okay=False),
 ) -> None:
-    """Decode an MGP into a standalone safetensors candidate."""
+    """Decode an MGP with the deterministic Runtime."""
     frozen = load_specimen(specimen)
     program = load_program(mgp)
-    neural = load_interpreter(interpreter) if interpreter else None
     state = decode_program(
         program,
         frozen.load_base(),
         frozen.inventory,
         tied_groups=frozen.tied_groups,
-        interpreter=neural,
         contract={
             "architecture_manifest_sha256": frozen.manifest["contract_hashes"]["architecture"],
             "tensor_inventory_sha256": frozen.manifest["contract_hashes"]["tensor_inventory"],
@@ -314,9 +380,8 @@ def evaluate_command(
     mgp: Path = typer.Option(..., exists=True, file_okay=False),
     config: Path = typer.Option(..., exists=True, readable=True),
     output: Path | None = typer.Option(None),
-    interpreter: Path | None = typer.Option(None, exists=True, file_okay=False),
 ) -> None:
-    """Run an MGP through the configured development/Genome Gate evaluator."""
+    """Run a deterministic MGP through the configured Genome Gate evaluator."""
     value = load_config(config)
     adapter = load_adapter(value)
     evaluation = value.get("evaluation", {})
@@ -327,16 +392,10 @@ def evaluate_command(
         max_batches=evaluation.get("max_batches"),
         device=evaluation.get("device", "cpu"),
     )
-    neural = (
-        load_interpreter(interpreter, device=evaluation.get("device", "cpu"))
-        if interpreter
-        else None
-    )
-    report = gate.evaluate_mgp(mgp, interpreter=neural)
+    report = gate.evaluate_mgp(mgp)
     result = report.to_dict()
     result["bit_accounting"] = account_mgp(
         mgp,
-        interpreter_path=interpreter,
         base_path=gate.specimen.base_path,
     )
     destination = output or (mgp / "evaluation.json")
@@ -350,24 +409,17 @@ def export_track1_checkpoint_command(
     mgp: Path = typer.Option(..., exists=True, file_okay=False),
     config: Path = typer.Option(..., exists=True, readable=True),
     output: Path = typer.Option(...),
-    interpreter: Path | None = typer.Option(None, exists=True, file_okay=False),
 ) -> None:
-    """Export a decoded phenotype for Track 1's existing generation/eval commands."""
+    """Export a deterministic candidate for legacy G0 or future Track 1 evaluation."""
     value = load_config(config)
     adapter = load_adapter(value)
     frozen = load_specimen(specimen)
     program = load_program(mgp)
-    neural = (
-        load_interpreter(interpreter, device="cpu")
-        if interpreter is not None
-        else None
-    )
     state = decode_program(
         program,
         frozen.load_base(),
         frozen.inventory,
         tied_groups=frozen.tied_groups,
-        interpreter=neural,
         contract={
             "architecture_manifest_sha256": frozen.manifest["contract_hashes"][
                 "architecture"
@@ -390,7 +442,6 @@ def export_track1_checkpoint_command(
             "specimen_id": frozen.specimen_id,
             "specimen_manifest_sha256": sha256_file(frozen.root / "manifest.json"),
             "mgp_manifest_sha256": sha256_file(mgp / "manifest.json"),
-            "interpreter_path": None if interpreter is None else str(interpreter.resolve()),
         },
     )
     typer.echo(json.dumps(result, indent=2, default=str))
@@ -485,38 +536,6 @@ def rate_distortion_command(
     typer.echo(f"Completed {len(results)} rate-distortion points in {output}")
 
 
-@app.command("refine-latent")
-def refine_latent_command(
-    specimen: Path = typer.Option(..., exists=True, file_okay=False),
-    mgp: Path = typer.Option(..., exists=True, file_okay=False),
-    interpreter: Path = typer.Option(..., exists=True, file_okay=False),
-    config: Path = typer.Option(..., exists=True, readable=True),
-    output: Path = typer.Option(...),
-    steps: int = typer.Option(100, min=1),
-    learning_rate: float = typer.Option(1e-3, min=1e-8),
-    split: str = typer.Option("probe"),
-) -> None:
-    """Freeze the interpreter and repair a candidate by optimizing genome codes only."""
-    value = load_config(config)
-    adapter = load_adapter(value)
-    frozen = load_specimen(specimen)
-    device = value.get("evaluation", {}).get("device", "cpu")
-    result = refine_neural_genome_codes(
-        adapter,
-        load_program(mgp),
-        load_interpreter(interpreter, device=device),
-        frozen.load_base(device=device),
-        frozen.inventory,
-        tied_groups=frozen.tied_groups,
-        config=LatentRefinementConfig(
-            steps=steps, learning_rate=learning_rate, split=split, device=device
-        ),
-    )
-    save_program(result.program, output)
-    write_json(output / "refinement_metrics.json", result.metrics)
-    typer.echo(f"Wrote refined genome to {output}")
-
-
 @app.command("report")
 def report_command(
     input_root: list[Path] = typer.Argument(..., exists=True),
@@ -532,10 +551,9 @@ def report_command(
 def demo_command(
     output: Path = typer.Option(Path("artifacts/demo")),
     updates: int = typer.Option(80, min=1, help="Tiny Track 1 training updates"),
-    neural: bool = typer.Option(False, help="Also fit a small neural genome"),
     force: bool = typer.Option(False, help="Delete an existing demo directory"),
 ) -> None:
-    """Run the complete G0 pipeline on a deterministic tiny causal language model."""
+    """Run the deterministic Runtime and codec pipeline on a tiny test fixture."""
     from examples.tiny_track1 import TinyTrack1Adapter, train_reference
 
     if output.exists():
@@ -580,44 +598,6 @@ def demo_command(
         report = gate.evaluate_mgp(path).to_dict()
         report["bit_accounting"] = account_mgp(path, base_path=specimen.base_path)
         write_json(path / "evaluation.json", report)
-        reports.append(report)
-
-    if neural:
-        interpreter_path = output / "interpreters" / "tiny_block_v0"
-        result = fit_autodecoder(
-            base,
-            target,
-            specimen.inventory,
-            tied_groups=specimen.tied_groups,
-            interpreter_path=interpreter_path,
-            candidate_id="tiny_neural",
-            decoder_config=BlockDecoderConfig(
-                block_rows=8,
-                block_cols=8,
-                global_code_dim=32,
-                layer_code_dim=16,
-                tensor_code_dim=16,
-                hidden_dim=128,
-                depth=3,
-            ),
-            training_config=AutodecoderTrainingConfig(
-                updates=400,
-                batch_size=64,
-                learning_rate=1e-3,
-                device="cpu",
-                log_every=40,
-            ),
-            manifest_metadata=metadata,
-        )
-        path = genome_dir / "tiny_neural.mgp"
-        save_program(result.program, path)
-        neural_interpreter = load_interpreter(interpreter_path)
-        report = gate.evaluate_mgp(path, interpreter=neural_interpreter).to_dict()
-        report["bit_accounting"] = account_mgp(
-            path, interpreter_path=interpreter_path, base_path=specimen.base_path
-        )
-        write_json(path / "evaluation.json", report)
-        write_json(path / "training_metrics.json", result.metrics)
         reports.append(report)
 
     summary = {

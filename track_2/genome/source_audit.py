@@ -12,6 +12,7 @@ W0Status = Literal["verified_step0", "reconstructable", "missing", "unknown"]
 _COMPLETENESS = {"complete", "partial", "endpoint_only", "pending_verification"}
 _DECISIONS = {"approved", "deferred", "rejected", "evaluation_only"}
 _W0_STATUS = {"verified_step0", "reconstructable", "missing", "unknown"}
+_REVEALED_HIDDEN_LIVES = {"pythia-14m-seed9"}
 
 
 def _nonempty(value: object, *, name: str) -> str:
@@ -77,10 +78,10 @@ class SourceSize:
     def life_count(self) -> int:
         return len(self.life_ids)
 
-    def endpoint_pair_bytes(self) -> int:
+    def estimated_endpoint_pair_bytes(self) -> int:
         return self.life_count * 2 * self.parameter_count * self.source_dtype_bytes
 
-    def all_checkpoint_bytes(self) -> int:
+    def estimated_all_checkpoint_bytes(self) -> int:
         return (
             self.life_count
             * self.checkpoint_count_per_life
@@ -105,6 +106,7 @@ class SourceCandidate:
     exact_data_order_available: bool
     tokenizer_available: bool
     complete_recipe_available: bool
+    provenance_available: bool
     intermediate_checkpoints_available: bool
     sizes: tuple[SourceSize, ...]
     approved_materialization: tuple[str, ...]
@@ -146,8 +148,10 @@ class SourceCandidate:
             for field_name in (
                 "final_endpoint_available",
                 "dataset_content_available",
+                "exact_data_order_available",
                 "tokenizer_available",
                 "complete_recipe_available",
+                "provenance_available",
             ):
                 if not getattr(self, field_name):
                     raise ValueError(f"complete source {self.source_id} lacks {field_name}")
@@ -195,11 +199,11 @@ class SourceCandidate:
     def life_count(self) -> int:
         return sum(size.life_count for size in self.sizes)
 
-    def endpoint_pair_bytes(self) -> int:
-        return sum(size.endpoint_pair_bytes() for size in self.sizes)
+    def estimated_endpoint_pair_bytes(self) -> int:
+        return sum(size.estimated_endpoint_pair_bytes() for size in self.sizes)
 
-    def all_checkpoint_bytes(self) -> int:
-        return sum(size.all_checkpoint_bytes() for size in self.sizes)
+    def estimated_all_checkpoint_bytes(self) -> int:
+        return sum(size.estimated_all_checkpoint_bytes() for size in self.sizes)
 
 
 @dataclass(frozen=True)
@@ -215,6 +219,12 @@ class SplitPlan:
         all_ids = [*self.training, *self.development, *self.hidden, *self.quarantined]
         if len(all_ids) != len(set(all_ids)):
             raise ValueError("a model life appears in more than one split")
+        active = {*self.training, *self.development, *self.hidden}
+        revealed = active & _REVEALED_HIDDEN_LIVES
+        if revealed:
+            raise ValueError(
+                f"revealed hidden lives must remain quarantined: {sorted(revealed)}"
+            )
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> SplitPlan:
@@ -272,6 +282,13 @@ class SourceAuditManifest:
         unknown = split_lives - known_lives
         if unknown:
             raise ValueError(f"split plan references unknown lives: {sorted(unknown)}")
+        revealed_lives = known_lives & _REVEALED_HIDDEN_LIVES
+        missing_quarantine = revealed_lives - set(self.split_plan.quarantined)
+        if missing_quarantine:
+            raise ValueError(
+                "revealed hidden lives must be listed in the quarantine split: "
+                f"{sorted(missing_quarantine)}"
+            )
         approved_lives = {
             life_id
             for candidate in self.candidates
@@ -322,7 +339,9 @@ class SourceAuditManifest:
     def content_sha256(self) -> str:
         return sha256_json(self.to_dict())
 
-    def approved_endpoint_pair_bytes(self) -> int:
+    def estimated_approved_endpoint_pair_bytes(self) -> int:
+        """Estimate W0/WT storage from parameter counts and declared scalar widths."""
+
         active_ids = {
             *self.split_plan.training,
             *self.split_plan.development,
@@ -337,5 +356,7 @@ class SourceAuditManifest:
                 total += selected_count * 2 * size.parameter_count * size.source_dtype_bytes
         return total
 
-    def maximum_catalog_bytes(self) -> int:
-        return sum(candidate.all_checkpoint_bytes() for candidate in self.candidates)
+    def estimated_maximum_catalog_bytes(self) -> int:
+        """Estimate full-catalog storage; download receipts must report actual LFS bytes."""
+
+        return sum(candidate.estimated_all_checkpoint_bytes() for candidate in self.candidates)

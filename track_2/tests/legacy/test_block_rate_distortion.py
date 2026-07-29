@@ -10,6 +10,8 @@ from genome.neural.block_rate_distortion import (
 )
 from genome.types import TensorSpec
 
+pytestmark = pytest.mark.legacy
+
 
 class _Life:
     split = "training"

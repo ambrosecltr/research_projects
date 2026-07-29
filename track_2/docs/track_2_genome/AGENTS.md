@@ -1,5 +1,8 @@
 # AGENTS.md — mandatory operating instructions for GENOME
 
+> **Archived instructions.** This file is not authoritative. Use `../../AGENTS.md`. The learned
+> interpreter and auto-decoder path below is historical only.
+
 This file is authoritative for agents implementing Track 2. Read the project documents before changing code. The user is intentionally pursuing a speculative idea. Do not reject a branch merely because it is unconventional. Convert uncertainty into a measurable experiment.
 
 ## Mission

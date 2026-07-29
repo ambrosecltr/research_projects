@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import pytest
 import torch
 
 from genome.fingerprint import count_sketch
 from genome.neural.compiler import GenomeCodeLayout, GenomeCompiler
+
+pytestmark = pytest.mark.legacy
 
 
 def test_count_sketch_is_deterministic_and_seeded():

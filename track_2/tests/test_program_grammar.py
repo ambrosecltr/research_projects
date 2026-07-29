@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import pytest
 import torch
 
 from genome.mgp.interpreter import decode_program
 from genome.mgp.opcodes import COPY_FROM_TIED, LOW_RANK, QUANTIZED_DELTA
-from genome.program_compiler import CompilerConditioning, ProgramCompilerConfig, VariableProgramCompiler
+from genome.program_compiler import (
+    PROGRAM_TOKEN_TO_ID,
+    CompilerConditioning,
+    ProgramCompilerConfig,
+    VariableProgramCompiler,
+)
 from genome.program_grammar import generate_valid_program
+from genome.program_tokens import ProgramSequence, sequence_to_program
 from genome.types import TensorSpec
 
 
@@ -135,3 +142,16 @@ def test_tied_alias_is_forced_to_base_copy() -> None:
     alias = generated.program.records[1]
     assert alias.tied_owner == "embedding"
     assert [component.opcode for component in alias.components] == [COPY_FROM_TIED]
+
+
+def test_unconstrained_premature_eos_cannot_materialize_an_mgp() -> None:
+    sequence = ProgramSequence(
+        token_ids=torch.tensor(
+            [PROGRAM_TOKEN_TO_ID["BOS"], PROGRAM_TOKEN_TO_ID["EOS"]]
+        ),
+        numeric_values=torch.zeros(2, 4),
+        numeric_mask=torch.zeros(2, dtype=torch.bool),
+        token_mask=torch.ones(2, dtype=torch.bool),
+    )
+    with pytest.raises(ValueError, match="TENSOR_START"):
+        sequence_to_program(sequence, inventory())

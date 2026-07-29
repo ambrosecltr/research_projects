@@ -1,5 +1,8 @@
 # GENOME agent task cards
 
+> **Archived pre-recovery task list.** These tasks are not active assignments. In particular, do
+> not start the neural auto-decoder tasks.
+
 ## How to use this file
 
 Give an implementation agent one task card at a time. Do not ask it to “implement GENOME” as one large job. Each card has a narrow objective, required inputs, outputs, tests, and explicit exclusions.

@@ -1,3 +1,5 @@
+"""Archived fixed-layout V1 compiler training for historical reproduction only."""
+
 from __future__ import annotations
 
 import math

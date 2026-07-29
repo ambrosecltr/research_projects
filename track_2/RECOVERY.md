@@ -150,6 +150,10 @@ A fitted target is still not accepted until the Genome Gate executes it and veri
 
 `genome.program_tokens` provides a deterministic tokenization/inverse for canonical compact targets. The first vertical slice supports canonical low-rank programs. Additional primitives must be added with a deterministic inverse and tests; there is no fallback dense token.
 
+Validation found that the flat coefficient-token sequence does not scale to Pythia 14M or 31M.
+Production compiler work must replace it with a hierarchical skeleton and bounded coefficient
+packets. Do not increase the flat context to an extreme size.
+
 ## Recovery gates
 
 ### R0 — foundation integrity
@@ -173,7 +177,7 @@ Before large downloads, commit a matrix containing:
 - WT status;
 - checkpoint count;
 - dataset and tokenizer access;
-- complete recipe availability;
+- exact data order, complete recipe and provenance availability;
 - download/canonical/derived storage;
 - accepted role: complete, partial or endpoint-only;
 - train/development/hidden assignment.

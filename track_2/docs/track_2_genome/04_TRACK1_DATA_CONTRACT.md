@@ -1,5 +1,8 @@
 # Track 1 data and artifact contract for GENOME
 
+> **Archived pre-recovery note.** Track 1 is legacy G0 and future evaluation-only. It is not an
+> active public-life compiler-training target.
+
 ## 1. Relationship to Track 1
 
 Track 1 produces the first controlled training organism. Its fully trained poetry model becomes **R0**, the reference phenotype for GENOME.

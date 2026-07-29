@@ -1,3 +1,5 @@
+"""Archived V1-V4 learned block interpreter for historical reproduction only."""
+
 from __future__ import annotations
 
 import math

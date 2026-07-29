@@ -136,6 +136,10 @@ def test_compiler_view_excludes_endpoint_and_provenance_hashes() -> None:
     assert "fitted_program" not in view
     assert "run_id" not in view
     assert "sha256" not in encoded
+    assert "order-7" not in encoded
+    assert "sft-order" not in encoded
+    assert "org/model" not in encoded
+    assert "model-revision" not in encoded
     assert [stage["stage_type"] for stage in view["stages"]] == ["pretraining", "sft"]
 
 

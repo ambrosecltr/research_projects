@@ -1,3 +1,5 @@
+"""Archived failed PolyPythia V4 predictive compiler for historical reproduction only."""
+
 from __future__ import annotations
 
 import math

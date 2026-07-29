@@ -1,4 +1,10 @@
-# PolyPythia 14M Round One runbook
+# Archived PolyPythia 14M Round One V4 runbook
+
+This runbook reproduces a failed experiment. It is not a next-step plan. Its learned decoder,
+residual genome, compiler, and revealed seed9 path must not be used for a new hidden claim.
+
+Run the archived commands through `scripts/legacy_polypythia_v4.py`. The active `genome`
+application does not expose them.
 
 ## Questions
 
@@ -25,6 +31,7 @@ The source is the standard non-deduplicated Pythia family. Do not mix it with `p
 cd /Users/ambrosecoulter/research_projects/track_2
 uv venv --python 3.11 .venv
 uv pip install --python .venv/bin/python -e '.[dev,evaluation]'
+source .venv/bin/activate
 .venv/bin/python -m compileall -q genome tests
 .venv/bin/python -m pytest -q
 ```
@@ -32,7 +39,7 @@ uv pip install --python .venv/bin/python -e '.[dev,evaluation]'
 Create the immutable source plan:
 
 ```bash
-.venv/bin/genome polypythia plan \
+python scripts/legacy_polypythia_v4.py plan \
   --config configs/polypythia_14m_round1.yaml \
   --output artifacts/polypythia_14m_round1/source-plan.json
 ```
@@ -94,7 +101,7 @@ python -m pip freeze > "$GENOME_ROOT/control/python-freeze.txt"
 Download training and development endpoint pairs plus hidden W0:
 
 ```bash
-genome polypythia download \
+python scripts/legacy_polypythia_v4.py download \
   --plan "$ROUND1_PLAN" \
   --output-root "$ROUND1_DOWNLOAD"
 ```
@@ -102,7 +109,7 @@ genome polypythia download \
 Prepare the sealed canonical corpus:
 
 ```bash
-genome polypythia prepare \
+python scripts/legacy_polypythia_v4.py prepare \
   --config configs/polypythia_14m_round1.yaml \
   --plan "$ROUND1_PLAN" \
   --receipt "$ROUND1_DOWNLOAD/download-sealed.json" \
@@ -113,7 +120,7 @@ genome polypythia prepare \
 Prepare the full pinned Wikitext test corpus before evaluation:
 
 ```bash
-genome polypythia prepare-evaluation-texts \
+python scripts/legacy_polypythia_v4.py prepare-evaluation-texts \
   --config configs/polypythia_14m_round1.yaml \
   --cache-dir "$GENOME_ROOT/data/huggingface-cache" \
   --output "$GENOME_ROOT/data/evaluation-texts"
@@ -122,13 +129,13 @@ genome polypythia prepare-evaluation-texts \
 Measure the representation before choosing a learned block width:
 
 ```bash
-genome polypythia analyze-block-rate \
+python scripts/legacy_polypythia_v4.py analyze-block-rate \
   --config configs/polypythia_14m_round1.yaml \
   --corpus "$ROUND1_SEALED" \
   --output "$ROUND1_RUNS/block-rate.json" \
   --device cuda
 
-genome polypythia analyze-tensor-rate \
+python scripts/legacy_polypythia_v4.py analyze-tensor-rate \
   --corpus "$ROUND1_SEALED" \
   --output "$ROUND1_RUNS/tensor-rate.json" \
   --device cuda
@@ -141,20 +148,20 @@ optimization.
 Train and audit the shared decoder:
 
 ```bash
-genome polypythia train-decoder \
+python scripts/legacy_polypythia_v4.py train-decoder \
   --config configs/polypythia_14m_round1.yaml \
   --corpus "$ROUND1_SEALED" \
   --output "$ROUND1_RUNS/decoder-v4" \
   --device cuda
 
-genome polypythia fit-development-code \
+python scripts/legacy_polypythia_v4.py fit-development-code \
   --config configs/polypythia_14m_round1.yaml \
   --corpus "$ROUND1_SEALED" \
   --shared-decoder "$ROUND1_RUNS/decoder-v4" \
   --output "$ROUND1_RUNS/development-code-v4" \
   --device cuda
 
-genome polypythia evaluate-decoder \
+python scripts/legacy_polypythia_v4.py evaluate-decoder \
   --corpus "$ROUND1_SEALED" \
   --shared-decoder "$ROUND1_RUNS/decoder-v4" \
   --development-code "$ROUND1_RUNS/development-code-v4" \
@@ -168,21 +175,21 @@ genome polypythia evaluate-decoder \
 Train the compiler and create the hidden one-shot prediction:
 
 ```bash
-genome polypythia train-compiler \
+python scripts/legacy_polypythia_v4.py train-compiler \
   --config configs/polypythia_14m_round1.yaml \
   --corpus "$ROUND1_SEALED" \
   --shared-decoder "$ROUND1_RUNS/decoder-v4" \
   --output "$ROUND1_RUNS/compiler-v4" \
   --device cuda
 
-genome polypythia predict-hidden \
+python scripts/legacy_polypythia_v4.py predict-hidden \
   --corpus "$ROUND1_SEALED" \
   --shared-decoder "$ROUND1_RUNS/decoder-v4" \
   --compiler "$ROUND1_RUNS/compiler-v4" \
   --output "$ROUND1_RUNS/hidden-prediction-v4" \
   --device cuda
 
-genome polypythia execute-hidden \
+python scripts/legacy_polypythia_v4.py execute-hidden \
   --corpus "$ROUND1_SEALED" \
   --shared-decoder "$ROUND1_RUNS/decoder-v4" \
   --prediction "$ROUND1_RUNS/hidden-prediction-v4" \
@@ -198,7 +205,7 @@ At this point `hidden-prediction/prediction_seal.json` exists and the predicted 
 Download hidden WT only after the seal:
 
 ```bash
-genome polypythia download \
+python scripts/legacy_polypythia_v4.py download \
   --plan "$ROUND1_PLAN" \
   --output-root "$ROUND1_DOWNLOAD" \
   --reveal-hidden \
@@ -209,7 +216,7 @@ genome polypythia download \
 Prepare a separate revealed corpus:
 
 ```bash
-genome polypythia prepare \
+python scripts/legacy_polypythia_v4.py prepare \
   --config configs/polypythia_14m_round1.yaml \
   --plan "$ROUND1_PLAN" \
   --receipt "$ROUND1_DOWNLOAD/download-revealed.json" \
@@ -220,7 +227,7 @@ genome polypythia prepare \
 Run the full matched Wikitext evaluation:
 
 ```bash
-genome polypythia evaluate-hidden \
+python scripts/legacy_polypythia_v4.py evaluate-hidden \
   --sealed-corpus "$ROUND1_SEALED" \
   --revealed-corpus "$GENOME_ROOT/data/canonical-revealed" \
   --runtime-execution "$ROUND1_RUNS/hidden-runtime-v4" \
@@ -234,7 +241,7 @@ genome polypythia evaluate-hidden \
 Run the full pinned zero-shot task suite:
 
 ```bash
-genome polypythia evaluate-lm-harness \
+python scripts/legacy_polypythia_v4.py evaluate-lm-harness \
   --config configs/polypythia_14m_round1.yaml \
   --sealed-corpus "$ROUND1_SEALED" \
   --revealed-corpus "$GENOME_ROOT/data/canonical-revealed" \

@@ -15,6 +15,8 @@ from genome.neural.compiler_training import (
     train_compiler,
 )
 
+pytestmark = pytest.mark.legacy
+
 
 def test_compiler_training_artifact_roundtrip(tmp_path):
     layout = GenomeCodeLayout(

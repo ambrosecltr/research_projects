@@ -192,7 +192,7 @@ class GenomeGate:
             failure_codes=(),
         )
 
-    def evaluate_mgp(self, mgp_path: str | Path, *, interpreter: Any | None = None) -> EvaluationReport:
+    def evaluate_mgp(self, mgp_path: str | Path) -> EvaluationReport:
         program = load_program(mgp_path)
         base = self._base()
         start = time.perf_counter()
@@ -201,7 +201,6 @@ class GenomeGate:
             base,
             self.specimen.inventory,
             tied_groups=self.specimen.tied_groups,
-            interpreter=interpreter,
             contract={
                 "architecture_manifest_sha256": self.specimen.manifest["contract_hashes"]["architecture"],
                 "tensor_inventory_sha256": self.specimen.manifest["contract_hashes"]["tensor_inventory"],

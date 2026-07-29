@@ -1,4 +1,7 @@
-# GENOME v0.2.0 validation record
+# Archived GENOME v0.2.0 validation record
+
+This record predates the recovery cleanup. Its learned-interpreter commands and results are
+historical only. Use `VALIDATION_REPORT.md` for the current branch.
 
 Validation date: **27 July 2026**
 

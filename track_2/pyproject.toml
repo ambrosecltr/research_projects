@@ -36,6 +36,10 @@ include = ["genome*", "examples*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+markers = [
+  "legacy: historical failed-experiment reproduction coverage",
+  "track1_evaluation: legacy G0 and future evaluation-only Track 1 coverage",
+]
 
 [tool.ruff]
 target-version = "py311"

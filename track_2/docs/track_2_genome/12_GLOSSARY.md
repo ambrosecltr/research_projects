@@ -1,5 +1,8 @@
 # GENOME glossary and symbol reference
 
+> **Archived pre-recovery glossary.** Learned-interpreter and auto-decoder terms are historical,
+> not active GENOME components.
+
 ## Project terms
 
 | Term | Definition |

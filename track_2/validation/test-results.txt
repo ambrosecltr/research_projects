@@ -1,0 +1,95 @@
+GENOME recovery local validation results
+========================================
+
+Environment
+-----------
+
+Python: 3.11.15
+Platform: macOS-26.5.2-arm64-arm-64bit
+Torch: 2.4.1
+CUDA available: false
+
+Required commands
+-----------------
+
+PASS  pip install -e '.[dev,evaluation]'
+      exit 0; wall time 2.01 s
+
+PASS  pip check
+      exit 0; wall time 0.23 s; no broken requirements
+
+PASS  compileall -q genome tests
+      exit 0; wall time 0.05 s
+
+PASS  pytest -q
+      exit 0; wall time 5.11 s
+      86 passed, 1 skipped, 5 warnings
+
+PASS  python -m genome --help
+      exit 0; wall time 0.98 s
+
+PASS  deterministic demo
+      exit 0; wall time 1.63 s
+      output: /tmp/genome-validation-demo/SUMMARY.md
+
+Focused tests
+-------------
+
+PASS  life schema, semantic fingerprints, compact target policy, structured MGP primitives,
+      program tokens/inverse, grammar generation, variable compiler forward/backward, GPT-NeoX
+      native/canonical round trips, and hidden endpoint leakage controls
+
+      exit 0; wall time 2.29 s
+      35 passed, 5 warnings
+
+Skip
+----
+
+The one skip is explicit and GPU-only:
+
+  tests/legacy/test_polypythia_round1.py:225
+  test_neural_runtime_returns_cuda_decoder_output_to_cpu_base
+  reason: CUDA is required
+
+This test belongs to the archived V4 reproduction suite. The validation machine has no CUDA
+device. No required CPU test was skipped.
+
+Warnings
+--------
+
+Five tests report the same PyTorch Transformer warning:
+
+  enable_nested_tensor is True, but use_nested_tensor is False because norm_first is True
+
+The warning is informational. It does not change test results.
+
+Boundary checks
+---------------
+
+PASS  git diff --check
+PASS  archived CLI help
+PASS  59 active modules and 492 import edges; zero static edge to legacy or neural modules
+PASS  importing genome.cli loads zero legacy or neural modules
+PASS  active CLI source has zero old V4 command-name match
+PASS  active source has zero archived-import match
+
+Readiness checks
+----------------
+
+PASS  repeated compact target fitting produces the same complete artifact-directory hash
+PASS  actual serialized bytes can reject a logical-budget pass
+PASS  manifest, Safetensors, patch, index, scale, and shared payload storage are audited
+PASS  V4 residual and direct dense matrix targets are rejected
+PASS  the constant teacher-length rate term is removed
+PASS  unconstrained compiler generation is removed
+PASS  premature EOS is rejected before an MGP is returned
+PASS  hidden compiler views exclude WT, endpoint hashes, fitted programs, and later trajectory
+PASS  provenance hashes do not enter semantic tensor order
+PASS  Track 1 cannot enter an active compiler split
+PASS  revealed Pythia 14M seed9 must be in the quarantine split
+
+FAIL  flat program-token capacity at Pythia scale
+      Pythia 14M: 44,268 tokens at 5%; 88,230 at 10%; limit 4,096
+      Pythia 31M: 95,602 tokens at 5%; 190,898 at 10%; limit 4,096
+
+The command outputs are in this directory.

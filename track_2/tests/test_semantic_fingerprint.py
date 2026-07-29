@@ -10,7 +10,11 @@ from genome.semantic_fingerprint import (
 )
 
 
-def build_fixture(sequences: list[list[int]]) -> tuple[torch.Tensor, dict]:
+def build_fixture(
+    sequences: list[list[int]],
+    *,
+    provenance_sha256: str = "a" * 64,
+) -> tuple[torch.Tensor, dict]:
     builder = CorpusFingerprintBuilder(
         vocab_size=32,
         config=SemanticFingerprintConfig(
@@ -25,7 +29,7 @@ def build_fixture(sequences: list[list[int]]) -> tuple[torch.Tensor, dict]:
         builder.update_tokens(sequence)
         builder.update_bytes(f"document {index}: {sequence}")
     result = builder.finalize(
-        provenance={"repository": "org/corpus", "sha256": "a" * 64}
+        provenance={"repository": "org/corpus", "sha256": provenance_sha256}
     )
     return result.flattened(), result.manifest
 
@@ -33,13 +37,27 @@ def build_fixture(sequences: list[list[int]]) -> tuple[torch.Tensor, dict]:
 def test_corpus_fingerprint_is_deterministic_and_semantic() -> None:
     first, first_manifest = build_fixture([[1, 2, 3], [3, 4, 5, 6]])
     repeated, repeated_manifest = build_fixture([[1, 2, 3], [3, 4, 5, 6]])
+    changed_provenance, changed_provenance_manifest = build_fixture(
+        [[1, 2, 3], [3, 4, 5, 6]],
+        provenance_sha256="b" * 64,
+    )
     different, _ = build_fixture([[1, 2, 3], [9, 9, 9, 9]])
 
     torch.testing.assert_close(first, repeated, rtol=0, atol=0)
+    torch.testing.assert_close(first, changed_provenance, rtol=0, atol=0)
     assert first_manifest["content_sha256"] == repeated_manifest["content_sha256"]
+    assert (
+        first_manifest["content_sha256"]
+        != changed_provenance_manifest["content_sha256"]
+    )
     assert not torch.equal(first, different)
     assert first_manifest["provenance_is_model_input"] is False
-    assert "sha256" not in first_manifest["semantic_tensor_order"]
+    assert all(
+        "sha" not in name.lower()
+        and "provenance" not in name.lower()
+        and "revision" not in name.lower()
+        for name in first_manifest["semantic_tensor_order"]
+    )
 
 
 def test_supervised_fraction_is_recorded_from_content() -> None:
@@ -71,7 +89,7 @@ def test_gradient_probe_is_role_conditioned_and_changes_with_gradients() -> None
     )
     changed, _ = gradient_probe_fingerprint(
         {
-            "a": torch.arange(12, dtype=torch.float32).reshape(3, 4).flip(0),
+            "a": torch.arange(12, dtype=torch.float32).reshape(3, 4).roll(1),
             "b": torch.linspace(-1, 1, 10),
         },
         roles,

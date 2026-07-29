@@ -1,5 +1,9 @@
 # Model Genome Program specification
 
+> **Archived pre-recovery note.** Learned-interpreter fields and decoder-first recommendations in
+> this file are historical only. Active MGPs use the deterministic Runtime defined by
+> `../../RECOVERY.md`.
+
 ## 1. Purpose
 
 A **Model Genome Program (MGP)** is the compact, executable output of GENOME. It is not required to be human-readable symbolic mathematics. It is a versioned program/data structure that a shared interpreter can deterministically expand into a target model state.

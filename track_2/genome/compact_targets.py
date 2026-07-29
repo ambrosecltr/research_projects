@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import torch
 
 from .codecs.common import make_manifest, make_records
+from .io import write_json
 from .mgp.opcodes import COPY_FROM_TIED, LOW_RANK, QUANTIZED_DELTA
 from .mgp.policy import CompilerTargetAudit, CompilerTargetPolicy, audit_compiler_target
+from .mgp.serializer import save_program
 from .state import compute_delta
 from .types import GenomeComponent, GenomeProgram, TensorSpec
 
@@ -55,6 +58,13 @@ class CompactTargetResult:
     allocated_ranks: dict[str, int]
     logical_factor_bytes: int
     logical_vector_bytes: int
+
+
+@dataclass(frozen=True)
+class SerializedCompactTarget:
+    path: Path
+    audit: CompilerTargetAudit
+    artifact_sizes: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -147,11 +157,11 @@ def fit_compact_svd_target(
     candidate_id: str = "compact-svd-target",
     manifest_metadata: Mapping[str, Any] | None = None,
 ) -> CompactTargetResult:
-    """Fit one canonical, genuinely compact target MGP.
+    """Fit one canonical compact-target candidate.
 
-    This function creates compiler supervision only after the result passes the byte/structure
-    policy. Functional acceptance remains a separate Genome Gate step; callers must execute the
-    decoded model and reject labels that miss the predeclared quality band.
+    The in-memory audit is an estimate. It cannot approve training supervision. Call
+    ``serialize_and_audit_compiler_target`` and then run the functional Genome Gate before using
+    the program as a label.
     """
 
     config = config or CompactTargetConfig()
@@ -271,6 +281,33 @@ def fit_compact_svd_target(
         allocated_ranks=ranks,
         logical_factor_bytes=logical_factor_bytes,
         logical_vector_bytes=logical_vector_bytes,
+    )
+
+
+def serialize_and_audit_compiler_target(
+    result: CompactTargetResult,
+    inventory: Sequence[TensorSpec],
+    path: str | Path,
+    *,
+    policy: CompilerTargetPolicy | None = None,
+) -> SerializedCompactTarget:
+    """Serialize a target candidate and repeat the policy audit with real file bytes."""
+
+    destination = Path(path)
+    artifact_sizes = save_program(result.program, destination)
+    effective_policy = policy or CompilerTargetPolicy(**result.audit.policy)
+    audit = audit_compiler_target(
+        result.program,
+        inventory,
+        fp16_delta_bytes=result.audit.fp16_delta_bytes,
+        policy=effective_policy,
+        actual_mgp_bytes=int(artifact_sizes["mgp_bytes"]),
+    )
+    write_json(destination / "compiler_target_audit.json", audit.to_dict(), canonical=True)
+    return SerializedCompactTarget(
+        path=destination,
+        audit=audit,
+        artifact_sizes=artifact_sizes,
     )
 
 
