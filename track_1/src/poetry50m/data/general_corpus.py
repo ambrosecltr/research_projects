@@ -225,6 +225,16 @@ def _train_tokenizer(
     tokenizer.save(str(output), pretty=True)
 
 
+def _validate_tokenizer(path: Path, *, config: GeneralCorpusConfig) -> Tokenizer:
+    tokenizer = Tokenizer.from_file(str(path))
+    if tokenizer.get_vocab_size(with_added_tokens=True) != config.vocab_size:
+        raise ValueError("general tokenizer vocabulary does not match its config")
+    for token in config.special_tokens:
+        if tokenizer.token_to_id(token) is None:
+            raise ValueError(f"general tokenizer lacks required token {token}")
+    return tokenizer
+
+
 def _parquet_rows(path: Path) -> Iterator[tuple[str, str, str]]:
     parquet = pq.ParquetFile(path)
     if parquet.schema_arrow.names != ["uid", "content", "style"]:
@@ -543,6 +553,7 @@ def prepare_general_corpus(
     config_path: Path,
     output_directory: Path,
     scratch_directory: Path,
+    tokenizer_path: Path | None = None,
 ) -> Path:
     """Build and validate the complete binary artifact through one atomic publish."""
     config = GeneralCorpusConfig.load(config_path)
@@ -562,18 +573,37 @@ def prepare_general_corpus(
     scratch.mkdir(parents=True)
     try:
         paths_by_source = _source_paths(config)
-        sample_paths, tokenizer_receipts = _write_tokenizer_samples(
-            config=config,
-            paths_by_source=paths_by_source,
-            scratch=scratch / "download",
-        )
-        tokenizer_path = temporary / "tokenizer.json"
-        print("training the general 8M tokenizer", flush=True)
-        _train_tokenizer(sample_paths, config=config, output=tokenizer_path)
+        artifact_tokenizer_path = temporary / "tokenizer.json"
+        if tokenizer_path is None:
+            sample_paths, tokenizer_receipts = _write_tokenizer_samples(
+                config=config,
+                paths_by_source=paths_by_source,
+                scratch=scratch / "download",
+            )
+            print("training the general 8M tokenizer", flush=True)
+            _train_tokenizer(
+                sample_paths,
+                config=config,
+                output=artifact_tokenizer_path,
+            )
+            tokenizer_provenance: dict[str, object] = {
+                "mode": "trained",
+                "sample_utf8_bytes": config.tokenizer_sample_utf8_bytes,
+                "source_shards": tokenizer_receipts,
+            }
+        else:
+            source_tokenizer_path = tokenizer_path.expanduser().resolve(strict=True)
+            _validate_tokenizer(source_tokenizer_path, config=config)
+            shutil.copyfile(source_tokenizer_path, artifact_tokenizer_path)
+            tokenizer_provenance = {
+                "mode": "reused",
+                "source_sha256": file_hash(source_tokenizer_path),
+            }
+        _validate_tokenizer(artifact_tokenizer_path, config=config)
         build_receipt = _build_token_files(
             config=config,
             paths_by_source=paths_by_source,
-            tokenizer_path=tokenizer_path,
+            tokenizer_path=artifact_tokenizer_path,
             output=temporary,
             scratch=scratch / "download",
         )
@@ -607,11 +637,8 @@ def prepare_general_corpus(
             "revision": config.revision,
             "config": asdict(config),
             "config_sha256": file_hash(config_path),
-            "tokenizer_hash": file_hash(tokenizer_path),
-            "tokenizer_training": {
-                "sample_utf8_bytes": config.tokenizer_sample_utf8_bytes,
-                "source_shards": tokenizer_receipts,
-            },
+            "tokenizer_hash": file_hash(artifact_tokenizer_path),
+            "tokenizer_training": tokenizer_provenance,
             "splits": split_metadata,
             "train_objective_stats": {
                 "general_ntp": {

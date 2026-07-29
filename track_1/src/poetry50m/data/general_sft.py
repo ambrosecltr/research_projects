@@ -41,6 +41,7 @@ class GeneralSftConfig:
     batch_size: int
     train_seed: int
     data_seed: int
+    warmup_steps: int
 
     @classmethod
     def load(cls, path: Path) -> GeneralSftConfig:
@@ -65,7 +66,7 @@ class GeneralSftConfig:
                 {"seed", "target_supervised_tokens"},
             ),
             ("packing", packing, {"context_length", "batch_size"}),
-            ("training", training, {"seed", "data_seed"}),
+            ("training", training, {"seed", "data_seed", "warmup_steps"}),
         ):
             if not isinstance(mapping, dict) or set(mapping) != keys:
                 raise ValueError(f"general SFT {name} has unexpected keys")
@@ -102,6 +103,7 @@ class GeneralSftConfig:
             batch_size=integer(packing, "batch_size"),
             train_seed=integer(training, "seed"),
             data_seed=integer(training, "data_seed"),
+            warmup_steps=integer(training, "warmup_steps"),
         )
 
 
@@ -203,7 +205,7 @@ def _training_config(config: GeneralSftConfig, *, one_epoch_steps: int) -> dict[
         "beta1": 0.9,
         "beta2": 0.95,
         "epsilon": 0.00000001,
-        "warmup_steps": min(30, one_epoch_steps - 1),
+        "warmup_steps": min(config.warmup_steps, one_epoch_steps - 1),
         "min_learning_rate_ratio": 0.1,
         "gradient_accumulation_steps": 1,
         "max_grad_norm": 1.0,

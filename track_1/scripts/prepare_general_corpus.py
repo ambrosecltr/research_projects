@@ -14,12 +14,14 @@ def main() -> int:
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--scratch", type=Path, required=True)
+    parser.add_argument("--tokenizer", type=Path)
     args = parser.parse_args()
     print(
         prepare_general_corpus(
             config_path=args.config,
             output_directory=args.output,
             scratch_directory=args.scratch,
+            tokenizer_path=args.tokenizer,
         )
     )
     return 0

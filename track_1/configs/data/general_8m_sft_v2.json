@@ -10,15 +10,15 @@
   },
   "selection": {
     "seed": "0cdfb56b3e562d0e9f3e9b4f4f6ceb39",
-    "target_supervised_tokens": 20000000
+    "target_supervised_tokens": 60000000
   },
   "packing": {
     "context_length": 1024,
     "batch_size": 32
   },
   "training": {
-    "seed": 2040893737,
-    "data_seed": 1399503269,
-    "warmup_steps": 30
+    "seed": 134626435,
+    "data_seed": 621155661,
+    "warmup_steps": 90
   }
 }
