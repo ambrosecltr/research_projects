@@ -15,7 +15,7 @@ from .runtime import execute_program
 from .schema import Component, ModelGenomeProgram, TensorProgram
 from .serialize import serialized_program_bytes
 
-AllocationStrategy = Literal["energy", "rank_balanced"]
+AllocationStrategy = Literal["energy", "rank_balanced", "internal_first"]
 
 
 @dataclass(frozen=True)
@@ -125,8 +125,10 @@ def fit_low_rank_program(
         raise ValueError("minimum_matrix_rank must be non-negative")
     if config.minimum_matrix_rank > config.max_rank:
         raise ValueError("minimum_matrix_rank cannot exceed max_rank")
-    if config.allocation_strategy not in {"energy", "rank_balanced"}:
+    if config.allocation_strategy not in {"energy", "rank_balanced", "internal_first"}:
         raise ValueError(f"unsupported allocation_strategy {config.allocation_strategy!r}")
+    if config.allocation_strategy == "internal_first" and not config.shared_vocabulary_factors:
+        raise ValueError("internal_first allocation requires shared vocabulary factors")
     if config.scaling_iterations <= 0:
         raise ValueError("scaling_iterations must be positive")
     direct_bytes = sum(tensor.numel() * 2 for tensor in target_state.values())
@@ -252,11 +254,23 @@ def fit_low_rank_program(
         remaining = allocation_budget - fixed_cost
         selected = dict(minimum_ranks)
         selected_cost = minimum_cost
-        ordered_candidates = (
-            sorted(candidates, key=lambda item: item[0], reverse=True)
-            if config.allocation_strategy == "energy"
-            else sorted(candidates, key=lambda item: (item[3], -item[0], item[2]))
-        )
+        if config.allocation_strategy == "energy":
+            ordered_candidates = sorted(candidates, key=lambda item: item[0], reverse=True)
+        elif config.allocation_strategy == "rank_balanced":
+            ordered_candidates = sorted(
+                candidates,
+                key=lambda item: (item[3], -item[0], item[2]),
+            )
+        else:
+            ordered_candidates = sorted(
+                candidates,
+                key=lambda item: (
+                    item[2] == "shared.vocabulary",
+                    item[3],
+                    -item[0],
+                    item[2],
+                ),
+            )
         for _, cost, name, index, *_ in ordered_candidates:
             if index < minimum_ranks[name]:
                 continue

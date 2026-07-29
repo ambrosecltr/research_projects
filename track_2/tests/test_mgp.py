@@ -262,6 +262,41 @@ def test_fit_can_share_one_vocabulary_factor_between_embeddings() -> None:
     )
 
 
+def test_internal_first_allocation_prioritizes_transformer_matrices() -> None:
+    torch.manual_seed(16)
+    w0 = {
+        "embed_out.weight": torch.randn(64, 8),
+        "gpt_neox.embed_in.weight": torch.randn(64, 8),
+        "layers.0.weight": torch.randn(16, 16),
+        "layers.1.weight": torch.randn(16, 16),
+    }
+    wt = {name: value + torch.randn_like(value) for name, value in w0.items()}
+    graph = graph_from_state(w0, family="toy", config={})
+
+    program, _ = fit_low_rank_program(
+        w0,
+        wt,
+        graph,
+        config=FitConfig(
+            budget_fraction=0.20,
+            max_rank=4,
+            minimum_matrix_rank=1,
+            allocation_strategy="internal_first",
+            shared_vocabulary_factors=True,
+            svd_method="exact",
+        ),
+    )
+    ranks = {
+        tensor.name: int(component.arguments["rank"])
+        for tensor in program.tensors
+        for component in tensor.components
+        if component.primitive == "LOW_RANK"
+    }
+
+    assert ranks["layers.0.weight"] > ranks["embed_out.weight"]
+    assert ranks["layers.1.weight"] > ranks["gpt_neox.embed_in.weight"]
+
+
 def test_all_floating_program_coefficients_are_trainable() -> None:
     program = ModelGenomeProgram(
         architecture_id="a",
