@@ -59,7 +59,9 @@ def coordinate_source_hash(root: Path) -> str:
             "training/engine.py",
             "training/stream.py",
             "data/batch_stream.py",
+            "data/binary_stream.py",
             "data/sft_training.py",
+            "data/general_sft.py",
             "workflows/sft.py",
             "workflows/training.py",
         )

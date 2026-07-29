@@ -21,7 +21,7 @@ from poetry50m.config import (
     load_mapping,
 )
 from poetry50m.data.sft_training import (
-    SftTrainingArtifact,
+    SftArtifact,
     load_sft_training_artifact,
     sft_batch_stream,
 )
@@ -93,7 +93,7 @@ def _stream_hash(stream: object) -> str:
 
 def _initialization_contract(
     *,
-    artifact: SftTrainingArtifact,
+    artifact: SftArtifact,
     checkpoint_path: Path,
     manifest_path: Path,
     receipt_path: Path,
@@ -112,19 +112,17 @@ def _initialization_contract(
         "base_manifest_sha256": file_hash(manifest_path),
         "base_receipt_sha256": file_hash(receipt_path),
         "mixture_receipt_sha256": file_hash(mixture_receipt_path),
-        "packs_sha256": artifact.receipt["packs_sha256"],
+        "data_sha256": artifact.data_sha256,
         "tokenizer_sha256": artifact.receipt["tokenizer_sha256"],
         "model_config_sha256": config_hash(model),
         "train_config_sha256": config_hash(train),
         "stream_sha256": stream_hash,
         "batch_size": batch_size,
         "data_seed": data_seed,
-        "one_epoch_steps": (len(artifact.packs) + batch_size - 1) // batch_size,
-        "pack_count": len(artifact.packs),
+        "one_epoch_steps": (artifact.pack_count + batch_size - 1) // batch_size,
+        "pack_count": artifact.pack_count,
         "formatted_tokens": artifact.receipt["actual_formatted_tokens"],
-        "effective_input_tokens_per_epoch": sum(
-            len(pack.input_ids) - 1 for pack in artifact.packs
-        ),
+        "effective_input_tokens_per_epoch": artifact.effective_input_tokens,
         "supervised_tokens_per_epoch": artifact.receipt["supervised_tokens"],
     }
 

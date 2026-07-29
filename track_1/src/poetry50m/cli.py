@@ -10,7 +10,7 @@ import tempfile
 from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, cast
 
 import torch
 from tokenizers import Tokenizer
@@ -159,7 +159,10 @@ def _trainer(
 ) -> tuple[Trainer, PreparedBatchStream]:
     from poetry50m.workflows.training import trainer as create_trainer
 
-    return create_trainer(args, resume=resume, read_only=read_only)
+    created = create_trainer(args, resume=resume, read_only=read_only)
+    if not isinstance(created[1], PreparedBatchStream):
+        raise ValueError("this command supports canonical packed artifacts only")
+    return cast(tuple[Trainer, PreparedBatchStream], created)
 
 
 def corpus_acquire_command(args: argparse.Namespace) -> int:
@@ -250,6 +253,8 @@ def plan_exposure_command(args: argparse.Namespace) -> int:
         )
     data_seed = args.data_seed if args.data_seed is not None else base_train.seed
     stream = prepared_stream(prepared, args.batch_size, data_seed)
+    if not isinstance(stream, PreparedBatchStream):
+        raise ValueError("plan-exposure supports canonical packed artifacts only")
     plan = plan_exposure(
         stream,
         parameter_count=parameter_count,

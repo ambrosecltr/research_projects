@@ -21,7 +21,12 @@ from poetry50m.config import (
     lineage_hash,
     load_mapping,
 )
-from poetry50m.data import PreparedBatchStream, load_prepared_data
+from poetry50m.data import (
+    BinaryTokenBatchStream,
+    PreparedBatchStream,
+    load_binary_token_artifact,
+    load_prepared_data,
+)
 from poetry50m.data.artifacts import read_packed_sequences
 from poetry50m.data.difficulty import DifficultyLedger
 from poetry50m.data.schema import ObjectiveMix
@@ -34,6 +39,7 @@ from poetry50m.trajectory.preparation import state_dict_hash
 from poetry50m.workflows.trajectory import heldout_anchor_commitment
 
 JsonWriter = Callable[[Path, object], None]
+TrainingBatchStream = PreparedBatchStream | BinaryTokenBatchStream
 
 
 def _model_config(path: Path) -> ModelConfig:
@@ -51,12 +57,20 @@ def prepared_stream(
     *,
     curriculum: str = "shuffled",
     difficulty_path: Path | None = None,
-) -> PreparedBatchStream:
+) -> TrainingBatchStream:
     tokenizer = Tokenizer.from_file(str(prepared / "tokenizer.json"))
     pad_id = tokenizer.token_to_id("<|pad|>")
     if pad_id is None:
         raise ValueError("prepared tokenizer lacks <|pad|>")
     metadata = load_prepared_data(prepared).metadata
+    if metadata.get("artifact_type") == "general_pretraining_binary":
+        if curriculum != "shuffled" or difficulty_path is not None:
+            raise ValueError("binary pretraining artifacts support shuffled order only")
+        return BinaryTokenBatchStream(
+            load_binary_token_artifact(prepared),
+            batch_size=batch_size,
+            seed=seed,
+        )
     config = metadata.get("config")
     if not isinstance(config, dict):
         raise ValueError("prepared metadata lacks its data configuration")
@@ -129,7 +143,7 @@ def trainer(
     *,
     resume: Path | None = None,
     read_only: bool = False,
-) -> tuple[Trainer, PreparedBatchStream]:
+) -> tuple[Trainer, TrainingBatchStream]:
     prepared = Path(args.prepared)
     model, train = _model_config(Path(args.model_config)), _train_config(Path(args.train_config))
     policy, policy_hash = _policy(args)

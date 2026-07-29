@@ -1,0 +1,56 @@
+{
+  "format_version": 1,
+  "source": {
+    "repository": "openbmb/Ultra-FineWeb-L3",
+    "revision": "c68ab81ad03b2d2f476fa8ab3c72bed3528da359",
+    "prefixes": {
+      "multi_style": "data/ultrafineweb_en_l3/multi_style/",
+      "qa": "data/ultrafineweb_en_l3/qa/"
+    },
+    "styles": {
+      "multi_style": "multi_style",
+      "qa": "qa"
+    }
+  },
+  "selection": {
+    "shard_order_seed": "11a8b83a7930a303b84f2a06da25a452"
+  },
+  "split": {
+    "salt": "general-8m-ufw-l3-11a8b83a7930a303b84f2a06da25a452",
+    "train": 0.9,
+    "validation": 0.05,
+    "test": 0.05
+  },
+  "tokenizer": {
+    "vocab_size": 8192,
+    "min_frequency": 2,
+    "special_tokens": [
+      "<|pad|>",
+      "<|bos|>",
+      "<|eos|>",
+      "<|system|>",
+      "<|user|>",
+      "<|assistant|>",
+      "<|mask|>"
+    ],
+    "sample_utf8_bytes": 100000000
+  },
+  "packing": {
+    "context_length": 1024,
+    "batch_size": 32
+  },
+  "rows": {
+    "train": {
+      "multi_style": 439456,
+      "qa": 48832
+    },
+    "validation": {
+      "multi_style": 24414,
+      "qa": 2713
+    },
+    "test": {
+      "multi_style": 24414,
+      "qa": 2713
+    }
+  }
+}

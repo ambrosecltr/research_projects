@@ -1,0 +1,21 @@
+# One complete shuffled pass over 488,288 rows at batch size 32.
+max_steps: 15259
+learning_rate: 0.0003
+weight_decay: 0.1
+beta1: 0.9
+beta2: 0.95
+epsilon: 0.00000001
+warmup_steps: 300
+min_learning_rate_ratio: 0.1
+gradient_accumulation_steps: 1
+max_grad_norm: 1.0
+device: auto
+precision: auto
+seed: 82635239
+deterministic: true
+log_every_steps: 1
+checkpoint_every_steps: 0
+trajectory_every_steps: 0
+checkpoint_steps: [1000, 2500, 5000, 7500, 10000, 12500]
+trajectory_capture_steps: [100, 250, 500, 1000, 2500, 5000, 7500, 10000, 12500]
+analysis_every_steps: 100

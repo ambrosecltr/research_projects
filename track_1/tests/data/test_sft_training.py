@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+from hashlib import sha256
 from pathlib import Path
 
+import numpy as np
 import pytest
 from tokenizers import Tokenizer
 from tokenizers.models import WordLevel
@@ -10,7 +12,11 @@ from tokenizers.models import WordLevel
 from poetry50m.config import file_hash
 from poetry50m.data.artifacts import write_packed_sequences
 from poetry50m.data.packing import PackedSequence
-from poetry50m.data.sft_training import load_sft_training_artifact, sft_batch_stream
+from poetry50m.data.sft_training import (
+    BinarySftTrainingArtifact,
+    load_sft_training_artifact,
+    sft_batch_stream,
+)
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -86,3 +92,40 @@ def test_sft_training_artifact_rejects_tampered_packs(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="packs hash"):
         load_sft_training_artifact(mixture, tokenizer_path=tokenizer_path)
+
+
+def test_binary_sft_artifact_streams_response_only_rows(tmp_path: Path) -> None:
+    _, tokenizer_path = _fixture(tmp_path)
+    root = tmp_path / "binary"
+    root.mkdir()
+    tokens = np.arange(18, dtype="<u2").reshape(2, 9)
+    losses = np.zeros((2, 9), dtype=np.uint8)
+    losses[:, -3:] = 1
+    tokens.tofile(root / "train.tokens.bin")
+    losses.tofile(root / "train.loss.bin")
+    tokens_hash = file_hash(root / "train.tokens.bin")
+    losses_hash = file_hash(root / "train.loss.bin")
+    data_hash = sha256((tokens_hash + "\0" + losses_hash).encode()).hexdigest()
+    _write_json(
+        root / "receipt.json",
+        {
+            "format_version": 2,
+            "artifact_type": "general_sft_binary",
+            "row_width": 9,
+            "row_count": 2,
+            "actual_formatted_tokens": 18,
+            "supervised_tokens": 6,
+            "tokenizer_sha256": file_hash(tokenizer_path),
+            "tokens_sha256": tokens_hash,
+            "losses_sha256": losses_hash,
+            "data_sha256": data_hash,
+        },
+    )
+
+    artifact = load_sft_training_artifact(root, tokenizer_path=tokenizer_path)
+
+    assert isinstance(artifact, BinarySftTrainingArtifact)
+    stream = sft_batch_stream(artifact, batch_size=2, pad_token_id=0, seed=17)
+    batch = next(stream)
+    assert batch["input_ids"].shape == (2, 8)
+    assert batch["loss_mask"].sum().item() == 6

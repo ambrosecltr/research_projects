@@ -2,6 +2,11 @@
 
 from .artifacts import read_prose_examples
 from .batch_stream import PreparedBatchStream
+from .binary_stream import (
+    BinaryTokenArtifact,
+    BinaryTokenBatchStream,
+    load_binary_token_artifact,
+)
 from .examples import (
     build_auxiliary_prose_ntp_examples,
     build_conditional_examples,
@@ -26,6 +31,8 @@ from .tokenizer import RESERVED_TOKEN_PREFIX, reserved_token_ids
 
 __all__ = [
     "ConditionalExample",
+    "BinaryTokenArtifact",
+    "BinaryTokenBatchStream",
     "ContentBlock",
     "CrossDocumentPairing",
     "ObjectiveMix",
@@ -44,6 +51,7 @@ __all__ = [
     "build_conditional_examples",
     "build_poetry_ntp_examples",
     "load_prepared_data",
+    "load_binary_token_artifact",
     "prepare_data",
     "read_prose_examples",
     "reserved_token_ids",

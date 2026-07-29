@@ -1,0 +1,23 @@
+{
+  "format_version": 1,
+  "source": {
+    "repository": "TIGER-Lab/Fineweb-Instruct",
+    "revision": "edaa76cc99247babe39223abddcbebe35c158f50",
+    "filename": "train.jsonl",
+    "size_bytes": 11259734276,
+    "sha256": "03de49736b6078943fe25b84a47189e483c29258e655756e62b26e1a61b34a52",
+    "licence": "Apache-2.0"
+  },
+  "selection": {
+    "seed": "0cdfb56b3e562d0e9f3e9b4f4f6ceb39",
+    "target_supervised_tokens": 20000000
+  },
+  "packing": {
+    "context_length": 1024,
+    "batch_size": 32
+  },
+  "training": {
+    "seed": 2040893737,
+    "data_seed": 1399503269
+  }
+}

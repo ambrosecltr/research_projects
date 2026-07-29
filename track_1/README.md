@@ -1,4 +1,9 @@
-# poetry_50m / Track 1
+# Track 1
+
+Track 1 now contains separate poetry 8M and general 8M model lineages. Existing
+poetry documentation remains below. The general model uses Ultra-FineWeb-L3
+pretraining followed by response-only Fineweb-Instruct SFT. Its preparation and
+launch instructions are in `docs/general_8m_runbook.md`.
 
 This is a local, end-to-end personal research system: preparation preserves
 rights and provenance; training is deterministic and resumable; evaluation is a
