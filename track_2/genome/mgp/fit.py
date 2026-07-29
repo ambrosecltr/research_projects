@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from typing import Literal
 
 import torch
 import torch.nn.functional as F
@@ -14,12 +15,15 @@ from .runtime import execute_program
 from .schema import Component, ModelGenomeProgram, TensorProgram
 from .serialize import serialized_program_bytes
 
+AllocationStrategy = Literal["energy", "rank_balanced"]
+
 
 @dataclass(frozen=True)
 class FitConfig:
     budget_fraction: float = 0.10
     max_rank: int = 32
     minimum_matrix_rank: int = 0
+    allocation_strategy: AllocationStrategy = "energy"
     vector_quantization: bool = True
     account_for_serialization: bool = False
     svd_method: str = "randomized"
@@ -93,6 +97,8 @@ def fit_low_rank_program(
         raise ValueError("minimum_matrix_rank must be non-negative")
     if config.minimum_matrix_rank > config.max_rank:
         raise ValueError("minimum_matrix_rank cannot exceed max_rank")
+    if config.allocation_strategy not in {"energy", "rank_balanced"}:
+        raise ValueError(f"unsupported allocation_strategy {config.allocation_strategy!r}")
     direct_bytes = sum(tensor.numel() * 2 for tensor in target_state.values())
     budget = int(direct_bytes * config.budget_fraction)
     tensor_by_name = {node.name: node for node in graph.tensors}
@@ -153,7 +159,12 @@ def fit_low_rank_program(
         remaining = allocation_budget - fixed_cost
         selected = dict(minimum_ranks)
         selected_cost = minimum_cost
-        for _, cost, name, index, *_ in sorted(candidates, key=lambda item: item[0], reverse=True):
+        ordered_candidates = (
+            sorted(candidates, key=lambda item: item[0], reverse=True)
+            if config.allocation_strategy == "energy"
+            else sorted(candidates, key=lambda item: (item[3], -item[0], item[2]))
+        )
+        for _, cost, name, index, *_ in ordered_candidates:
             if index < minimum_ranks[name]:
                 continue
             if cost > remaining:

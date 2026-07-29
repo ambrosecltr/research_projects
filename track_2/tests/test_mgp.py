@@ -118,6 +118,34 @@ def test_fit_can_reserve_a_minimum_rank_for_every_matrix() -> None:
         assert component.arguments["rank"] >= 1
 
 
+def test_rank_balanced_fit_keeps_matrix_ranks_close() -> None:
+    torch.manual_seed(13)
+    w0 = {
+        "a": torch.randn(32, 24),
+        "b": torch.randn(32, 24),
+    }
+    wt = {name: value + torch.randn_like(value) for name, value in w0.items()}
+    graph = graph_from_state(w0, family="toy", config={})
+
+    program, _ = fit_low_rank_program(
+        w0,
+        wt,
+        graph,
+        config=FitConfig(
+            budget_fraction=0.20,
+            max_rank=4,
+            allocation_strategy="rank_balanced",
+        ),
+    )
+
+    ranks = []
+    for tensor in program.tensors:
+        component = next(item for item in tensor.components if item.primitive == "LOW_RANK")
+        ranks.append(int(component.arguments["rank"]))
+    assert min(ranks) > 0
+    assert max(ranks) - min(ranks) <= 1
+
+
 def test_all_floating_program_coefficients_are_trainable() -> None:
     program = ModelGenomeProgram(
         architecture_id="a",

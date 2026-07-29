@@ -98,6 +98,9 @@ Start with globally budgeted randomized low rank plus bounded quantized vectors.
 If global energy allocation leaves eligible matrices at BASE_COPY and fails the
 functional gate, evaluate a deterministic balanced variant that reserves rank
 one per eligible matrix before allocating remaining bytes by energy.
+If that still fails, evaluate a rank-balanced variant that allocates the same
+singular-component index across eligible matrices before moving to the next
+index.
 
 Evaluate every candidate on the identical fixed odd-record Pythia evaluation
 sample. Functional refinement may read only the even-record probe.
